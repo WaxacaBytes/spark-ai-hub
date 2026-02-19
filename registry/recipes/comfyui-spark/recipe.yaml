@@ -1,0 +1,27 @@
+name: "ComfyUI"
+slug: comfyui-spark
+version: "1.0.0"
+description: "Node-based image and video generation workflow editor. Pre-built for DGX Spark with PyTorch CUDA 13 and Blackwell support. Downloads SD 1.5 on first run."
+author: "WaxacaBytes"
+upstream: "https://github.com/comfyanonymous/ComfyUI"
+category: image-gen
+tags:
+  - stable-diffusion
+  - flux
+  - comfyui
+  - image
+icon: "\U0001F3A8"
+requirements:
+  min_memory_gb: 8
+  recommended_memory_gb: 40
+  disk_gb: 20
+  cuda_compute: "12.1"
+ui:
+  type: web
+  port: 8188
+  path: "/"
+docker:
+  build: false
+  build_time_minutes: 3
+  gpu: true
+status: official
