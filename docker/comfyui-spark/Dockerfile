@@ -23,8 +23,15 @@ RUN git clone https://github.com/comfyanonymous/ComfyUI.git /app/ComfyUI
 
 WORKDIR /app/ComfyUI
 
-# Install ComfyUI dependencies
+# Install ComfyUI dependencies + aiohttp for server-side downloads
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Add server-side model download custom node
+COPY server_download.py /app/ComfyUI/custom_nodes/server_download.py
+
+# Patch frontend to use server-side downloads instead of browser downloads
+COPY patch_frontend.sh /app/patch_frontend.sh
+RUN chmod +x /app/patch_frontend.sh && /app/patch_frontend.sh
 
 # Create directories for external volumes
 RUN mkdir -p /app/ComfyUI/models/checkpoints \
