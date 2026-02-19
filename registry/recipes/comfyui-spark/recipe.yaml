@@ -4,7 +4,8 @@ version: "1.0.0"
 description: "Node-based image and video generation workflow editor. Pre-built for DGX Spark with PyTorch CUDA 13 and Blackwell support. Downloads SD 1.5 on first run."
 author: "WaxacaBytes"
 website: "https://www.comfy.org/"
-upstream: "https://github.com/comfyanonymous/ComfyUI"
+upstream: "https://github.com/WaxacaBytes/comfyui-spark"
+fork: "https://github.com/Comfy-Org/ComfyUI"
 category: image-gen
 tags:
   - stable-diffusion

@@ -27,7 +27,8 @@ export default function RecipeCard({ recipe }) {
   const statusLabel = STATUS_LABELS[recipe.status] || 'Experimental'
   const [logoFailed, setLogoFailed] = useState(false)
 
-  const officialUrl = recipe.website || recipe.upstream || ''
+  const officialUrl = recipe.website || ''
+  const sourceUrl = recipe.upstream || recipe.fork || ''
   const logoUrl = recipe.logo || ''
 
   const handleRemove = () => {
@@ -67,15 +68,29 @@ export default function RecipeCard({ recipe }) {
         {recipe.description}
       </p>
 
-      {officialUrl && (
-        <a
-          href={officialUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="text-[12px] text-spark hover:text-spark-light no-underline"
-        >
-          Official Website ↗
-        </a>
+      {(officialUrl || sourceUrl) && (
+        <div className="flex gap-3 text-[12px]">
+          {officialUrl && (
+            <a
+              href={officialUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-spark hover:text-spark-light no-underline"
+            >
+              Official Website ↗
+            </a>
+          )}
+          {sourceUrl && (
+            <a
+              href={sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-text-dim hover:text-text no-underline"
+            >
+              Source Code ↗
+            </a>
+          )}
+        </div>
       )}
 
       <div className="flex flex-wrap gap-1">
