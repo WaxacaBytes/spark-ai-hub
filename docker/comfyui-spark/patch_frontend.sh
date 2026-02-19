@@ -13,47 +13,48 @@ fi
 echo "[patch] Patching $JS_FILE for server-side downloads..."
 cp "$JS_FILE" "${JS_FILE}.bak"
 
-python3 -c "
-import re, sys
+python3 << 'PYEOF'
+import sys
 
-with open('${JS_FILE}', 'r') as f:
+JS_FILE = sys.argv[1] if len(sys.argv) > 1 else ""
+if not JS_FILE:
+    # Find it from env
+    import glob
+    files = glob.glob("/app/venv/lib/python3.12/site-packages/comfyui_frontend_package/static/assets/MissingModelsWarning-*.js")
+    files = [f for f in files if not f.endswith('.map') and not f.endswith('.bak')]
+    JS_FILE = files[0]
+
+with open(JS_FILE, 'r') as f:
     content = f.read()
 
-# The original triggerBrowserDownload creates an <a> element for browser download
-old = r'triggerBrowserDownload=\(\)=>\{let n=document\.createElement\(\x60a\x60\);e\.includes\(\x60huggingface\.co\x60\)&&r\.value\?n\.href=F\(e\):\(n\.href=e,n\.download=t\|\|e\.split\(\x60/\x60\)\.pop\(\)\|\|\x60download\x60\),n\.target=\x60_blank\x60,n\.rel=\x60noopener noreferrer\x60,n\.click\(\)\}'
+marker = 'triggerBrowserDownload=()'
+if marker not in content:
+    print('[patch] ERROR: triggerBrowserDownload not found')
+    sys.exit(1)
 
-new = '''triggerBrowserDownload=()=>{let parts=(t||e.split(\x60/\x60).pop()||\x60download\x60).split(\x60 / \x60);let dir=parts.length>1?parts[0].trim():\x60checkpoints\x60;let fname=parts.length>1?parts.slice(1).join(\x60/\x60).trim():parts[0];fetch(\x60/api/download-model\x60,{method:\x60POST\x60,headers:{\x60Content-Type\x60:\x60application/json\x60},body:JSON.stringify({url:e,directory:dir,filename:fname})}).then(r=>r.json()).then(d=>{if(d.status===\x60started\x60)alert(\x60Server download started: \x60+fname);else if(d.status===\x60already_exists\x60)alert(\x60Model already exists: \x60+fname);else alert(\x60Download error: \x60+(d.error||\x60unknown\x60))}).catch(err=>alert(\x60Download failed: \x60+err))}'''
+idx = content.index(marker)
+start = content.index('{', idx)
+depth = 0
+end = start
+for i in range(start, len(content)):
+    if content[i] == '{': depth += 1
+    elif content[i] == '}':
+        depth -= 1
+        if depth == 0:
+            end = i + 1
+            break
 
-result = re.sub(old, new, content)
+old_func = content[idx:end]
+print(f'[patch] Found function ({len(old_func)} chars)')
 
-if result == content:
-    print('[patch] WARNING: Pattern not found, trying simpler match...')
-    # Simpler approach: find and replace the triggerBrowserDownload assignment
-    old_simple = 'triggerBrowserDownload=()'
-    if old_simple in content:
-        # Find the full function by matching balanced braces
-        idx = content.index(old_simple)
-        # Find the end of the arrow function
-        start = content.index('{', idx)
-        depth = 0
-        end = start
-        for i in range(start, len(content)):
-            if content[i] == '{':
-                depth += 1
-            elif content[i] == '}':
-                depth -= 1
-                if depth == 0:
-                    end = i + 1
-                    break
-        old_func = content[idx:end]
-        print(f'[patch] Found function ({len(old_func)} chars), replacing...')
-        result = content[:idx] + new + content[end:]
-    else:
-        print('[patch] ERROR: Could not find triggerBrowserDownload')
-        sys.exit(1)
+# New function that calls server-side download API
+# Using String.fromCharCode to avoid any quote/backtick conflicts
+new_func = r"""triggerBrowserDownload=()=>{var _l=t||e.split("/").pop()||"download";var _p=_l.split(" / ");var _dir=_p.length>1?_p[0].trim():"checkpoints";var _fn=_p.length>1?_p.slice(1).join("/").trim():_p[0];var _h=new Headers();_h.set("Content-Type","application/json");fetch("/api/download-model",{method:"POST",headers:_h,body:JSON.stringify({url:e,directory:_dir,filename:_fn})}).then(function(r){return r.json()}).then(function(d){if(d.status==="started"){alert("Server download started: "+_fn)}else if(d.status==="already_exists"){alert("Model already exists: "+_fn)}else{alert("Download error: "+(d.error||"unknown"))}}).catch(function(err){alert("Download failed: "+err)})}"""
 
-with open('${JS_FILE}', 'w') as f:
+result = content[:idx] + new_func + content[end:]
+
+with open(JS_FILE, 'w') as f:
     f.write(result)
 
 print('[patch] Frontend patched successfully')
-"
+PYEOF
