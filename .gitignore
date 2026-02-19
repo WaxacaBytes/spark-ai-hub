@@ -12,5 +12,8 @@ data/
 # Build output
 frontend/dist/
 
+# Local dev workspaces
+comfyui-src/
+
 # OS
 .DS_Store

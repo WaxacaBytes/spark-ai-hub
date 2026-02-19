@@ -27,8 +27,9 @@ SparkForge gives you a web UI to browse, install, launch, and monitor Docker-bas
 | AnythingLLM | RAG / Agents | 3001 | No |
 | Flowise | Workflow Builder | 3002 | No |
 | Langflow | Visual IDE | 7860 | No |
+| ComfyUI | Image / Video Gen | 8188 | Yes |
 
-All recipes use official Docker images with ARM64 support — no build step required.
+All recipes use Docker images with ARM64 support. ComfyUI uses a [custom image](https://github.com/WaxacaBytes/comfyui-spark) pre-built for DGX Spark with CUDA 13 and Blackwell support.
 
 ## Quick Start
 
@@ -83,6 +84,7 @@ sparkforge/
 │   └── <slug>/
 │       ├── recipe.yaml     # Metadata
 │       └── docker-compose.yml
+├── planning/               # Design docs
 ├── requirements.txt
 └── run.sh
 ```
