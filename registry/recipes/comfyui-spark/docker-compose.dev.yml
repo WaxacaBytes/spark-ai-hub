@@ -1,6 +1,6 @@
 services:
   comfyui:
-    image: abelpc/comfyui-spark:latest
+    image: abelpc/comfyui-spark:main
     container_name: sparkforge-comfyui
     ports:
       - "8188:8188"
