@@ -3,6 +3,7 @@ slug: flowise
 version: "1.0.0"
 description: "Drag-and-drop LLM workflow builder. Create chatbots, RAG pipelines, and AI agents with a visual node editor. No code required."
 author: "FlowiseAI"
+website: "https://flowiseai.com/"
 upstream: "https://github.com/FlowiseAI/Flowise"
 category: multi-modal
 tags:
@@ -11,6 +12,7 @@ tags:
   - agents
   - chatbot
 icon: "\U0001F33A"
+logo: "/logos/flowise.png"
 requirements:
   min_memory_gb: 4
   recommended_memory_gb: 8

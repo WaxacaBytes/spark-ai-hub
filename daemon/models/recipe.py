@@ -27,11 +27,13 @@ class Recipe(BaseModel):
     version: str = "1.0.0"
     description: str = ""
     author: str = ""
+    website: str = ""
     upstream: str = ""
     fork: str = ""
     category: str = "llm"
     tags: list[str] = []
     icon: str = ""
+    logo: str = ""
     requirements: RecipeRequirements = RecipeRequirements()
     ui: RecipeUI = RecipeUI()
     docker: RecipeDocker = RecipeDocker()

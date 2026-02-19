@@ -3,6 +3,7 @@ slug: localai
 version: "1.0.0"
 description: "Drop-in OpenAI API replacement. Run LLMs, generate images, audio, and more — all via REST API. CUDA 13 ARM64 build for DGX Spark."
 author: "mudler"
+website: "https://localai.io/"
 upstream: "https://github.com/mudler/LocalAI"
 category: multi-modal
 tags:
@@ -12,6 +13,7 @@ tags:
   - image
   - llm
 icon: "\U0001F916"
+logo: "/logos/localai.png"
 requirements:
   min_memory_gb: 20
   recommended_memory_gb: 40

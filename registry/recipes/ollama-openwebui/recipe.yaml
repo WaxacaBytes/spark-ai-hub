@@ -3,6 +3,7 @@ slug: ollama-openwebui
 version: "1.0.0"
 description: "ChatGPT-like interface for local LLMs with model management, conversation history, and RAG plugins."
 author: "NVIDIA Playbook"
+website: "https://openwebui.com/"
 upstream: "https://github.com/open-webui/open-webui"
 category: llm
 tags:
@@ -11,6 +12,7 @@ tags:
   - ollama
   - rag
 icon: "\U0001F4AC"
+logo: "/logos/openwebui.png"
 requirements:
   min_memory_gb: 16
   recommended_memory_gb: 32

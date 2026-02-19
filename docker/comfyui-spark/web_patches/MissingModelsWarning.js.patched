@@ -1,0 +1,361 @@
+import{r as e}from"./rolldown-runtime-DCMCV6zW.js";import{M as t,O as n,lt as r}from"./vendor-primevue-DxVRNMbC.js";import"./vendor-firebase-CdLSXhbt.js";import{A as i,C as a,D as o,Dt as s,F as c,I as l,It as u,O as d,R as f,S as p,Vt as m,Y as h,Z as g,_t as _,at as v,et as y,g as b,gt as x,it as S,j as C,k as w}from"./vendor-vue-core-X6q-rGJs.js";import"./vendor-other-CyG3qq8S.js";import{n as T}from"./types-DW97iHDr.js";import"./useFeatureFlags-ChqDL6tZ.js";import{J as E,s as D}from"./vendor-vueuse-B_IQhD9R.js";import"./api-Cllpqoko.js";import"./vendor-markdown-Cola12Wc.js";import"./colorUtil-Cth7eqhK.js";import{n as O}from"./vendor-i18n-B5g6Drzm.js";import"./i18n-DjV_9lZM.js";import"./vendor-reka-ui-CHPbCe4i.js";import{t as k}from"./Button-C7dWyQyS.js";import{Rt as A,ht as j,i as M,t as N}from"./dialogService-45wv8NTN.js";import{_ as P,i as F,u as I}from"./systemStatsStore-DM5NIESU.js";import"./useErrorHandling-r0vTEz20.js";import{t as L}from"./_plugin-vue_export-helper-fSAtQzP-.js";import{t as R}from"./dialogStore-CXD5Bcfy.js";import{t as z}from"./useCopyToClipboard-C74olorb.js";import"./vendor-tiptap-BXSIIPYY.js";import"./markdownRendererUtil-Bm7Umh6C.js";import"./useExternalLink-Cc30SNi3.js";function useCivitaiModel(e){let createModelVersionUrl=e=>`https://civitai.com/api/v1/model-versions/${e}`,extractModelIdFromUrl=()=>new URL(e).pathname.split(`/`).pop()||null,fetchModelData=async()=>{let e=extractModelIdFromUrl();if(!e)return null;let t=createModelVersionUrl(e);return(await fetch(t)).json()},findMatchingFileSize=()=>{let n=t.value?.files?.find(t=>t.downloadUrl&&e.startsWith(t.downloadUrl));return n?.sizeKB?n.sizeKB<<10:null},{state:t,isLoading:n,error:r}=D(fetchModelData,null,{immediate:!0});return{fileSize:o(()=>n.value?null:findMatchingFileSize()),isLoading:n,error:r,modelData:t}}function useDownload(e,t){let n=s(null),r=s(null),setFileSize=e=>{n.value=e},fetchFileSize=async()=>{try{let t=await fetch(e,{method:`HEAD`});if(!t.ok)throw Error(`Failed to fetch file size`);let n=t.headers.get(`content-length`);if(n)setFileSize(parseInt(n));else return console.error(`"content-length" header not found`),null}catch(e){return console.error(`Error fetching file size:`,e),r.value=e instanceof Error?e:Error(String(e)),null}},triggerBrowserDownload=()=>{let n=document.createElement(`a`);e.includes(`huggingface.co`)&&r.value?n.href=F(e):(n.href=e,n.download=t||e.split(`/`).pop()||`download`),n.target=`_blank`,n.rel=`noopener noreferrer`,n.click()};return g(()=>{if(P(e)){let{fileSize:t,error:n}=useCivitaiModel(e);E(t,setFileSize),E(n,fetchFileSize,{once:!0})}else fetchFileSize()}),{triggerBrowserDownload,fileSize:n}}var B={class:`flex flex-col`},V={class:`flex flex-row items-center gap-2`},H={key:0,class:`pi pi-check text-green-500`},U={class:`file-info`},W={class:`file-details`},G=[`title`],K={key:0,class:`file-error`},q={class:`file-action flex flex-row items-center gap-2`},J={key:0,class:`flex flex-row items-center gap-2`},Y=f({__name:`ElectronFileDownload`,props:{url:{},hint:{},label:{},error:{}},setup(e){let n=e,{t:r}=O(),a=o(()=>n.label||n.url.split(`/`).pop()),f=o(()=>n.hint||n.url),p=useDownload(n.url),h=s(0),g=s(null),b=o(()=>p.fileSize.value?I(p.fileSize.value):`?`),{copyToClipboard:S}=z(),T=j(),[E,D]=n.label.split(`/`);T.$subscribe((e,{downloads:t})=>{let r=t.find(e=>n.url===e.url);r&&(h.value=Number((r.progress*100).toFixed(1)),g.value=r.status)});let triggerDownload=async()=>{await T.start({url:n.url,savePath:E.trim(),filename:D.trim()})},triggerCancelDownload=()=>T.cancel(n.url),triggerPauseDownload=()=>T.pause(n.url),triggerResumeDownload=()=>T.resume(n.url),copyURL=async()=>{await S(n.url)};return(e,o)=>{let s=v(`tooltip`);return y(),C(`div`,B,[d(`div`,V,[g.value===`completed`?(y(),C(`i`,H)):i(``,!0),d(`div`,U,[d(`div`,W,[d(`span`,{class:`file-type`,title:f.value},m(a.value),9,G)]),n.error?(y(),C(`div`,K,m(n.error),1)):i(``,!0)]),d(`div`,q,[g.value===null||g.value===`error`?(y(),w(k,{key:0,class:`file-action-button`,variant:`secondary`,size:`sm`,disabled:!!n.error,onClick:triggerDownload},{default:x(()=>[o[0]||=d(`i`,{class:`pi pi-download`},null,-1),c(` `+m(e.$t(`g.downloadWithSize`,{size:b.value})),1)]),_:1},8,[`disabled`])):i(``,!0),(g.value===null||g.value===`error`)&&n.url?(y(),w(k,{key:1,variant:`secondary`,size:`sm`,onClick:copyURL},{default:x(()=>[c(m(e.$t(`g.copyURL`)),1)]),_:1})):i(``,!0)])]),g.value===`in_progress`||g.value===`paused`?(y(),C(`div`,J,[l(u(t),{class:`flex-1`,value:h.value,"show-value":h.value>10},null,8,[`value`,`show-value`]),g.value===`in_progress`?_((y(),w(k,{key:0,class:`file-action-button`,variant:`secondary`,size:`sm`,disabled:!!n.error,onClick:triggerPauseDownload},{default:x(()=>o[1]||=[d(`i`,{class:`pi pi-pause-circle`},null,-1)]),_:1},8,[`disabled`])),[[s,u(r)(`electronFileDownload.pause`),void 0,{top:!0}]]):i(``,!0),g.value===`paused`?_((y(),w(k,{key:1,class:`file-action-button`,variant:`secondary`,size:`sm`,"aria-label":u(r)(`electronFileDownload.resume`),disabled:!!n.error,onClick:triggerResumeDownload},{default:x(()=>o[2]||=[d(`i`,{class:`pi pi-play-circle`},null,-1)]),_:1},8,[`aria-label`,`disabled`])),[[s,u(r)(`electronFileDownload.resume`),void 0,{top:!0}]]):i(``,!0),_((y(),w(k,{class:`file-action-button`,variant:`destructive`,size:`sm`,"aria-label":u(r)(`electronFileDownload.cancel`),disabled:!!n.error,onClick:triggerCancelDownload},{default:x(()=>o[3]||=[d(`i`,{class:`pi pi-times-circle`},null,-1)]),_:1},8,[`aria-label`,`disabled`])),[[s,u(r)(`electronFileDownload.cancel`),void 0,{top:!0}]])])):i(``,!0)])}}}),X={class:`flex flex-row items-center gap-2`},Z=[`title`],Q=f({__name:`FileDownload`,props:{url:{},hint:{},label:{},error:{}},setup(e){let t=e,n=o(()=>t.label||t.url.split(`/`).pop()),a=o(()=>t.hint||t.url),s=useDownload(t.url),f=o(()=>s.fileSize.value?I(s.fileSize.value):`?`),copyURL=async()=>{await p(t.url)},{copyToClipboard:p}=z();return(e,o)=>(y(),C(`div`,X,[d(`div`,null,[d(`div`,null,[d(`span`,{title:a.value},m(n.value),9,Z)]),t.error?(y(),w(u(r),{key:0,severity:`error`,icon:`pi pi-exclamation-triangle`,size:`small`,variant:`outlined`,class:`my-2 h-min max-w-xs px-1`,title:t.error,pt:{text:{class:`overflow-hidden text-ellipsis`}}},{default:x(()=>[c(m(t.error),1)]),_:1},8,[`title`])):i(``,!0)]),d(`div`,null,[l(k,{variant:`secondary`,disabled:!!t.error,title:t.url,onClick:function(){var _btn=arguments[0]&&arguments[0].target?arguments[0].target:null;var _parts=t.label?t.label.split(" / "):[];var _dir=_parts.length>1?_parts[0].trim():"checkpoints";var _fn=_parts.length>1?_parts.slice(1).join("/").trim():(t.url||"").split("/").pop().split("?")[0];var _key=_dir+"/"+_fn;if(_btn){_btn.textContent="Starting...";_btn.disabled=true}var _h=new Headers();_h.set("Content-Type","application/json");fetch("/api/download-model",{method:"POST",headers:_h,body:JSON.stringify({url:t.url,directory:_dir,filename:_fn})}).then(function(r){return r.json()}).then(function(d){if(d.status==="started"){if(_btn){_btn.textContent="Downloading...";_btn.style.color="#fbbf24"}window.__sfStartTracker(_key,_fn,_btn)}else if(d.status==="already_downloading"){if(_btn){_btn.textContent="Downloading...";_btn.style.color="#fbbf24"}window.__sfStartTracker(_key,_fn,_btn)}else if(d.status==="already_exists"){if(_btn){_btn.textContent="Already exists";_btn.style.color="#4ade80"}}else{if(_btn){_btn.textContent="Error: "+(d.error||"unknown");_btn.style.color="#f87171";_btn.disabled=false}}}).catch(function(err){if(_btn){_btn.textContent="Failed";_btn.style.color="#f87171";_btn.disabled=false}})}},{default:x(()=>[c(m(e.$t(`g.downloadWithSize`,{size:f.value})),1)]),_:1},8,[`disabled`,`title`,`onClick`])]),d(`div`,null,[l(k,{variant:`secondary`,disabled:!!t.error,onClick:copyURL},{default:x(()=>[c(m(e.$t(`g.copyURL`)),1)]),_:1},8,[`disabled`])])]))}}),$={class:`mb-4 flex flex-col gap-1`},ee={class:`flex gap-1`},te={for:`doNotAskAgain`},ne=L(f({__name:`MissingModelsWarning`,props:{missingModels:{},paths:{}},setup(e){let t=[`https://civitai.com/`,`https://huggingface.co/`,`http://localhost:`],r=[`.safetensors`,`.sft`],f=new Set([`https://huggingface.co/stabilityai/stable-zero123/resolve/main/stable_zero123.ckpt`,`https://huggingface.co/TencentARC/T2I-Adapter/resolve/main/models/t2iadapter_depth_sd14v1.pth?download=true`,`https://github.com/xinntao/Real-ESRGAN/releases/download/v0.1.0/RealESRGAN_x4plus.pth`]),g=e,{t:v}=O(),E=s(!1);function openShowMissingModelsSetting(){R().closeDialog({key:`global-missing-models-warning`}),N().showSettingsDialog(void 0,`Comfy.Workflow.ShowMissingModelsWarning`)}let D=s({}),j=o(()=>g.missingModels.map(e=>{let n=g.paths[e.directory];if(e.directory_invalid||!n)return{label:`${e.directory} / ${e.name}`,url:e.url,error:`Invalid directory specified (does this require custom nodes?)`};let i=D.value[e.name]??{downloading:!1,completed:!1,progress:0,error:null,name:e.name,directory:e.directory,url:e.url,folder_path:n[0]};if(D.value[e.name]=i,!f.has(e.url)){if(!t.some(t=>e.url.startsWith(t)))return{label:`${e.directory} / ${e.name}`,url:e.url,error:`Download not allowed from source '${e.url}', only allowed from '${t.join(`', '`)}'`};if(!r.some(t=>e.name.endsWith(t)))return{label:`${e.directory} / ${e.name}`,url:e.url,error:`Only allowed suffixes are: '${r.join(`', '`)}'`}}return{url:e.url,label:`${e.directory} / ${e.name}`,downloading:i.downloading,completed:i.completed,progress:i.progress,error:i.error,name:e.name,paths:n,folderPath:i.folder_path}}));return h(async()=>{E.value&&await M().set(`Comfy.Workflow.ShowMissingModelsWarning`,!1)}),(e,t)=>{let r=S(`i18n-t`);return y(),C(p,null,[l(A,{class:`pb-0`,icon:`pi pi-exclamation-circle`,title:u(v)(`missingModelsDialog.missingModels`),message:u(v)(`missingModelsDialog.missingModelsMessage`)},null,8,[`title`,`message`]),d(`div`,$,[d(`div`,ee,[_(d(`input`,{id:`doNotAskAgain`,"onUpdate:modelValue":t[0]||=e=>E.value=e,type:`checkbox`,class:`h-4 w-4 cursor-pointer`},null,512),[[b,E.value]]),d(`label`,te,m(u(v)(`missingModelsDialog.doNotAskAgain`)),1)]),E.value?(y(),w(r,{key:0,keypath:`missingModelsDialog.reEnableInSettings`,tag:`span`,class:`text-sm text-muted-foreground ml-6`},{link:x(()=>[l(k,{variant:`textonly`,class:`underline cursor-pointer p-0 text-sm text-muted-foreground hover:bg-transparent`,onClick:openShowMissingModelsSetting},{default:x(()=>[c(m(u(v)(`missingModelsDialog.reEnableInSettingsLink`)),1)]),_:1})]),_:1})):i(``,!0)]),l(u(n),{options:j.value,class:`comfy-missing-models`},{option:x(({option:e})=>[u(T)?(y(),w(a,{key:0},{default:x(()=>[l(Y,{url:e.url,label:e.label,error:e.error},null,8,[`url`,`label`,`error`])]),_:2},1024)):(y(),w(Q,{key:1,url:e.url,label:e.label,error:e.error},null,8,[`url`,`label`,`error`]))]),_:1},8,[`options`])],64)}}}),[[`__scopeId`,`data-v-5d446a47`]]);;(function(){
+if(window.__sfDownloadMgr)return;
+window.__sfDownloadMgr=true;
+var _items={};
+var _panel=null;
+var _pollId=null;
+var _stateKey="sf_download_mgr_state_v1";
+var _uiKey="sf_download_mgr_ui_v1";
+
+function isTerminalStatus(status){
+  return status==="completed"||status==="error"||status==="canceled";
+}
+function hasActiveDownloads(){
+  var keys=Object.keys(_items);
+  for(var i=0;i<keys.length;i++){
+    var st=_items[keys[i]]&&_items[keys[i]].status;
+    if(!isTerminalStatus(st))return true;
+  }
+  return false;
+}
+function escapeHtml(value){
+  return String(value==null?"":value)
+    .replace(/&/g,"&amp;")
+    .replace(/</g,"&lt;")
+    .replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;")
+    .replace(/'/g,"&#39;");
+}
+function filenameFromKey(key){
+  var parts=String(key||"").split("/");
+  return parts.length?parts[parts.length-1]:String(key||"");
+}
+function persistState(){
+  try{
+    var cleaned={};
+    var keys=Object.keys(_items);
+    for(var i=0;i<keys.length;i++){
+      var k=keys[i];
+      var it=_items[k];
+      cleaned[k]={
+        filename:it.filename,
+        progress:it.progress||0,
+        total:it.total||0,
+        status:it.status||"pending",
+        error:it.error||null
+      };
+    }
+    localStorage.setItem(_stateKey,JSON.stringify(cleaned));
+  }catch(_e){}
+}
+function restoreState(){
+  try{
+    var raw=localStorage.getItem(_stateKey);
+    if(!raw)return;
+    var parsed=JSON.parse(raw);
+    if(!parsed||typeof parsed!=="object")return;
+    var keys=Object.keys(parsed);
+    for(var i=0;i<keys.length;i++){
+      var k=keys[i];
+      var it=parsed[k]||{};
+      _items[k]={
+        filename:it.filename||filenameFromKey(k),
+        progress:it.progress||0,
+        total:it.total||0,
+        status:it.status||"pending",
+        error:it.error||null,
+        btn:null
+      };
+    }
+  }catch(_e){}
+}
+function persistUiState(){
+  try{
+    if(!_panel)return;
+    var body=document.getElementById("sf-dm-body");
+    var ui={
+      hidden:_panel.style.display==="none",
+      minimized:!!(body&&body.style.display==="none"),
+      top:_panel.style.top||"",
+      left:_panel.style.left||"",
+      right:_panel.style.right||"",
+      bottom:_panel.style.bottom||""
+    };
+    localStorage.setItem(_uiKey,JSON.stringify(ui));
+  }catch(_e){}
+}
+function restoreUiState(){
+  try{
+    if(!_panel)return;
+    var raw=localStorage.getItem(_uiKey);
+    if(!raw)return;
+    var ui=JSON.parse(raw);
+    if(!ui||typeof ui!=="object")return;
+    if(ui.top)_panel.style.top=ui.top;
+    if(ui.left)_panel.style.left=ui.left;
+    if(ui.right)_panel.style.right=ui.right;
+    if(ui.bottom)_panel.style.bottom=ui.bottom;
+    var body=document.getElementById("sf-dm-body");
+    var minBtn=document.getElementById("sf-dm-min");
+    if(body&&ui.minimized){
+      body.style.display="none";
+      if(minBtn)minBtn.textContent="+";
+    }
+    if(ui.hidden&&(!hasActiveDownloads())){
+      _panel.style.display="none";
+    }
+  }catch(_e){}
+}
+function updateCloseButtonState(){
+  var closeBtn=document.getElementById("sf-dm-close");
+  if(!closeBtn)return;
+  var canClose=!hasActiveDownloads();
+  closeBtn.style.opacity=canClose?"1":"0.45";
+  closeBtn.style.cursor=canClose?"pointer":"not-allowed";
+  closeBtn.title=canClose?"Close":"Finish or cancel active downloads first";
+}
+function syncRowButton(item){
+  if(!item||!item.btn)return;
+  var status=item.status;
+  if(status==="completed"){
+    item.btn.textContent="Done!";
+    item.btn.style.color="#4ade80";
+    item.btn.disabled=true;
+  }else if(status==="error"){
+    item.btn.textContent="Error";
+    item.btn.style.color="#f87171";
+    item.btn.disabled=false;
+  }else if(status==="canceled"){
+    item.btn.textContent="Canceled";
+    item.btn.style.color="#f59e0b";
+    item.btn.disabled=false;
+  }else if(status==="canceling"){
+    item.btn.textContent="Canceling...";
+    item.btn.style.color="#f59e0b";
+    item.btn.disabled=true;
+  }else if((item.total||0)>0){
+    var p=Math.round((item.progress||0)/item.total*100);
+    item.btn.textContent=p+"% ("+Math.round((item.progress||0)/1048576)+"/"+Math.round(item.total/1048576)+" MB)";
+    item.btn.style.color="#fbbf24";
+    item.btn.disabled=true;
+  }else{
+    item.btn.textContent="Downloading...";
+    item.btn.style.color="#fbbf24";
+    item.btn.disabled=true;
+  }
+}
+function createPanel(){
+  if(_panel)return;
+  _panel=document.createElement("div");
+  _panel.id="sf-download-mgr";
+  _panel.innerHTML="<div id='sf-dm-header' style='display:flex;justify-content:space-between;align-items:center;padding:8px 12px;cursor:move;user-select:none'><span style='font-weight:600;font-size:13px'>Downloads</span><div><span id='sf-dm-min' style='cursor:pointer;padding:0 4px;font-size:16px' title='Minimize'>_</span><span id='sf-dm-close' style='cursor:pointer;padding:0 4px;font-size:14px' title='Close'>X</span></div></div><div id='sf-dm-body' style='padding:0 12px 8px;max-height:300px;overflow-y:auto'></div>";
+  _panel.style.cssText="position:fixed;bottom:20px;right:20px;width:380px;background:#1e1e2e;border:1px solid #444;border-radius:10px;color:#e0e0e0;font-family:system-ui,sans-serif;z-index:99999;box-shadow:0 4px 24px rgba(0,0,0,0.5)";
+  document.body.appendChild(_panel);
+
+  var hdr=document.getElementById("sf-dm-header");
+  var minimized=false;
+  document.getElementById("sf-dm-min").onclick=function(){
+    var body=document.getElementById("sf-dm-body");
+    minimized=!minimized;
+    body.style.display=minimized?"none":"block";
+    this.textContent=minimized?"+":"_";
+    persistUiState();
+  };
+  document.getElementById("sf-dm-close").onclick=function(){
+    if(hasActiveDownloads())return;
+    _panel.style.display="none";
+    persistUiState();
+  };
+
+  var dx=0,dy=0,mx=0,my=0,dragging=false;
+  hdr.onmousedown=function(e){
+    dragging=true;
+    mx=e.clientX;
+    my=e.clientY;
+    document.onmousemove=function(e2){
+      if(!dragging)return;
+      dx=mx-e2.clientX;
+      dy=my-e2.clientY;
+      mx=e2.clientX;
+      my=e2.clientY;
+      _panel.style.top=(_panel.offsetTop-dy)+"px";
+      _panel.style.left=(_panel.offsetLeft-dx)+"px";
+      _panel.style.bottom="auto";
+      _panel.style.right="auto";
+    };
+    document.onmouseup=function(){
+      dragging=false;
+      document.onmousemove=null;
+      document.onmouseup=null;
+      persistUiState();
+    };
+  };
+}
+function mergeStatus(st){
+  st=st||{};
+  var keys=Object.keys(st);
+  for(var i=0;i<keys.length;i++){
+    var k=keys[i];
+    var src=st[k]||{};
+    if(!_items[k]){
+      _items[k]={
+        filename:src.filename||filenameFromKey(k),
+        progress:0,
+        total:0,
+        status:"pending",
+        error:null,
+        btn:null
+      };
+    }
+    _items[k].filename=src.filename||_items[k].filename||filenameFromKey(k);
+    _items[k].progress=src.progress||0;
+    _items[k].total=src.total||0;
+    _items[k].status=src.status||_items[k].status||"pending";
+    _items[k].error=src.error||null;
+    syncRowButton(_items[k]);
+  }
+  var localKeys=Object.keys(_items);
+  for(var j=0;j<localKeys.length;j++){
+    var localKey=localKeys[j];
+    if(st[localKey])continue;
+    var localItem=_items[localKey];
+    if(localItem&&!isTerminalStatus(localItem.status)){
+      localItem.status="canceled";
+      localItem.error=localItem.error||"No longer tracked on server";
+      syncRowButton(localItem);
+    }
+  }
+}
+function requestCancel(key){
+  fetch("/api/download-model/cancel",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({key:key})
+  }).then(function(r){return r.json()}).then(function(resp){
+    if(!_items[key])return;
+    if(resp.status==="canceling"){
+      _items[key].status="canceling";
+      _items[key].error=null;
+    }else if(resp.status==="canceled"){
+      _items[key].status="canceled";
+      _items[key].error=null;
+    }else if(resp.error){
+      _items[key].status="canceled";
+      _items[key].error=resp.error;
+    }
+    syncRowButton(_items[key]);
+    updatePanel();
+    startPolling();
+  }).catch(function(){
+    if(_items[key]){
+      _items[key].status="error";
+      _items[key].error="Cancel request failed";
+      syncRowButton(_items[key]);
+      updatePanel();
+    }
+  });
+}
+function updatePanel(){
+  createPanel();
+  var body=document.getElementById("sf-dm-body");
+  if(!body)return;
+  var keys=Object.keys(_items);
+  var html="";
+  if(keys.length===0){
+    html="<div style='color:#888;font-size:12px;padding:4px 0'>No tracked downloads yet</div>";
+  }
+  for(var i=0;i<keys.length;i++){
+    var k=keys[i];
+    var it=_items[k]||{};
+    var status=it.status||"pending";
+    var pct=(it.total||0)>0?Math.round((it.progress||0)/it.total*100):0;
+    if(pct<0)pct=0;
+    if(pct>100)pct=100;
+    var mb=Math.round((it.progress||0)/1048576);
+    var totalMb=Math.round((it.total||0)/1048576);
+    var barColor=status==="completed"?"#4ade80":status==="error"?"#f87171":status==="canceled"?"#f59e0b":"#76b900";
+    var statusText="";
+    if(status==="completed"){
+      statusText="<span style='color:#4ade80'>Done</span>";
+    }else if(status==="error"){
+      statusText="<span style='color:#f87171'>Error: "+escapeHtml(it.error||"unknown")+"</span>";
+    }else if(status==="canceled"){
+      statusText="<span style='color:#f59e0b'>Canceled</span>";
+    }else if(status==="canceling"){
+      statusText="<span style='color:#f59e0b'>Canceling...</span>";
+    }else if((it.total||0)>0){
+      statusText=pct+"% ("+mb+"/"+totalMb+" MB)";
+    }else{
+      statusText="Downloading... "+mb+" MB";
+    }
+    var cancelBtn=isTerminalStatus(status)?"":"<button data-sf-cancel='"+escapeHtml(k)+"' style='padding:2px 6px;font-size:11px;border-radius:6px;border:1px solid #555;background:#2f2f40;color:#f7b267;cursor:pointer'>Cancel</button>";
+    html+="<div style='margin:8px 0'><div style='display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:4px'><span style='overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:220px' title='"+escapeHtml(it.filename||filenameFromKey(k))+"'>"+escapeHtml(it.filename||filenameFromKey(k))+"</span><span>"+statusText+"</span></div><div style='width:100%;height:4px;background:#333;border-radius:2px;overflow:hidden'><div style='height:100%;width:"+pct+"%;background:"+barColor+";border-radius:2px;transition:width 0.3s'></div></div><div style='display:flex;justify-content:flex-end;margin-top:4px'>"+cancelBtn+"</div></div>";
+    syncRowButton(it);
+  }
+  body.innerHTML=html;
+
+  var cancelButtons=body.querySelectorAll("button[data-sf-cancel]");
+  for(var j=0;j<cancelButtons.length;j++){
+    cancelButtons[j].onclick=function(){
+      var key=this.getAttribute("data-sf-cancel");
+      if(!key)return;
+      requestCancel(key);
+    };
+  }
+
+  if(hasActiveDownloads())_panel.style.display="block";
+  updateCloseButtonState();
+  persistState();
+  persistUiState();
+}
+function pollOnce(){
+  return fetch("/api/download-model/status").then(function(r){return r.json()}).then(function(st){
+    mergeStatus(st);
+    updatePanel();
+    if(!hasActiveDownloads()&&_pollId){
+      clearInterval(_pollId);
+      _pollId=null;
+    }
+  }).catch(function(){});
+}
+function startPolling(){
+  if(_pollId)return;
+  _pollId=setInterval(pollOnce,1000);
+  pollOnce();
+}
+function hydrateFromServer(){
+  fetch("/api/download-model/status").then(function(r){return r.json()}).then(function(st){
+    mergeStatus(st);
+    updatePanel();
+    if(hasActiveDownloads())startPolling();
+  }).catch(function(){
+    updatePanel();
+  });
+}
+
+window.__sfStartTracker=function(key,filename,btn){
+  if(!key)return;
+  createPanel();
+  if(!_items[key]){
+    _items[key]={filename:filename||filenameFromKey(key),progress:0,total:0,status:"pending",error:null,btn:null};
+  }
+  var it=_items[key];
+  if(filename)it.filename=filename;
+  it.status=isTerminalStatus(it.status)?"pending":(it.status||"pending");
+  it.error=null;
+  if(btn)it.btn=btn;
+  _panel.style.display="block";
+  syncRowButton(it);
+  updatePanel();
+  startPolling();
+};
+
+restoreState();
+createPanel();
+restoreUiState();
+updatePanel();
+hydrateFromServer();
+if(hasActiveDownloads())startPolling();
+})();export{ne as default};
+
+//# sourceMappingURL=MissingModelsWarning-COV5O7Zg.js.map

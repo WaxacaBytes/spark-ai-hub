@@ -3,6 +3,7 @@ slug: anythingllm
 version: "1.0.0"
 description: "All-in-one AI desktop app with RAG, agents, and multi-LLM support. Connect to Ollama, OpenAI, or any local model. Built-in document chat."
 author: "Mintplex Labs"
+website: "https://anythingllm.com"
 upstream: "https://github.com/Mintplex-Labs/anything-llm"
 category: llm
 tags:
@@ -11,6 +12,7 @@ tags:
   - chat
   - documents
 icon: "\U0001F4DA"
+logo: "/logos/anythingllm.png"
 requirements:
   min_memory_gb: 4
   recommended_memory_gb: 8

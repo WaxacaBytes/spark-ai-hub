@@ -5,6 +5,7 @@ export const useStore = create((set, get) => ({
   metrics: null,
   buildLogs: {},
   installing: null,
+  removing: null,
   _ws: null,
 
   setRecipes: (recipes) => set({ recipes }),
@@ -108,11 +109,17 @@ export const useStore = create((set, get) => ({
   },
 
   removeRecipe: async (slug) => {
+    set({ removing: slug })
     try {
-      await fetch(`/api/recipes/${slug}`, { method: 'DELETE' })
+      const res = await fetch(`/api/recipes/${slug}`, { method: 'DELETE' })
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`)
+      }
       get().fetchRecipes()
     } catch (e) {
       console.error('Remove failed:', e)
+    } finally {
+      set({ removing: null })
     }
   },
 }))

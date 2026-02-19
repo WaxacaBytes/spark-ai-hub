@@ -15,6 +15,7 @@ import folder_paths
 import server
 
 _downloads = {}
+_download_tasks = {}
 
 
 class DownloadTracker:
@@ -26,9 +27,10 @@ class DownloadTracker:
         self.total = 0
         self.status = "pending"
         self.error = None
+        self.cancel_requested = False
 
 
-async def download_file(tracker):
+async def download_file(key, tracker):
     tracker.status = "downloading"
     tmp_path = tracker.filepath + ".tmp"
     try:
@@ -42,15 +44,31 @@ async def download_file(tracker):
                 tracker.progress = 0
                 with open(tmp_path, "wb") as f:
                     async for chunk in resp.content.iter_chunked(1024 * 1024):
+                        if tracker.cancel_requested:
+                            tracker.status = "canceled"
+                            if os.path.exists(tmp_path):
+                                os.remove(tmp_path)
+                            return
                         f.write(chunk)
                         tracker.progress += len(chunk)
+        if tracker.cancel_requested:
+            tracker.status = "canceled"
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            return
         os.rename(tmp_path, tracker.filepath)
         tracker.status = "completed"
+    except asyncio.CancelledError:
+        tracker.status = "canceled"
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
     except Exception as e:
         tracker.status = "error"
         tracker.error = str(e)
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+    finally:
+        _download_tasks.pop(key, None)
 
 
 ALLOWED_SOURCES = [
@@ -95,10 +113,14 @@ async def download_model(request):
         return web.json_response({"status": "already_exists", "path": filepath})
 
     key = f"{directory}/{filename}"
+    existing = _downloads.get(key)
+    if existing and existing.status in ("pending", "downloading"):
+        return web.json_response({"status": "already_downloading", "key": key})
+
     tracker = DownloadTracker(url, filepath, filename)
     _downloads[key] = tracker
 
-    asyncio.create_task(download_file(tracker))
+    _download_tasks[key] = asyncio.create_task(download_file(key, tracker))
 
     return web.json_response({"status": "started", "key": key})
 
@@ -115,6 +137,28 @@ async def download_status(request):
             "filename": t.filename,
         }
     return web.json_response(result)
+
+
+@server.PromptServer.instance.routes.post("/api/download-model/cancel")
+async def download_cancel(request):
+    data = await request.json()
+    key = data.get("key", "")
+    if not key:
+        return web.json_response({"error": "key required"}, status=400)
+
+    tracker = _downloads.get(key)
+    if tracker is None:
+        return web.json_response({"error": "download not found"}, status=404)
+
+    if tracker.status in ("completed", "error", "canceled"):
+        return web.json_response({"status": tracker.status, "key": key})
+
+    tracker.cancel_requested = True
+    task = _download_tasks.get(key)
+    if task and not task.done():
+        task.cancel()
+
+    return web.json_response({"status": "canceling", "key": key})
 
 
 NODE_CLASS_MAPPINGS = {}
