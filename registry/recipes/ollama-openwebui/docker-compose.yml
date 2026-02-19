@@ -1,0 +1,38 @@
+services:
+  ollama:
+    image: ollama/ollama
+    container_name: sparkforge-ollama
+    volumes:
+      - ollama-data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:cuda
+    container_name: sparkforge-openwebui
+    ports:
+      - "8080:8080"
+    volumes:
+      - openwebui-data:/app/backend/data
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+volumes:
+  ollama-data:
+  openwebui-data:

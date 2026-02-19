@@ -1,0 +1,14 @@
+services:
+  anythingllm:
+    image: mintplexlabs/anythingllm:latest
+    container_name: sparkforge-anythingllm
+    ports:
+      - "3001:3001"
+    volumes:
+      - anythingllm-data:/app/server/storage
+    environment:
+      - STORAGE_DIR=/app/server/storage
+    restart: unless-stopped
+
+volumes:
+  anythingllm-data:
