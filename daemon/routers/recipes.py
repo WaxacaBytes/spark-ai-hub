@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 
 from daemon.models.recipe import Recipe
 from daemon.services.registry_service import get_recipes, get_recipe
-from daemon.services.docker_service import get_installed_slugs, is_recipe_running, is_ready
+from daemon.services.docker_service import get_installed_slugs, is_recipe_running, is_ready, has_recipe_leftovers
 
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
 
@@ -18,7 +18,10 @@ async def list_recipes(category: str | None = None, search: str | None = None):
         if r.installed:
             r.running = await is_recipe_running(r.slug)
             r.ready = is_ready(r.slug) if r.running else False
-        if category and category != "all" and r.category != category:
+        else:
+            r.has_leftovers = await has_recipe_leftovers(r.slug)
+        recipe_categories = r.categories if r.categories else [r.category]
+        if category and category != "all" and category not in recipe_categories:
             continue
         if search:
             q = search.lower()
@@ -38,4 +41,6 @@ async def get_recipe_detail(slug: str):
     if recipe.installed:
         recipe.running = await is_recipe_running(slug)
         recipe.ready = is_ready(slug) if recipe.running else False
+    else:
+        recipe.has_leftovers = await has_recipe_leftovers(slug)
     return recipe

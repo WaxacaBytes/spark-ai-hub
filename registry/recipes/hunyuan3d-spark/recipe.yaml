@@ -6,7 +6,7 @@ author: "WaxacaBytes"
 website: "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1"
 upstream: "https://github.com/WaxacaBytes/hunyuan3d-spark"
 fork: "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1"
-category: image-gen
+category: 3d-gen
 tags:
   - 3d
   - mesh

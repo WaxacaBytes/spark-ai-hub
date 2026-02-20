@@ -17,7 +17,10 @@ export default function Catalog() {
   const [search, setSearch] = useState('')
 
   const filtered = recipes.filter((r) => {
-    if (category !== 'all' && r.category !== category) return false
+    const recipeCategories = Array.isArray(r.categories) && r.categories.length > 0
+      ? r.categories
+      : [r.category]
+    if (category !== 'all' && !recipeCategories.includes(category)) return false
     if (search) {
       const q = search.toLowerCase()
       if (!r.name.toLowerCase().includes(q) && !r.tags.some((t) => t.includes(q))) return false

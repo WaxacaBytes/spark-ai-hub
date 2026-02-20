@@ -31,6 +31,7 @@ class Recipe(BaseModel):
     upstream: str = ""
     fork: str = ""
     category: str = "llm"
+    categories: list[str] = []
     tags: list[str] = []
     icon: str = ""
     logo: str = ""
@@ -44,3 +45,4 @@ class Recipe(BaseModel):
     installed: bool = False
     running: bool = False
     ready: bool = False
+    has_leftovers: bool = False

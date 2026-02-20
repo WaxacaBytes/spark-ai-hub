@@ -7,6 +7,10 @@ website: "https://www.comfy.org/"
 upstream: "https://github.com/WaxacaBytes/comfyui-spark"
 fork: "https://github.com/Comfy-Org/ComfyUI"
 category: image-gen
+categories:
+  - image-gen
+  - video-gen
+  - 3d-gen
 tags:
   - stable-diffusion
   - flux
