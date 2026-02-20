@@ -10,6 +10,22 @@ from daemon.models.container import ContainerInfo
 from daemon.services.registry_service import get_recipe_dir
 
 
+# In-memory readiness cache: slug -> True
+_ready_cache: dict[str, bool] = {}
+
+
+def mark_ready(slug: str):
+    _ready_cache[slug] = True
+
+
+def clear_ready(slug: str):
+    _ready_cache.pop(slug, None)
+
+
+def is_ready(slug: str) -> bool:
+    return _ready_cache.get(slug, False)
+
+
 def _compose_project(slug: str) -> str:
     return f"sparkforge-{slug}"
 
@@ -202,6 +218,22 @@ async def is_recipe_running(slug: str) -> bool:
         return len(stdout.decode().strip()) > 0
     except Exception:
         return False
+
+
+async def get_container_name(slug: str) -> str | None:
+    project = _compose_project(slug)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "compose", "-p", project, "ps",
+            "--format", "{{.Names}}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        names = stdout.decode().strip().splitlines()
+        return names[0] if names else None
+    except Exception:
+        return None
 
 
 async def get_installed_slugs() -> set[str]:

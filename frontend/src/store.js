@@ -7,9 +7,61 @@ export const useStore = create((set, get) => ({
   installing: null,
   removing: null,
   _ws: null,
+  selectedRecipe: null,
+  containerLogs: {},
+  _logWs: null,
 
   setRecipes: (recipes) => set({ recipes }),
   setMetrics: (metrics) => set({ metrics }),
+
+  selectRecipe: (slug) => {
+    set({ selectedRecipe: slug })
+  },
+
+  clearRecipe: () => {
+    get().disconnectLogs()
+    set({ selectedRecipe: null })
+  },
+
+  connectLogs: (slug) => {
+    get().disconnectLogs()
+    const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const ws = new WebSocket(`${wsProto}//${location.host}/ws/logs/${slug}`)
+    set({
+      _logWs: ws,
+      containerLogs: { ...get().containerLogs, [slug]: [] },
+    })
+
+    ws.onmessage = (e) => {
+      if (e.data === '[sparkforge:ready]') {
+        // Backend marked it ready; refetch so recipe.ready updates everywhere
+        get().fetchRecipes()
+        return
+      }
+      set((s) => ({
+        containerLogs: {
+          ...s.containerLogs,
+          [slug]: [...(s.containerLogs[slug] || []), e.data],
+        },
+      }))
+    }
+
+    ws.onerror = () => {
+      console.warn('Container log WebSocket error')
+    }
+
+    ws.onclose = () => {
+      set({ _logWs: null })
+    }
+  },
+
+  disconnectLogs: () => {
+    const ws = get()._logWs
+    if (ws && ws.readyState <= 1) {
+      ws.close()
+    }
+    set({ _logWs: null })
+  },
 
   addBuildLine: (slug, line) => set((s) => ({
     buildLogs: {
@@ -53,14 +105,11 @@ export const useStore = create((set, get) => ({
     }
 
     ws.onerror = () => {
-      // On WS error, fall back to polling build status
       console.warn('Build WebSocket error, falling back to polling')
       get()._pollBuildStatus(slug)
     }
 
     ws.onclose = (e) => {
-      // Only clear if we didn't already handle [done]
-      // If the WS closed unexpectedly while still installing, poll instead
       if (get().installing === slug) {
         get()._pollBuildStatus(slug)
       }
@@ -73,7 +122,6 @@ export const useStore = create((set, get) => ({
         const res = await fetch(`/api/recipes/${slug}/build-status`)
         if (!res.ok) return
         const data = await res.json()
-        // Update logs with any new lines
         set((s) => ({
           buildLogs: { ...s.buildLogs, [slug]: data.lines },
         }))

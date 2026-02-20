@@ -1,45 +1,26 @@
 import { useState } from 'react'
 import { useStore } from '../store'
 
-const STATUS_STYLES = {
-  official: 'bg-emerald-500/10 text-emerald-400',
-  'community-verified': 'bg-amber-500/10 text-amber-400',
-  experimental: 'bg-red-500/10 text-red-400',
-}
-
-const STATUS_LABELS = {
-  official: 'Official',
-  'community-verified': 'Verified',
-  experimental: 'Experimental',
-}
-
 export default function RecipeCard({ recipe }) {
+  const selectRecipe = useStore((s) => s.selectRecipe)
   const installing = useStore((s) => s.installing)
-  const removing = useStore((s) => s.removing)
-  const installRecipe = useStore((s) => s.installRecipe)
-  const launchRecipe = useStore((s) => s.launchRecipe)
-  const stopRecipe = useStore((s) => s.stopRecipe)
-  const removeRecipe = useStore((s) => s.removeRecipe)
-
-  const isInstalling = installing === recipe.slug
-  const isRemoving = removing === recipe.slug
-  const statusClass = STATUS_STYLES[recipe.status] || STATUS_STYLES.experimental
-  const statusLabel = STATUS_LABELS[recipe.status] || 'Experimental'
   const [logoFailed, setLogoFailed] = useState(false)
 
-  const officialUrl = recipe.website || ''
-  const sourceUrl = recipe.upstream || recipe.fork || ''
   const logoUrl = recipe.logo || ''
-
-  const handleRemove = () => {
-    const ok = window.confirm(`Uninstall ${recipe.name}? This removes containers, images, and volumes for this service.`)
-    if (ok) removeRecipe(recipe.slug)
-  }
+  const officialUrl = recipe.website || ''
+  const isBuilding = installing === recipe.slug
 
   return (
-    <div className="relative overflow-hidden bg-surface border border-border rounded-xl p-5 flex flex-col gap-3 hover:border-border-hover hover:bg-surface-hover transition-all">
+    <div
+      onClick={() => selectRecipe(recipe.slug)}
+      className="relative overflow-hidden bg-surface border border-border rounded-xl p-5 flex flex-col gap-3 hover:border-border-hover hover:bg-surface-hover transition-all cursor-pointer active:scale-[0.98]"
+    >
       {recipe.running && (
-        <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-spark to-lime-400" />
+        <div className={`absolute top-0 left-0 right-0 h-0.5 ${
+          recipe.ready
+            ? 'bg-gradient-to-r from-spark to-lime-400'
+            : 'bg-gradient-to-r from-amber-500 to-amber-400 animate-pulse'
+        }`} />
       )}
 
       <div className="flex justify-between items-start">
@@ -59,39 +40,23 @@ export default function RecipeCard({ recipe }) {
             <div className="text-[11px] text-text-dim mt-0.5">by {recipe.author}</div>
           </div>
         </div>
-        <span className={`px-2 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wide ${statusClass}`}>
-          {statusLabel}
-        </span>
+        {isBuilding && (
+          <span className="text-spark text-xs"><span className="inline-block animate-spin mr-1">⟳</span>Building...</span>
+        )}
+        {!isBuilding && recipe.running && recipe.ready && (
+          <span className="text-emerald-400 text-xs">● Ready</span>
+        )}
+        {!isBuilding && recipe.running && !recipe.ready && (
+          <span className="text-amber-400 text-xs animate-pulse">● Starting...</span>
+        )}
+        {!isBuilding && !recipe.running && recipe.installed && (
+          <span className="text-text-dim text-xs">● Stopped</span>
+        )}
       </div>
 
       <p className="text-[13px] text-text-muted leading-relaxed m-0 flex-1">
         {recipe.description}
       </p>
-
-      {(officialUrl || sourceUrl) && (
-        <div className="flex gap-3 text-[12px]">
-          {officialUrl && (
-            <a
-              href={officialUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-spark hover:text-spark-light no-underline"
-            >
-              Official Website ↗
-            </a>
-          )}
-          {sourceUrl && (
-            <a
-              href={sourceUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-text-dim hover:text-text no-underline"
-            >
-              Source Code ↗
-            </a>
-          )}
-        </div>
-      )}
 
       <div className="flex flex-wrap gap-1">
         {recipe.tags.slice(0, 4).map((t) => (
@@ -101,70 +66,35 @@ export default function RecipeCard({ recipe }) {
         ))}
       </div>
 
-      <div className="flex gap-3 text-[11px] text-text-dim border-t border-border pt-2.5">
-        <span>🧠 {recipe.requirements?.min_memory_gb ?? 8}GB RAM</span>
-        <span>💾 {recipe.requirements?.disk_gb ?? 10}GB disk</span>
-        <span>⏱ ~{recipe.docker?.build_time_minutes ?? 5}min</span>
-      </div>
-
-      <div className="flex gap-2">
-        {!recipe.installed && !isInstalling && (
-          <button
-            onClick={() => installRecipe(recipe.slug)}
-            className="flex-1 py-2 bg-gradient-to-br from-spark to-spark-dark text-white border-none rounded-lg text-[13px] font-semibold cursor-pointer hover:-translate-y-px transition-transform"
-          >
-            Install
-          </button>
-        )}
-        {isInstalling && (
-          <div className="flex-1 py-2 bg-spark/10 border border-spark/30 rounded-lg text-center text-[13px] text-spark">
-            <span className="inline-block animate-spin">⟳</span> Building...
-          </div>
-        )}
-        {recipe.installed && !recipe.running && !isInstalling && (
-          <>
-            <button
-              disabled={isRemoving}
-              onClick={() => launchRecipe(recipe.slug)}
-              className="flex-1 py-2 bg-gradient-to-br from-spark to-spark-dark text-white border-none rounded-lg text-[13px] font-semibold cursor-pointer"
+      <div className="flex items-center justify-between text-[11px] text-text-dim border-t border-border pt-2.5">
+        <div className="flex gap-3">
+          <span>🧠 {recipe.requirements?.min_memory_gb ?? 8}GB</span>
+          <span>💾 {recipe.requirements?.disk_gb ?? 10}GB</span>
+        </div>
+        <div className="flex gap-3 items-center">
+          {officialUrl && (
+            <a
+              href={officialUrl}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-text-dim hover:text-spark no-underline transition-colors"
             >
-              ▶ Launch
-            </button>
-            <button
-              disabled={isRemoving}
-              onClick={handleRemove}
-              className="px-3 py-2 bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg text-[13px] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isRemoving ? 'Removing...' : 'Uninstall'}
-            </button>
-          </>
-        )}
-        {recipe.running && (
-          <>
+              Website ↗
+            </a>
+          )}
+          {recipe.running && recipe.ready && (
             <a
               href={`http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`}
               target="_blank"
               rel="noreferrer"
-              className="flex-1 py-2 bg-spark/10 border border-spark/30 rounded-lg text-center text-[13px] text-spark font-semibold no-underline cursor-pointer"
+              onClick={(e) => e.stopPropagation()}
+              className="text-spark font-semibold no-underline hover:text-spark-light active:scale-95 transition-all"
             >
-              Open UI ↗ :{recipe.ui?.port ?? 8080}
+              Open UI ↗
             </a>
-            <button
-              disabled={isRemoving}
-              onClick={() => stopRecipe(recipe.slug)}
-              className="px-3.5 py-2 bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg text-[13px] cursor-pointer"
-            >
-              ■ Stop
-            </button>
-            <button
-              disabled={isRemoving}
-              onClick={handleRemove}
-              className="px-3 py-2 bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg text-[13px] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isRemoving ? 'Removing...' : 'Uninstall'}
-            </button>
-          </>
-        )}
+          )}
+        </div>
       </div>
     </div>
   )

@@ -6,6 +6,7 @@ import BuildLog from './components/BuildLog'
 import Catalog from './pages/Catalog'
 import Running from './pages/Running'
 import System from './pages/System'
+import RecipeDetail from './pages/RecipeDetail'
 
 const TABS = [
   { id: 'catalog', label: 'Catalog' },
@@ -17,6 +18,8 @@ export default function App() {
   const [tab, setTab] = useState('catalog')
   const recipes = useStore((s) => s.recipes)
   const fetchRecipes = useStore((s) => s.fetchRecipes)
+  const selectedRecipe = useStore((s) => s.selectedRecipe)
+  const clearRecipe = useStore((s) => s.clearRecipe)
 
   useMetrics()
 
@@ -27,7 +30,6 @@ export default function App() {
   }, [fetchRecipes])
 
   const runningCount = recipes.filter((r) => r.running).length
-  const installedCount = recipes.filter((r) => r.installed).length
 
   const counts = {
     catalog: recipes.length,
@@ -36,10 +38,13 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-bg text-text">
+    <div className={`bg-bg text-text flex flex-col ${selectedRecipe ? 'h-screen overflow-hidden' : 'min-h-screen'}`}>
       {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+        <div
+          className="flex items-center gap-3 cursor-pointer"
+          onClick={() => { clearRecipe(); setTab('catalog') }}
+        >
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-spark to-spark-dark flex items-center justify-center text-white font-extrabold text-base">
             ⚡
           </div>
@@ -52,9 +57,9 @@ export default function App() {
           {TABS.map((t) => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id)}
+              onClick={() => { clearRecipe(); setTab(t.id) }}
               className={`px-3.5 py-1.5 rounded-md border-none text-[13px] font-semibold cursor-pointer transition-all ${
-                tab === t.id
+                tab === t.id && !selectedRecipe
                   ? 'bg-spark/15 text-spark'
                   : 'bg-transparent text-text-muted hover:text-text'
               }`}
@@ -70,11 +75,16 @@ export default function App() {
 
       <SystemBar />
 
-      {tab === 'catalog' && <Catalog />}
-      {tab === 'running' && <Running />}
-      {tab === 'system' && <System />}
-
-      <BuildLog />
+      {selectedRecipe ? (
+        <RecipeDetail />
+      ) : (
+        <>
+          {tab === 'catalog' && <Catalog />}
+          {tab === 'running' && <Running />}
+          {tab === 'system' && <System />}
+          <BuildLog />
+        </>
+      )}
     </div>
   )
 }

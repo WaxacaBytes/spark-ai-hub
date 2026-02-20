@@ -43,3 +43,4 @@ class Recipe(BaseModel):
     # runtime state (not from yaml)
     installed: bool = False
     running: bool = False
+    ready: bool = False
