@@ -3,6 +3,7 @@ slug: langflow
 version: "1.0.0"
 description: "Visual IDE for building multi-agent and RAG applications. Python-powered flow editor with 100+ integrations and one-click deployment."
 author: "Langflow AI"
+source: "official"
 website: "https://langflow.org"
 upstream: "https://github.com/langflow-ai/langflow"
 category: multi-modal

@@ -48,6 +48,7 @@ class Recipe(BaseModel):
     ui: RecipeUI = RecipeUI()
     docker: RecipeDocker = RecipeDocker()
     integration: RecipeIntegration | None = None
+    source: str = "community"  # sparkdeck | official | community
     status: str = "experimental"
     depends_on: list[str] = []
 

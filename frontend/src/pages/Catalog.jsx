@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useStore } from '../store'
 import RecipeCard from '../components/RecipeCard'
 
@@ -9,6 +9,12 @@ const CATEGORIES = [
   { id: 'video-gen', label: 'Video Gen', icon: '🎬' },
   { id: '3d-gen', label: '3D Gen', icon: '🧊' },
   { id: 'multi-modal', label: 'Multi-Modal', icon: '🤖' },
+]
+
+const SOURCE_SECTIONS = [
+  { id: 'sparkdeck', label: 'Spark-Optimized', subtitle: 'Built and tested for DGX Spark' },
+  { id: 'official', label: 'Official Images', subtitle: 'Published by the original developers' },
+  { id: 'community', label: 'Community', subtitle: 'Contributed by the community' },
 ]
 
 export default function Catalog() {
@@ -27,6 +33,13 @@ export default function Catalog() {
     }
     return true
   })
+
+  const grouped = useMemo(() => {
+    return SOURCE_SECTIONS.map((section) => ({
+      ...section,
+      recipes: filtered.filter((r) => (r.source || 'community') === section.id),
+    })).filter((section) => section.recipes.length > 0)
+  }, [filtered])
 
   return (
     <div>
@@ -58,11 +71,21 @@ export default function Catalog() {
         </div>
       </div>
 
-      <div className="px-6 pb-60 grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
-        {filtered.map((r) => (
-          <RecipeCard key={r.slug} recipe={r} />
+      <div className="px-6 pb-60 space-y-8">
+        {grouped.map((section) => (
+          <div key={section.id}>
+            <div className="mb-3">
+              <h2 className="text-[15px] font-semibold text-text">{section.label}</h2>
+              <p className="text-[12px] text-text-dim mt-0.5">{section.subtitle}</p>
+            </div>
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
+              {section.recipes.map((r) => (
+                <RecipeCard key={r.slug} recipe={r} />
+              ))}
+            </div>
+          </div>
         ))}
-        {filtered.length === 0 && (
+        {grouped.length === 0 && (
           <div className="col-span-full text-center py-16 text-text-dim">
             <div className="text-4xl mb-3">🔍</div>
             <div className="text-[15px]">No recipes match your filters</div>

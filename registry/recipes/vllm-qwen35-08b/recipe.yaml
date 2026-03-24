@@ -2,7 +2,8 @@ name: "Qwen3.5-0.8B (vLLM)"
 slug: vllm-qwen35-08b
 version: "1.0.0"
 description: "Lightweight multimodal LLM with vision, thinking, and tool use. BF16, served via OpenAI-compatible API."
-author: "WaxacaBytes"
+author: "Alibaba Cloud"
+source: "community"
 website: "https://qwen.ai/blog?id=qwen3.5"
 upstream: "https://huggingface.co/Qwen/Qwen3.5-0.8B"
 category: llm

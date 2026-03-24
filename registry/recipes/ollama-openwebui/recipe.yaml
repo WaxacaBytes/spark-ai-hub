@@ -2,7 +2,8 @@ name: "Open WebUI + Ollama"
 slug: ollama-openwebui
 version: "1.0.0"
 description: "ChatGPT-like interface for local LLMs with model management, conversation history, and RAG plugins."
-author: "NVIDIA Playbook"
+author: "Ollama / Open WebUI"
+source: "official"
 website: "https://openwebui.com/"
 upstream: "https://github.com/open-webui/open-webui"
 category: llm

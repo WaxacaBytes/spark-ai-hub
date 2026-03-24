@@ -2,7 +2,8 @@ name: "Qwen3.5-27B (vLLM)"
 slug: vllm-qwen3.5-27b
 version: "1.0.0"
 description: "Multimodal LLM with vision, video, thinking, and tool use. FP8 quantized, served via OpenAI-compatible API."
-author: "WaxacaBytes"
+author: "Alibaba Cloud"
+source: "community"
 website: "https://qwen.ai/blog?id=qwen3.5"
 upstream: "https://huggingface.co/Qwen/Qwen3.5-27B-FP8"
 category: llm

@@ -2,7 +2,8 @@ name: "Qwen3.5-35B-A3B MoE (vLLM)"
 slug: vllm-qwen35-35b-a3b
 version: "1.0.0"
 description: "Mixture-of-Experts multimodal LLM (35B total, 3B active) with vision, thinking, and tool use. FP8, served via OpenAI-compatible API."
-author: "WaxacaBytes"
+author: "Alibaba Cloud"
+source: "community"
 website: "https://qwen.ai/blog?id=qwen3.5"
 upstream: "https://huggingface.co/Qwen/Qwen3.5-35B-A3B-FP8"
 category: llm

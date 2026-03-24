@@ -3,6 +3,7 @@ slug: flowise
 version: "1.0.0"
 description: "Drag-and-drop LLM workflow builder. Create chatbots, RAG pipelines, and AI agents with a visual node editor. No code required."
 author: "FlowiseAI"
+source: "official"
 website: "https://flowiseai.com/"
 upstream: "https://github.com/FlowiseAI/Flowise"
 category: multi-modal
