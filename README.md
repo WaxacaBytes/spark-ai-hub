@@ -1,14 +1,14 @@
-# SparkForge
+# SparkDeck
 
 A Docker-native AI app launcher for NVIDIA DGX Spark. Browse a catalog of verified recipes and deploy AI workloads with one click.
 
-## Why SparkForge?
+## Why SparkDeck?
 
 - **Pinokio** doesn't work on DGX Spark (ARM64 incompatible)
 - **NVIDIA Sync** has Custom Scripts but no catalog or community sharing
 - **NVIDIA Playbooks** are great but manual — copy-paste terminal commands
 
-SparkForge gives you a web UI to browse, install, launch, and monitor Docker-based AI apps on your Spark.
+SparkDeck gives you a web UI to browse, install, launch, and monitor Docker-based AI apps on your Spark.
 
 ## Features
 
@@ -34,8 +34,8 @@ All recipes use Docker images with ARM64 support. ComfyUI uses a [custom image](
 ## Quick Start
 
 ```bash
-git clone https://github.com/WaxacaBytes/sparkforge.git
-cd sparkforge
+git clone https://github.com/WaxacaBytes/sparkdeck.git
+cd sparkdeck
 ./run.sh
 ```
 
@@ -61,7 +61,7 @@ npm run dev
 ## Project Structure
 
 ```
-sparkforge/
+sparkdeck/
 ├── daemon/                 # FastAPI backend
 │   ├── main.py             # App entry point
 │   ├── config.py           # Settings (port, paths)

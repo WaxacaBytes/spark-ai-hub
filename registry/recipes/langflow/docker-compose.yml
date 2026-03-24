@@ -1,7 +1,7 @@
 services:
   langflow:
     image: langflowai/langflow:latest
-    container_name: sparkforge-langflow
+    container_name: sparkdeck-langflow
     ports:
       - "7860:7860"
     volumes:

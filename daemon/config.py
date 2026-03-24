@@ -8,9 +8,9 @@ class Settings(BaseSettings):
     base_dir: Path = Path(__file__).resolve().parent.parent
     registry_path: Path = Path(__file__).resolve().parent.parent / "registry" / "recipes"
     data_dir: Path = Path(__file__).resolve().parent.parent / "data"
-    db_path: Path = Path(__file__).resolve().parent.parent / "data" / "sparkforge.db"
+    db_path: Path = Path(__file__).resolve().parent.parent / "data" / "sparkdeck.db"
 
-    model_config = {"env_prefix": "SPARKFORGE_"}
+    model_config = {"env_prefix": "SPARKDECK_"}
 
 
 settings = Settings()

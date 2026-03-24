@@ -41,10 +41,18 @@ export default function RecipeCard({ recipe }) {
           </div>
         </div>
         {isBuilding && (
-          <span className="text-spark text-xs"><span className="inline-block animate-spin mr-1">⟳</span>Building...</span>
+          <span className="text-spark text-xs animate-pulse">● Building...</span>
         )}
         {!isBuilding && recipe.running && recipe.ready && (
-          <span className="text-emerald-400 text-xs">● Ready</span>
+          <a
+            href={`http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="bg-spark/15 text-spark border border-spark/30 px-2.5 py-1 rounded-md text-xs font-semibold no-underline hover:bg-spark/25 transition-all active:scale-95"
+          >
+            Open UI ↗
+          </a>
         )}
         {!isBuilding && recipe.running && !recipe.ready && (
           <span className="text-amber-400 text-xs animate-pulse">● Starting...</span>
@@ -81,17 +89,6 @@ export default function RecipeCard({ recipe }) {
               className="text-text-dim hover:text-spark no-underline transition-colors"
             >
               Website ↗
-            </a>
-          )}
-          {recipe.running && recipe.ready && (
-            <a
-              href={`http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`}
-              target="_blank"
-              rel="noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="text-spark font-semibold no-underline hover:text-spark-light active:scale-95 transition-all"
-            >
-              Open UI ↗
             </a>
           )}
         </div>

@@ -11,6 +11,8 @@ export default function RecipeDetail() {
   const launchRecipe = useStore((s) => s.launchRecipe)
   const stopRecipe = useStore((s) => s.stopRecipe)
   const removeRecipe = useStore((s) => s.removeRecipe)
+  const purging = useStore((s) => s.purging)
+  const purgeRecipe = useStore((s) => s.purgeRecipe)
   const buildLogs = useStore((s) => s.buildLogs)
   const containerLogs = useStore((s) => s.containerLogs)
   const connectLogs = useStore((s) => s.connectLogs)
@@ -51,9 +53,10 @@ export default function RecipeDetail() {
   const isBuilding = isInstalling
   const isReady = recipe.ready
 
+  const cLogs = containerLogs[recipe.slug] || []
   const logLines = isBuilding
     ? (buildLogs[recipe.slug] || [])
-    : (containerLogs[recipe.slug] || [])
+    : cLogs
 
   const handleRemove = () => {
     const ok = window.confirm(`Uninstall ${recipe.name}? This removes containers, images, and volumes.`)
@@ -78,30 +81,45 @@ export default function RecipeDetail() {
       <div className="flex items-center gap-4 px-6 py-3 border-b border-border shrink-0">
         <button
           onClick={clearRecipe}
-          className="text-text-muted hover:text-spark bg-transparent border-none cursor-pointer text-sm p-0 active:scale-95 transition-all"
+          className="flex items-center gap-2 text-text-muted hover:text-spark bg-transparent border-none cursor-pointer text-sm p-0 active:scale-95 transition-all"
         >
-          ←
+          <span>←</span>
+          <span className="font-bold text-[15px] truncate text-text">{recipe.name}</span>
         </button>
-        <div className="flex items-center gap-2.5 flex-1 min-w-0">
-          {logoUrl && !logoFailed ? (
-            <img
-              src={logoUrl}
-              alt={`${recipe.name} logo`}
-              className="w-7 h-7 rounded-md object-contain bg-white/95 p-0.5 shrink-0"
-              onError={() => setLogoFailed(true)}
-            />
-          ) : (
-            <span className="text-xl shrink-0">{recipe.icon || '◻'}</span>
-          )}
-          <span className="font-bold text-[15px] truncate">{recipe.name}</span>
-          <span className="text-[11px] text-text-dim shrink-0">by {recipe.author}</span>
-        </div>
       </div>
 
       {/* Main content: sidebar + logs */}
       <div className="flex flex-1 min-h-0">
         {/* Sidebar */}
         <div className="w-80 shrink-0 border-r border-border overflow-y-auto p-5 flex flex-col gap-4">
+          {/* Hero */}
+          <div className="flex flex-col items-center gap-2 pb-4 border-b border-border">
+            {logoUrl && !logoFailed ? (
+              <img
+                src={logoUrl}
+                alt={`${recipe.name} logo`}
+                className="w-16 h-16 rounded-xl object-contain bg-white/95 p-2"
+                onError={() => setLogoFailed(true)}
+              />
+            ) : (
+              <span className="text-4xl">{recipe.icon || '◻'}</span>
+            )}
+            <div className="text-lg font-bold text-text text-center leading-tight">{recipe.name}</div>
+            <div className="text-xs text-text-dim">by {recipe.author}</div>
+            {isBuilding && (
+              <span className="text-spark text-xs animate-pulse">● Building...</span>
+            )}
+            {!isBuilding && recipe.running && isReady && (
+              <span className="text-emerald-400 text-xs">● Ready</span>
+            )}
+            {!isBuilding && recipe.running && !isReady && (
+              <span className="text-amber-400 text-xs animate-pulse">● Starting...</span>
+            )}
+            {!isBuilding && !recipe.running && recipe.installed && (
+              <span className="text-text-dim text-xs">● Stopped</span>
+            )}
+          </div>
+
           <p className="text-[13px] text-text-muted leading-relaxed m-0">
             {recipe.description}
           </p>
@@ -134,6 +152,32 @@ export default function RecipeDetail() {
             <span>💾 {recipe.requirements?.disk_gb ?? 10}GB disk space</span>
             <span>⏱ ~{recipe.docker?.build_time_minutes ?? 5}min build time</span>
           </div>
+
+          {/* Integration info */}
+          {recipe.integration && (
+            <div className="flex flex-col gap-2 border-t border-border pt-3">
+              <span className="text-text-dim font-bold text-[11px] font-mono tracking-wider">INTEGRATION</span>
+              <div className="flex flex-col gap-1.5 text-[12px]">
+                <IntegrationField label="API URL" value={recipe.integration.api_url.replace('<SPARK_IP>', location.hostname)} breakAll />
+                <IntegrationField label="Model ID" value={recipe.integration.model_id} />
+                <IntegrationField label="API Key" value={recipe.integration.api_key} />
+                {recipe.integration.max_context && (
+                  <IntegrationField label="Max Context" value={recipe.integration.max_context} />
+                )}
+                {recipe.integration.max_output_tokens && (
+                  <IntegrationField label="Max Output Tokens" value={recipe.integration.max_output_tokens} />
+                )}
+                {recipe.integration.curl_example && (
+                  <IntegrationField
+                    label="Test with curl"
+                    value={recipe.integration.curl_example.replace(/<SPARK_IP>/g, location.hostname)}
+                    breakAll
+                    small
+                  />
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex flex-col gap-2 border-t border-border pt-3">
@@ -208,6 +252,22 @@ export default function RecipeDetail() {
               </>
             )}
           </div>
+
+          {/* Purge leftover data */}
+          {!recipe.installed && !isBuilding && recipe.has_leftovers && (
+            <button
+              disabled={purging === recipe.slug}
+              onClick={() => {
+                const ok = window.confirm(`Wipe all data for ${recipe.name}? This removes cached models, Docker images, and volumes. A fresh install will re-download everything.`)
+                if (ok) purgeRecipe(recipe.slug)
+              }}
+              className="w-full py-2 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-lg text-[13px] cursor-pointer hover:bg-amber-500/15 active:scale-[0.98] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {purging === recipe.slug ? (
+                <><span className="inline-block animate-spin">⟳</span> Wiping...</>
+              ) : '🗑 Wipe data'}
+            </button>
+          )}
         </div>
 
         {/* Logs panel */}
@@ -216,6 +276,7 @@ export default function RecipeDetail() {
           isBuilding={isBuilding}
           isRunning={recipe.running}
           isReady={isReady}
+          hasLogs={cLogs.length > 0}
           scrollRef={scrollRef}
         />
       </div>
@@ -223,7 +284,55 @@ export default function RecipeDetail() {
   )
 }
 
-function LogPanel({ lines, isBuilding, isRunning, isReady, scrollRef }) {
+function fallbackCopy(text, setCopied) {
+  const ta = document.createElement('textarea')
+  ta.value = text
+  ta.style.position = 'fixed'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.select()
+  document.execCommand('copy')
+  document.body.removeChild(ta)
+  setCopied(true)
+  setTimeout(() => setCopied(false), 1500)
+}
+
+function IntegrationField({ label, value, breakAll, small }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = () => {
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(value).then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 1500)
+      }).catch(() => fallbackCopy(value, setCopied))
+    } else {
+      fallbackCopy(value, setCopied)
+    }
+  }
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-text-dim">{label}</span>
+      <div className="flex items-start gap-1">
+        <code className={`flex-1 bg-white/[0.06] text-text-muted px-2 py-1 rounded font-mono select-all ${small ? 'text-[10px] leading-4' : 'text-[11px]'} ${breakAll ? 'break-all' : ''}`}>
+          {value}
+        </code>
+        <button
+          onClick={handleCopy}
+          title="Copy to clipboard"
+          className="shrink-0 mt-0.5 p-1 bg-transparent border-none cursor-pointer text-text-dim hover:text-spark transition-colors rounded hover:bg-white/[0.06]"
+        >
+          {copied ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          )}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function LogPanel({ lines, isBuilding, isRunning, isReady, hasLogs, scrollRef }) {
   const [autoScroll, setAutoScroll] = useState(true)
 
   useEffect(() => {
@@ -239,11 +348,11 @@ function LogPanel({ lines, isBuilding, isRunning, isReady, scrollRef }) {
   }
 
   const label = isBuilding ? 'BUILD LOG' : 'CONTAINER LOG'
-  const showEmpty = !isBuilding && !isRunning
+  const showEmpty = !isBuilding && !isRunning && !hasLogs
 
   let statusIndicator = null
   if (isBuilding) {
-    statusIndicator = <span className="text-spark text-xs"><span className="inline-block animate-spin mr-1">⟳</span>Building...</span>
+    statusIndicator = <span className="text-spark text-xs animate-pulse">● Building...</span>
   } else if (isRunning && isReady) {
     statusIndicator = <span className="text-emerald-400 text-xs">● Ready</span>
   } else if (isRunning) {

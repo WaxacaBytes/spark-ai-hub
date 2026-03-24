@@ -6,10 +6,13 @@ from daemon.services.docker_service import (
     launch_recipe,
     stop_recipe,
     remove_recipe,
+    purge_recipe,
     get_running_containers,
     get_container_name,
     mark_ready,
     clear_ready,
+    is_ready,
+    start_health_check,
 )
 from daemon.services.registry_service import get_recipe
 from daemon.models.container import ContainerInfo
@@ -65,25 +68,9 @@ async def launch(slug: str):
     result = await launch_recipe(slug)
     if result == "launched":
         # Start background health check
-        ui_port = recipe.ui.port if recipe.ui else 8080
-        ui_path = recipe.ui.path if recipe.ui else "/"
-        asyncio.create_task(_background_health_check(slug, ui_port, ui_path))
+        await start_health_check(slug)
         return {"status": "launched", "slug": slug}
     raise HTTPException(status_code=500, detail=result)
-
-
-async def _background_health_check(slug: str, port: int, path: str):
-    import aiohttp
-    url = f"http://localhost:{port}{path}"
-    for _ in range(300):
-        await asyncio.sleep(1)
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=3)):
-                    mark_ready(slug)
-                    return
-        except Exception:
-            pass
 
 
 @router.post("/api/recipes/{slug}/stop")
@@ -103,6 +90,15 @@ async def remove(slug: str):
         raise HTTPException(status_code=404, detail="Recipe not found")
     clear_ready(slug)
     result = await remove_recipe(slug)
+    return {"status": result, "slug": slug}
+
+
+@router.post("/api/recipes/{slug}/purge")
+async def purge(slug: str):
+    recipe = get_recipe(slug)
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    result = await purge_recipe(slug)
     return {"status": result, "slug": slug}
 
 
@@ -151,30 +147,21 @@ async def container_log_ws(websocket: WebSocket, slug: str):
     try:
         container = await get_container_name(slug)
         if not container:
-            await websocket.send_text("[sparkforge] Container not running")
+            await websocket.send_text("[sparkdeck] Container not running")
             await websocket.close()
             return
 
         # Start health check alongside log streaming
-        recipe = get_recipe(slug)
-        ui_port = recipe.ui.port if recipe and recipe.ui else 8080
-        ui_path = recipe.ui.path if recipe and recipe.ui else "/"
+        await start_health_check(slug)
 
-        async def _check_ready():
-            import aiohttp
-            url = f"http://localhost:{ui_port}{ui_path}"
-            for _ in range(300):  # up to 5 minutes
+        async def _notify_when_ready():
+            for _ in range(600):  # up to 10 minutes
+                if is_ready(slug):
+                    await websocket.send_text("[sparkdeck:ready]")
+                    return
                 await asyncio.sleep(1)
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(url, timeout=aiohttp.ClientTimeout(total=3)) as resp:
-                            mark_ready(slug)
-                            await websocket.send_text("[sparkforge:ready]")
-                            return
-                except Exception:
-                    pass
 
-        health_task = asyncio.create_task(_check_ready())
+        health_task = asyncio.create_task(_notify_when_ready())
 
         proc = await asyncio.create_subprocess_exec(
             "docker", "logs", "-f", "--tail", "200", container,
@@ -184,7 +171,11 @@ async def container_log_ws(websocket: WebSocket, slug: str):
 
         async for line in proc.stdout:
             text = line.decode(errors="replace").rstrip()
-            await websocket.send_text(text)
+            # Handle carriage returns (progress bars): only keep last segment
+            if '\r' in text:
+                text = text.rsplit('\r', 1)[-1]
+            if text:
+                await websocket.send_text(text)
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:

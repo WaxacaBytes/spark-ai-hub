@@ -1,8 +1,15 @@
+import asyncio
 from fastapi import APIRouter, HTTPException
 
 from daemon.models.recipe import Recipe
 from daemon.services.registry_service import get_recipes, get_recipe
-from daemon.services.docker_service import get_installed_slugs, is_recipe_running, is_ready, has_recipe_leftovers
+from daemon.services.docker_service import (
+    get_installed_slugs,
+    is_recipe_running,
+    is_ready,
+    has_recipe_leftovers,
+    start_health_check,
+)
 
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
 
@@ -18,6 +25,8 @@ async def list_recipes(category: str | None = None, search: str | None = None):
         if r.installed:
             r.running = await is_recipe_running(r.slug)
             r.ready = is_ready(r.slug) if r.running else False
+            if r.running and not r.ready:
+                asyncio.create_task(start_health_check(r.slug))
         else:
             r.has_leftovers = await has_recipe_leftovers(r.slug)
         recipe_categories = r.categories if r.categories else [r.category]

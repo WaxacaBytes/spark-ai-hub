@@ -1,0 +1,32 @@
+services:
+  trellis2:
+    image: abelpc/trellis2-spark:latest
+    container_name: sparkdeck-trellis2
+    ports:
+      - "12156:12156"
+    volumes:
+      - trellis2-hf-cache:/workspace/cache/huggingface
+      - trellis2-triton-cache:/workspace/cache/triton
+      - trellis2-torch-cache:/workspace/cache/torch
+      - trellis2-build-cache:/workspace/build_cache
+    environment:
+      GRADIO_SERVER_NAME: "0.0.0.0"
+      GRADIO_SERVER_PORT: "12156"
+      HF_HOME: "/workspace/cache/huggingface"
+      TRITON_CACHE_DIR: "/workspace/cache/triton"
+      TORCH_HOME: "/workspace/cache/torch"
+      ATTN_BACKEND: "flash-attn"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  trellis2-hf-cache:
+  trellis2-triton-cache:
+  trellis2-torch-cache:
+  trellis2-build-cache:

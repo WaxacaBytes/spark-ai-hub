@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { useStore } from './store'
 import { useMetrics } from './hooks/useMetrics'
 import SystemBar from './components/SystemBar'
-import BuildLog from './components/BuildLog'
 import Catalog from './pages/Catalog'
 import Running from './pages/Running'
 import System from './pages/System'
@@ -49,7 +48,7 @@ export default function App() {
             ⚡
           </div>
           <div>
-            <span className="text-lg font-bold tracking-tight">SparkForge</span>
+            <span className="text-lg font-bold tracking-tight">SparkDeck</span>
             <span className="text-[11px] text-text-dim ml-2 font-medium">v0.1.0</span>
           </div>
         </div>
@@ -82,7 +81,6 @@ export default function App() {
           {tab === 'catalog' && <Catalog />}
           {tab === 'running' && <Running />}
           {tab === 'system' && <System />}
-          <BuildLog />
         </>
       )}
     </div>

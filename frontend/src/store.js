@@ -6,6 +6,7 @@ export const useStore = create((set, get) => ({
   buildLogs: {},
   installing: null,
   removing: null,
+  purging: null,
   _ws: null,
   selectedRecipe: null,
   containerLogs: {},
@@ -33,17 +34,28 @@ export const useStore = create((set, get) => ({
     })
 
     ws.onmessage = (e) => {
-      if (e.data === '[sparkforge:ready]') {
+      if (e.data === '[sparkdeck:ready]') {
         // Backend marked it ready; refetch so recipe.ready updates everywhere
         get().fetchRecipes()
         return
       }
-      set((s) => ({
-        containerLogs: {
-          ...s.containerLogs,
-          [slug]: [...(s.containerLogs[slug] || []), e.data],
-        },
-      }))
+      set((s) => {
+        const prev = s.containerLogs[slug] || []
+        const line = e.data
+        // Detect progress lines (e.g. "50% Completed | 2/4", "Downloading: 45%")
+        const isProgress = /\d+%/.test(line) && (/\|/.test(line) || /it\/s/.test(line) || /Completed/.test(line) || /Downloading/.test(line))
+        if (isProgress) {
+          // Find last progress line with same prefix (text before the percentage)
+          const prefix = line.match(/^(.*?)\d+%/)?.[1] || ''
+          const idx = prev.findLastIndex((l) => l.startsWith(prefix) && /\d+%/.test(l))
+          if (idx >= 0) {
+            const updated = [...prev]
+            updated[idx] = line
+            return { containerLogs: { ...s.containerLogs, [slug]: updated } }
+          }
+        }
+        return { containerLogs: { ...s.containerLogs, [slug]: [...prev, line] } }
+      })
     }
 
     ws.onerror = () => {
@@ -63,16 +75,26 @@ export const useStore = create((set, get) => ({
     set({ _logWs: null })
   },
 
-  addBuildLine: (slug, line) => set((s) => ({
-    buildLogs: {
-      ...s.buildLogs,
-      [slug]: [...(s.buildLogs[slug] || []), line],
-    },
-  })),
+  addBuildLine: (slug, line) => set((s) => {
+    const prev = s.buildLogs[slug] || []
+    // Match Docker layer progress: " <hash> Downloading/Extracting/Waiting/Pull complete"
+    const layerMatch = line.match(/^\s*([0-9a-f]{12})\s+(Downloading|Extracting|Verifying|Waiting|Pull complete|Already exists|Download complete|Pulling fs layer)/)
+    if (layerMatch) {
+      const layerId = layerMatch[1]
+      // Find and replace the last line with the same layer ID
+      const idx = prev.findLastIndex((l) => l.includes(layerId))
+      if (idx >= 0) {
+        const updated = [...prev]
+        updated[idx] = line
+        return { buildLogs: { ...s.buildLogs, [slug]: updated } }
+      }
+    }
+    return { buildLogs: { ...s.buildLogs, [slug]: [...prev, line] } }
+  }),
 
   fetchRecipes: async () => {
     try {
-      const res = await fetch('/api/recipes')
+      const res = await fetch(`/api/recipes?t=${Date.now()}`)
       if (res.ok) set({ recipes: await res.json() })
     } catch (e) {
       console.error('Failed to fetch recipes:', e)
@@ -99,6 +121,8 @@ export const useStore = create((set, get) => ({
       if (e.data === '[done]') {
         set({ installing: null, _ws: null })
         get().fetchRecipes()
+        // Auto-connect container logs after install completes
+        setTimeout(() => get().connectLogs(slug), 1000)
         return
       }
       get().addBuildLine(slug, e.data)
@@ -168,6 +192,21 @@ export const useStore = create((set, get) => ({
       console.error('Remove failed:', e)
     } finally {
       set({ removing: null })
+    }
+  },
+
+  purgeRecipe: async (slug) => {
+    set({ purging: slug })
+    try {
+      const res = await fetch(`/api/recipes/${slug}/purge`, { method: 'POST' })
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`)
+      }
+      get().fetchRecipes()
+    } catch (e) {
+      console.error('Purge failed:', e)
+    } finally {
+      set({ purging: null })
     }
   },
 }))

@@ -11,27 +11,17 @@ from daemon.config import settings
 from daemon.db import init_db
 from daemon.routers import recipes, containers, system
 from daemon.services.registry_service import load_recipes, get_recipes
-from daemon.services.docker_service import is_recipe_running, mark_ready
+from daemon.services.docker_service import is_recipe_running, start_health_check
 
 DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
 async def _check_running_readiness():
     """On startup, probe already-running recipes so ready cache is warm."""
-    import aiohttp
     await asyncio.sleep(2)  # let everything initialize
-    for slug, recipe in get_recipes().items():
-        if not await is_recipe_running(slug):
-            continue
-        port = recipe.ui.port if recipe.ui else 8080
-        path = recipe.ui.path if recipe.ui else "/"
-        url = f"http://localhost:{port}{path}"
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=3)):
-                    mark_ready(slug)
-        except Exception:
-            pass
+    for slug in get_recipes().keys():
+        if await is_recipe_running(slug):
+            await start_health_check(slug)
 
 
 @asynccontextmanager
@@ -42,7 +32,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="SparkForge", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="SparkDeck", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

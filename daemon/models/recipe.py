@@ -21,6 +21,15 @@ class RecipeDocker(BaseModel):
     gpu: bool = True
 
 
+class RecipeIntegration(BaseModel):
+    api_url: str = ""
+    model_id: str = ""
+    api_key: str = ""
+    max_context: str = ""
+    max_output_tokens: str = ""
+    curl_example: str = ""
+
+
 class Recipe(BaseModel):
     name: str
     slug: str
@@ -38,6 +47,7 @@ class Recipe(BaseModel):
     requirements: RecipeRequirements = RecipeRequirements()
     ui: RecipeUI = RecipeUI()
     docker: RecipeDocker = RecipeDocker()
+    integration: RecipeIntegration | None = None
     status: str = "experimental"
     depends_on: list[str] = []
 

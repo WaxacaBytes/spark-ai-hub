@@ -1,0 +1,42 @@
+services:
+  vllm:
+    image: scitrera/dgx-spark-vllm:0.17.0-t4
+    container_name: sparkdeck-vllm-qwen35-27b-int4
+    ports:
+      - "8016:8000"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    ipc: host
+    command:
+      - python3
+      - -m
+      - vllm.entrypoints.openai.api_server
+      - --model
+      - Qwen/Qwen3.5-27B-GPTQ-Int4
+      - --port
+      - "8000"
+      - --max-model-len
+      - "262144"
+      - --dtype
+      - float16
+      - --quantization
+      - gptq_marlin
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_xml
+      - --enable-prefix-caching
+      - --gpu-memory-utilization
+      - "0.45"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

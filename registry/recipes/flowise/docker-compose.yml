@@ -1,7 +1,7 @@
 services:
   flowise:
     image: flowiseai/flowise:latest
-    container_name: sparkforge-flowise
+    container_name: sparkdeck-flowise
     ports:
       - "3002:3000"
     volumes:
