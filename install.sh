@@ -72,23 +72,6 @@ if ! command -v docker &>/dev/null; then
     echo "[sparkdeck] Added $USER to docker group (takes effect on next login or after 'newgrp docker')"
 fi
 
-# ---------- nvidia-container-toolkit ----------
-
-if ! dpkg -s nvidia-container-toolkit &>/dev/null 2>&1; then
-    echo "[sparkdeck] Installing NVIDIA Container Toolkit..."
-    if [ ! -f /etc/apt/sources.list.d/nvidia-container-toolkit.list ]; then
-        curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | \
-            need_sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-        curl -fsSL https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-            sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#' | \
-            need_sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null
-        need_sudo apt-get update -qq
-    fi
-    need_sudo apt-get install -y -qq nvidia-container-toolkit
-    need_sudo nvidia-ctk runtime configure --runtime=docker
-    need_sudo systemctl restart docker
-fi
-
 # ---------- clone or update ----------
 
 if [ -d "$INSTALL_DIR" ]; then
