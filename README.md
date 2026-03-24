@@ -31,17 +31,17 @@ SparkDeck gives you a web UI to browse, install, launch, and monitor Docker-base
 
 All recipes use Docker images with ARM64 support. ComfyUI uses a [custom image](https://github.com/WaxacaBytes/comfyui-spark) pre-built for DGX Spark with CUDA 13 and Blackwell support.
 
-## Quick Start
+## Install
 
 ```bash
-git clone https://github.com/WaxacaBytes/sparkdeck.git
-cd sparkdeck
-./run.sh
+curl -fsSL https://raw.githubusercontent.com/WaxacaBytes/sparkdeck/main/install.sh | bash
 ```
+
+That's it. SparkDeck clones to `~/sparkdeck`, sets up a Python venv, installs dependencies, and starts the server.
 
 Then open **http://localhost:9000** in your browser (or `http://<spark-ip>:9000` from another machine).
 
-`run.sh` creates a Python venv, installs dependencies, and starts the server on port 9000.
+Running the same command again will update an existing installation.
 
 ## Manual Setup
 
