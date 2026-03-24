@@ -43,6 +43,14 @@ Then open **http://localhost:9000** in your browser (or `http://<spark-ip>:9000`
 
 Running the same command again will update an existing installation.
 
+### Uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/WaxacaBytes/sparkdeck/main/uninstall.sh | bash
+```
+
+Stops and removes all recipe containers, volumes, images, and the `~/sparkdeck` directory. Does not touch Docker itself.
+
 ## Manual Setup
 
 ```bash
