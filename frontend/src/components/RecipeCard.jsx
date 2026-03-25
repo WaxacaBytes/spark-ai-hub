@@ -4,92 +4,83 @@ import { useStore } from '../store'
 export default function RecipeCard({ recipe }) {
   const selectRecipe = useStore((s) => s.selectRecipe)
   const installing = useStore((s) => s.installing)
+  const installRecipe = useStore((s) => s.installRecipe)
   const [logoFailed, setLogoFailed] = useState(false)
 
   const logoUrl = recipe.logo || ''
-  const officialUrl = recipe.website || ''
   const isBuilding = installing === recipe.slug
+
+  const handleInstall = (e) => {
+    e.stopPropagation()
+    installRecipe(recipe.slug)
+  }
 
   return (
     <div
       onClick={() => selectRecipe(recipe.slug)}
-      className="relative overflow-hidden bg-surface border border-border rounded-xl p-5 flex flex-col gap-3 hover:border-border-hover hover:bg-surface-hover transition-all cursor-pointer active:scale-[0.98]"
+      className="relative overflow-hidden bg-surface rounded-2xl p-5 card-hover cursor-pointer group"
     >
+      {/* Running glow bar */}
       {recipe.running && (
-        <div className={`absolute top-0 left-0 right-0 h-0.5 ${
+        <div className={`absolute top-0 left-0 right-0 h-[2px] ${
           recipe.ready
-            ? 'bg-gradient-to-r from-spark to-lime-400'
-            : 'bg-gradient-to-r from-amber-500 to-amber-400 animate-pulse'
+            ? 'bg-gradient-to-r from-primary via-primary-dim to-primary'
+            : 'bg-gradient-to-r from-warning to-amber-400 animate-pulse'
         }`} />
       )}
 
-      <div className="flex justify-between items-start">
-        <div className="flex items-center gap-2.5">
-          {logoUrl && !logoFailed ? (
-            <img
-              src={logoUrl}
-              alt={`${recipe.name} logo`}
-              className="w-8 h-8 rounded-md object-contain bg-white/95 p-1"
-              onError={() => setLogoFailed(true)}
-            />
-          ) : (
-            <span className="text-2xl">{recipe.icon || '◻'}</span>
-          )}
-          <div>
-            <div className="font-bold text-[15px] text-text leading-tight">{recipe.name}</div>
-            <div className="text-[11px] text-text-dim mt-0.5">by {recipe.author}</div>
+      <div className="flex items-center gap-4">
+        {/* Icon */}
+        {logoUrl && !logoFailed ? (
+          <img
+            src={logoUrl}
+            alt={recipe.name}
+            className="w-16 h-16 rounded-2xl object-contain bg-surface-high p-2.5 shrink-0 transition-transform group-hover:scale-105"
+            onError={() => setLogoFailed(true)}
+          />
+        ) : (
+          <div className="w-16 h-16 rounded-2xl bg-surface-high flex items-center justify-center text-3xl shrink-0 transition-transform group-hover:scale-105">
+            {recipe.icon || '◻'}
           </div>
+        )}
+
+        {/* Name + author + description */}
+        <div className="flex-1 min-w-0">
+          <h3 className="font-bold text-[15px] text-text leading-tight truncate m-0 font-[Manrope]">
+            {recipe.name}
+          </h3>
+          <p className="text-xs text-text-dim mt-0.5 m-0">{recipe.author}</p>
+          <p className="text-xs text-text-muted mt-1.5 m-0 line-clamp-1">{recipe.description}</p>
         </div>
-        {isBuilding && (
-          <span className="text-spark text-xs animate-pulse">● Building...</span>
-        )}
-        {!isBuilding && recipe.running && recipe.ready && (
-          <a
-            href={`http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`}
-            target="_blank"
-            rel="noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="bg-spark/15 text-spark border border-spark/30 px-2.5 py-1 rounded-md text-xs font-semibold no-underline hover:bg-spark/25 transition-all active:scale-95"
-          >
-            Open UI ↗
-          </a>
-        )}
-        {!isBuilding && recipe.running && !recipe.ready && (
-          <span className="text-amber-400 text-xs animate-pulse">● Starting...</span>
-        )}
-        {!isBuilding && !recipe.running && recipe.installed && (
-          <span className="text-text-dim text-xs">● Stopped</span>
-        )}
-      </div>
 
-      <p className="text-[13px] text-text-muted leading-relaxed m-0 flex-1">
-        {recipe.description}
-      </p>
-
-      <div className="flex flex-wrap gap-1">
-        {recipe.tags.slice(0, 4).map((t) => (
-          <span key={t} className="bg-white/[0.06] text-text-dim px-1.5 py-0.5 rounded text-[10px] font-mono">
-            {t}
-          </span>
-        ))}
-      </div>
-
-      <div className="flex items-center justify-between text-[11px] text-text-dim border-t border-border pt-2.5">
-        <div className="flex gap-3">
-          <span>🧠 {recipe.requirements?.min_memory_gb ?? 8}GB</span>
-          <span>💾 {recipe.requirements?.disk_gb ?? 10}GB</span>
-        </div>
-        <div className="flex gap-3 items-center">
-          {officialUrl && (
+        {/* Right: status or action */}
+        <div className="shrink-0 flex flex-col items-end gap-1.5">
+          {isBuilding && (
+            <span className="text-primary text-xs font-medium animate-pulse">
+              <span className="inline-block animate-spin">⟳</span> Building
+            </span>
+          )}
+          {!isBuilding && recipe.running && recipe.ready && (
             <a
-              href={officialUrl}
+              href={`http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`}
               target="_blank"
               rel="noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="text-text-dim hover:text-spark no-underline transition-colors"
+              className="btn-primary px-4 py-1.5 text-xs font-semibold no-underline"
             >
-              Website ↗
+              Open
             </a>
+          )}
+          {!isBuilding && recipe.running && !recipe.ready && (
+            <span className="text-warning text-xs font-medium animate-pulse">Starting...</span>
+          )}
+          {!isBuilding && !recipe.running && !recipe.installed && (
+            <button onClick={handleInstall} className="btn-primary px-4 py-1.5 text-xs font-semibold">
+              Get
+            </button>
+          )}
+          {!isBuilding && !recipe.running && recipe.installed && (
+            <span className="text-text-dim text-xs bg-surface-high px-3 py-1 rounded-lg">Stopped</span>
           )}
         </div>
       </div>

@@ -1,5 +1,11 @@
 import { create } from 'zustand'
 
+const getInitialTheme = () => {
+  const saved = localStorage.getItem('sparkdeck-theme')
+  if (saved === 'light' || saved === 'dark') return saved
+  return 'dark'
+}
+
 export const useStore = create((set, get) => ({
   recipes: [],
   metrics: null,
@@ -11,6 +17,14 @@ export const useStore = create((set, get) => ({
   selectedRecipe: null,
   containerLogs: {},
   _logWs: null,
+  theme: getInitialTheme(),
+
+  toggleTheme: () => {
+    const next = get().theme === 'dark' ? 'light' : 'dark'
+    localStorage.setItem('sparkdeck-theme', next)
+    document.documentElement.setAttribute('data-theme', next)
+    set({ theme: next })
+  },
 
   setRecipes: (recipes) => set({ recipes }),
   setMetrics: (metrics) => set({ metrics }),
