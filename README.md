@@ -1,35 +1,8 @@
 # SparkDeck
 
-A Docker-native AI app launcher for NVIDIA DGX Spark. Browse a catalog of verified recipes and deploy AI workloads with one click.
+**Your AI app store for NVIDIA DGX Spark.** Browse, install, and launch AI apps with one click.
 
-## Why SparkDeck?
-
-- **Pinokio** doesn't work on DGX Spark (ARM64 incompatible)
-- **NVIDIA Sync** has Custom Scripts but no catalog or community sharing
-- **NVIDIA Playbooks** are great but manual — copy-paste terminal commands
-
-SparkDeck gives you a web UI to browse, install, launch, and monitor Docker-based AI apps on your Spark.
-
-## Features
-
-- **Recipe Catalog** — browse and search AI apps by category
-- **One-Click Install** — pull and start Docker containers with a single click
-- **Live Build Logs** — stream container build output via WebSocket
-- **Running Apps Dashboard** — see what's running, open UIs, stop containers
-- **System Monitor** — live GPU utilization, RAM, disk, and temperature charts
-
-## Included Recipes
-
-| Recipe | Category | Port | GPU |
-|--------|----------|------|-----|
-| Open WebUI + Ollama | LLM | 8080 | Yes |
-| LocalAI | Multi-Modal API | 8081 | Yes |
-| AnythingLLM | RAG / Agents | 3001 | No |
-| Flowise | Workflow Builder | 3002 | No |
-| Langflow | Visual IDE | 7860 | No |
-| ComfyUI | Image / Video Gen | 8188 | Yes |
-
-All recipes use Docker images with ARM64 support. ComfyUI uses a [custom image](https://github.com/WaxacaBytes/comfyui-spark) pre-built for DGX Spark with CUDA 13 and Blackwell support.
+![SparkDeck](SparkDeck.png)
 
 ## Install
 
@@ -37,71 +10,45 @@ All recipes use Docker images with ARM64 support. ComfyUI uses a [custom image](
 curl -fsSL https://raw.githubusercontent.com/WaxacaBytes/sparkdeck/main/install.sh | bash
 ```
 
-That's it. SparkDeck clones to `~/sparkdeck`, sets up a Python venv, installs dependencies, and starts the server.
+Open **http://localhost:9000** (or `http://<your-spark-ip>:9000` from another device).
 
-Then open **http://localhost:9000** in your browser (or `http://<spark-ip>:9000` from another machine).
+Run the same command again to update.
 
-Running the same command again will update an existing installation.
+## What it does
 
-### Uninstall
+- Browse a catalog of AI apps ready for DGX Spark
+- Install any app with one click — no terminal needed
+- Launch, stop, and monitor running apps from the dashboard
+- Track GPU, RAM, disk, and temperature in real time
+
+## Available apps
+
+| App | What it does | GPU |
+|-----|-------------|-----|
+| Open WebUI + Ollama | Chat with local LLMs | Yes |
+| vLLM (Qwen 3.5) | High-performance LLM inference (8 model sizes) | Yes |
+| ComfyUI | Image & video generation workflows | Yes |
+| FaceFusion | Face swap & enhancement | Yes |
+| Hunyuan3D 2.1 | Image to 3D model generation | Yes |
+| TRELLIS 2 | Text/image to 3D generation | Yes |
+| LocalAI | OpenAI-compatible API server | Yes |
+| AnythingLLM | RAG & AI agents | No |
+| Flowise | Drag-and-drop LLM workflows | No |
+| Langflow | Visual LLM app builder | No |
+
+All apps run as Docker containers with ARM64 + CUDA support.
+
+## Uninstall
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/WaxacaBytes/sparkdeck/main/uninstall.sh | bash
 ```
 
-Stops and removes all recipe containers, volumes, images, and the `~/sparkdeck` directory. Does not touch Docker itself.
-
-## Manual Setup
-
-```bash
-# Backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn daemon.main:app --host 0.0.0.0 --port 9000
-
-# Frontend (for development)
-cd frontend
-npm install
-npm run dev
-```
-
-## Project Structure
-
-```
-sparkdeck/
-├── daemon/                 # FastAPI backend
-│   ├── main.py             # App entry point
-│   ├── config.py           # Settings (port, paths)
-│   ├── db.py               # SQLite (installed recipes)
-│   ├── routers/            # API endpoints
-│   │   ├── recipes.py      # GET /api/recipes
-│   │   ├── containers.py   # POST install/launch/stop, WS build logs
-│   │   └── system.py       # GET /api/system/metrics, WS live metrics
-│   ├── services/           # Business logic
-│   │   ├── docker_service.py    # Docker compose orchestration
-│   │   ├── registry_service.py  # Recipe YAML loader
-│   │   └── monitor_service.py   # nvidia-smi, RAM, disk
-│   └── models/             # Pydantic schemas
-├── frontend/               # React + Vite + Tailwind
-│   └── src/
-│       ├── pages/          # Catalog, Running, System
-│       ├── components/     # RecipeCard, BuildLog, SystemBar
-│       └── store.js        # Zustand state management
-├── registry/recipes/       # Recipe definitions
-│   └── <slug>/
-│       ├── recipe.yaml     # Metadata
-│       └── docker-compose.yml
-├── planning/               # Design docs
-├── requirements.txt
-└── run.sh
-```
+Removes all SparkDeck containers, volumes, and files. Does not touch Docker itself.
 
 ## Requirements
 
-- NVIDIA DGX Spark (aarch64, CUDA 13)
-- Python 3.12+
-- Node 22+ (for frontend development only)
+- NVIDIA DGX Spark
 - Docker 28+
 
 ## License
