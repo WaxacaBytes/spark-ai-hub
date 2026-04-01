@@ -1,20 +1,21 @@
-name: "Qwen3.5-27B GPTQ-Int4 (vLLM)"
+name: "Qwen3.5-27B GPTQ-Int4"
 slug: vllm-qwen35-27b-int4
 version: "1.0.0"
-description: "Qwen3.5-27B quantized to GPTQ Int4 for faster inference (~2x vs FP8). Top coding model with multimodal vision, thinking, and tool use. Served via OpenAI-compatible API."
+description: "Qwen3.5-27B GPTQ-Int4 with official vLLM reasoning parser and tool calling. Optimized for DGX Spark."
 author: "Alibaba Cloud"
-source: "community"
-website: "https://qwen.ai/blog?id=qwen3.5"
+source: "official"
+website: "https://docs.vllm.ai/projects/recipes/en/latest/Qwen/Qwen3.5.html"
 upstream: "https://huggingface.co/Qwen/Qwen3.5-27B-GPTQ-Int4"
 category: llm
 tags:
   - llm
   - multimodal
   - vision
+  - reasoning
   - coding
   - tool-use
   - vllm
-  - gptq
+  - nvidia-official
 logo: "/logos/qwen.png"
 requirements:
   min_memory_gb: 25
@@ -23,20 +24,18 @@ requirements:
   cuda_compute: "12.1"
 ui:
   type: api-only
-  port: 8016
-  path: "/v1"
+  port: 9001
+  path: "/v1/models"
 docker:
   build: false
-  build_time_minutes: 10
+  build_time_minutes: 5
   gpu: true
 status: community-verified
 tested_on:
   dgx_os: "7.2"
-  date: "2026-03-20"
+  date: "2026-03-31"
 integration:
-  api_url: "http://<SPARK_IP>:8016/v1"
+  api_url: "http://<SPARK_IP>:9001/v1"
   model_id: "Qwen/Qwen3.5-27B-GPTQ-Int4"
   api_key: "not-needed"
-  max_context: "262144"
-  max_output_tokens: "16384"
-  curl_example: "curl http://<SPARK_IP>:8016/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"Qwen/Qwen3.5-27B-GPTQ-Int4\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"Qwen/Qwen3.5-27B-GPTQ-Int4\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"

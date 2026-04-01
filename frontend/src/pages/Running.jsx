@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useStore } from '../store'
+import { useThemedLogo } from '../hooks/useThemedLogo'
 
 export default function Running() {
   const recipes = useStore((s) => s.recipes)
@@ -59,7 +60,7 @@ export default function Running() {
 function RunningCard({ recipe, onSelect, onStop }) {
   const [logoFailed, setLogoFailed] = useState(false)
   const [stopping, setStopping] = useState(false)
-  const logoUrl = recipe.logo || ''
+  const logoUrl = useThemedLogo(recipe.logo)
   const isReady = recipe.ready
   const borderColor = isReady ? 'border-l-primary' : 'border-l-warning'
   const glowStyle = isReady ? { boxShadow: 'var(--glow-running)' } : { boxShadow: 'var(--glow-starting)' }
@@ -148,7 +149,7 @@ function RunningCard({ recipe, onSelect, onStop }) {
 function StoppedCard({ recipe, onSelect, onLaunch }) {
   const [logoFailed, setLogoFailed] = useState(false)
   const [launching, setLaunching] = useState(false)
-  const logoUrl = recipe.logo || ''
+  const logoUrl = useThemedLogo(recipe.logo)
 
   const handleLaunch = async (e) => {
     e.stopPropagation()

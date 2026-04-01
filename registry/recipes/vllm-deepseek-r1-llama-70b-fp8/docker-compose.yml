@@ -1,0 +1,35 @@
+services:
+  vllm:
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: sparkdeck-vllm-deepseek-r1-llama-70b-fp8
+    ports:
+      - "9001:8000"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
+    ipc: host
+    command:
+      - --model
+      - RedHatAI/DeepSeek-R1-Distill-Llama-70B-FP8-dynamic
+      - --port
+      - "8000"
+      - --max-model-len
+      - "32768"
+      - --enable-prefix-caching
+      - --kv-cache-dtype
+      - fp8_e4m3
+      - --gpu-memory-utilization
+      - "0.80"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

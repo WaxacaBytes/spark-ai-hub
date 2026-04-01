@@ -1,0 +1,39 @@
+name: "Llama 4 Scout NVFP4"
+slug: vllm-llama4-scout-nvfp4
+version: "1.0.0"
+description: "Meta Llama 4 Scout, 109B MoE (17B active, 16 experts), NVFP4 quantized. Multimodal (text+image+video), up to 1M context."
+author: "Meta"
+source: "official"
+website: "https://www.llama.com/docs/model-cards-and-prompt-formats/llama4/"
+upstream: "https://huggingface.co/nvidia/Llama-4-Scout-17B-16E-Instruct-NVFP4"
+category: llm
+tags:
+  - llm
+  - moe
+  - multimodal
+  - vision
+  - vllm
+  - nvfp4
+logo: "/logos/meta.png"
+requirements:
+  min_memory_gb: 30
+  recommended_memory_gb: 50
+  disk_gb: 40
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: false
+  build_time_minutes: 10
+  gpu: true
+status: community-verified
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-04-01"
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "nvidia/Llama-4-Scout-17B-16E-Instruct-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Llama-4-Scout-17B-16E-Instruct-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"

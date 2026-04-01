@@ -1,0 +1,36 @@
+services:
+  vllm:
+    image: vllm/vllm-openai:cu130-nightly
+    container_name: sparkdeck-vllm-glm47-flash
+    ports:
+      - "8052:8000"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
+    ipc: host
+    command:
+      - --model
+      - zai-org/GLM-4.7-Flash
+      - --port
+      - "8000"
+      - --max-model-len
+      - "131072"
+      - --enable-prefix-caching
+      - --trust-remote-code
+      - --kv-cache-dtype
+      - fp8_e4m3
+      - --gpu-memory-utilization
+      - "0.50"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

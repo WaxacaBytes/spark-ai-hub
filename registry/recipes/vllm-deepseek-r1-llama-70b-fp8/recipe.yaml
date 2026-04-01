@@ -1,0 +1,38 @@
+name: "DeepSeek R1 Distill Llama 70B FP8"
+slug: vllm-deepseek-r1-llama-70b-fp8
+version: "1.0.0"
+description: "DeepSeek R1 reasoning distilled into Llama 3.3 70B, FP8 quantized. Top reasoning among open dense models."
+author: "DeepSeek"
+source: "community"
+website: "https://github.com/deepseek-ai/DeepSeek-R1"
+upstream: "https://huggingface.co/RedHatAI/DeepSeek-R1-Distill-Llama-70B-FP8-dynamic"
+category: llm
+tags:
+  - llm
+  - reasoning
+  - coding
+  - vllm
+  - fp8
+logo: "/logos/deepseek.png"
+requirements:
+  min_memory_gb: 75
+  recommended_memory_gb: 90
+  disk_gb: 75
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: false
+  build_time_minutes: 10
+  gpu: true
+status: community-verified
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-04-01"
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "RedHatAI/DeepSeek-R1-Distill-Llama-70B-FP8-dynamic"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"RedHatAI/DeepSeek-R1-Distill-Llama-70B-FP8-dynamic\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"

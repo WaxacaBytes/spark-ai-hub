@@ -11,6 +11,7 @@ export const useStore = create((set, get) => ({
   metrics: null,
   buildLogs: {},
   installing: null,
+  updating: null,
   removing: null,
   purging: null,
   _ws: null,
@@ -154,7 +155,44 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  _pollBuildStatus: async (slug) => {
+  updateRecipe: async (slug) => {
+    set({ updating: slug, buildLogs: { ...get().buildLogs, [slug]: [] } })
+
+    try {
+      await fetch(`/api/recipes/${slug}/update`, { method: 'POST' })
+    } catch (e) {
+      console.error('Update POST failed:', e)
+      set({ updating: null })
+      return
+    }
+
+    const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const ws = new WebSocket(`${wsProto}//${location.host}/ws/build/${slug}`)
+    set({ _ws: ws })
+
+    ws.onmessage = (e) => {
+      if (e.data === '[done]') {
+        set({ updating: null, _ws: null })
+        get().fetchRecipes()
+        setTimeout(() => get().connectLogs(slug), 1000)
+        return
+      }
+      get().addBuildLine(slug, e.data)
+    }
+
+    ws.onerror = () => {
+      console.warn('Update WebSocket error, falling back to polling')
+      get()._pollBuildStatus(slug, 'updating')
+    }
+
+    ws.onclose = () => {
+      if (get().updating === slug) {
+        get()._pollBuildStatus(slug, 'updating')
+      }
+    }
+  },
+
+  _pollBuildStatus: async (slug, stateKey = 'installing') => {
     const poll = async () => {
       try {
         const res = await fetch(`/api/recipes/${slug}/build-status`)
@@ -164,13 +202,13 @@ export const useStore = create((set, get) => ({
           buildLogs: { ...s.buildLogs, [slug]: data.lines },
         }))
         if (data.status === 'done') {
-          set({ installing: null })
+          set({ [stateKey]: null })
           get().fetchRecipes()
         } else {
           setTimeout(poll, 1000)
         }
       } catch {
-        set({ installing: null })
+        set({ [stateKey]: null })
       }
     }
     poll()

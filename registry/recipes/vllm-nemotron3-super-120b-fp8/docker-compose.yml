@@ -1,0 +1,37 @@
+services:
+  vllm:
+    image: nvcr.io/nvidia/vllm:26.02-py3
+    container_name: sparkdeck-vllm-nemotron3-super-120b-fp8
+    ports:
+      - "9001:8000"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
+    ipc: host
+    command:
+      - vllm
+      - serve
+      - nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8
+      - --port
+      - "8000"
+      - --max-model-len
+      - "131072"
+      - --enable-prefix-caching
+      - --trust-remote-code
+      - --kv-cache-dtype
+      - fp8_e4m3
+      - --gpu-memory-utilization
+      - "0.80"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

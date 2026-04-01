@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
+import { useThemedLogo } from '../hooks/useThemedLogo'
 
 export default function RecipeDetail() {
   const selectedRecipe = useStore((s) => s.selectedRecipe)
   const recipes = useStore((s) => s.recipes)
   const clearRecipe = useStore((s) => s.clearRecipe)
   const installing = useStore((s) => s.installing)
+  const updating = useStore((s) => s.updating)
   const removing = useStore((s) => s.removing)
   const installRecipe = useStore((s) => s.installRecipe)
+  const updateRecipe = useStore((s) => s.updateRecipe)
   const launchRecipe = useStore((s) => s.launchRecipe)
   const stopRecipe = useStore((s) => s.stopRecipe)
   const removeRecipe = useStore((s) => s.removeRecipe)
@@ -25,6 +28,8 @@ export default function RecipeDetail() {
   const [stopping, setStopping] = useState(false)
 
   const isBuilding = installing === recipe?.slug
+  const isUpdating = updating === recipe?.slug
+  const isBusy = isBuilding || isUpdating
 
   useEffect(() => {
     if (recipe?.running) {
@@ -47,10 +52,10 @@ export default function RecipeDetail() {
   }
 
   const isRemoving = removing === recipe.slug
-  const logoUrl = recipe.logo || ''
+  const logoUrl = useThemedLogo(recipe.logo)
   const isReady = recipe.ready
   const cLogs = containerLogs[recipe.slug] || []
-  const logLines = isBuilding ? (buildLogs[recipe.slug] || []) : cLogs
+  const logLines = isBusy ? (buildLogs[recipe.slug] || []) : cLogs
 
   const handleRemove = () => {
     if (window.confirm(`Uninstall ${recipe.name}? This removes containers, images, and volumes.`)) {
@@ -93,9 +98,10 @@ export default function RecipeDetail() {
                 <span key={cat} className="text-[10px] font-label text-secondary bg-secondary/10 px-2 py-0.5 rounded-full">{cat}</span>
               ))}
               {isBuilding && <StatusPill color="primary" pulse>Building...</StatusPill>}
-              {!isBuilding && recipe.running && isReady && <StatusPill color="success">Running</StatusPill>}
-              {!isBuilding && recipe.running && !isReady && <StatusPill color="warning" pulse>Starting...</StatusPill>}
-              {!isBuilding && !recipe.running && recipe.installed && <StatusPill color="dim">Stopped</StatusPill>}
+              {isUpdating && <StatusPill color="primary" pulse>Updating...</StatusPill>}
+              {!isBusy && recipe.running && isReady && <StatusPill color="success">Running</StatusPill>}
+              {!isBusy && recipe.running && !isReady && <StatusPill color="warning" pulse>Starting...</StatusPill>}
+              {!isBusy && !recipe.running && recipe.installed && <StatusPill color="dim">Stopped</StatusPill>}
             </div>
           </div>
 
@@ -108,7 +114,7 @@ export default function RecipeDetail() {
 
           {/* Actions */}
           <div className="shrink-0 flex items-center gap-2">
-            {!recipe.installed && !isBuilding && (
+            {!recipe.installed && !isBusy && (
               <button onClick={() => installRecipe(recipe.slug)} className="btn-primary px-6 py-2.5 text-sm font-bold">
                 Install
               </button>
@@ -118,10 +124,18 @@ export default function RecipeDetail() {
                 <span className="inline-block animate-spin mr-1">⟳</span>Building
               </div>
             )}
-            {recipe.installed && !recipe.running && !isBuilding && (
+            {isUpdating && (
+              <div className="px-5 py-2.5 bg-primary/10 rounded-xl text-sm text-primary font-semibold font-label">
+                <span className="inline-block animate-spin mr-1">⟳</span>Updating
+              </div>
+            )}
+            {recipe.installed && !recipe.running && !isBusy && (
               <>
                 <button disabled={launching || isRemoving} onClick={handleLaunch} className="btn-primary px-6 py-2.5 text-sm font-bold">
                   {launching ? '...' : '▶ Launch'}
+                </button>
+                <button disabled={launching || isRemoving} onClick={() => updateRecipe(recipe.slug)} className="px-4 py-2.5 bg-surface-high text-text-muted border-none rounded-xl text-sm font-semibold cursor-pointer transition-all hover:text-primary hover:bg-surface-highest disabled:opacity-50">
+                  ↻ Update
                 </button>
                 <button disabled={isRemoving} onClick={handleRemove} className="px-4 py-2.5 bg-error-surface text-error border-none rounded-xl text-sm font-semibold cursor-pointer transition-all disabled:opacity-50">
                   {isRemoving ? '...' : 'Uninstall'}
@@ -152,14 +166,15 @@ export default function RecipeDetail() {
       <div className="flex-1 min-h-0 flex">
         {/* Left: About */}
         <div className="flex-1 overflow-y-auto">
-          <AboutTab recipe={recipe} purging={purging} purgeRecipe={purgeRecipe} isBuilding={isBuilding} />
+          <AboutTab recipe={recipe} purging={purging} purgeRecipe={purgeRecipe} isBuilding={isBusy} />
         </div>
 
         {/* Right: Terminal */}
         <div className="w-[420px] xl:w-[500px] shrink-0 border-l border-outline-dim flex flex-col">
           <TerminalPanel
             lines={logLines}
-            isBuilding={isBuilding}
+            isBuilding={isBusy}
+            isUpdating={isUpdating}
             isRunning={recipe.running}
             isReady={isReady}
             hasLogs={cLogs.length > 0}
@@ -268,6 +283,8 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
         </section>
       )}
 
+      <ComposeEditor slug={recipe.slug} />
+
       {!recipe.installed && !isBuilding && recipe.has_leftovers && (
         <button
           disabled={purging === recipe.slug}
@@ -278,6 +295,90 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
         </button>
       )}
     </div>
+  )
+}
+
+/* ═══ Compose Editor ═══ */
+function ComposeEditor({ slug }) {
+  const [open, setOpen] = useState(false)
+  const [content, setContent] = useState('')
+  const [original, setOriginal] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const load = async () => {
+    try {
+      const res = await fetch(`/api/recipes/${slug}/compose`)
+      if (res.ok) {
+        const data = await res.json()
+        setContent(data.content)
+        setOriginal(data.content)
+      }
+    } catch (e) {
+      console.error('Failed to load compose file:', e)
+    }
+  }
+
+  const toggle = () => {
+    if (!open) load()
+    setOpen(!open)
+    setSaved(false)
+  }
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/recipes/${slug}/compose`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      })
+      if (res.ok) {
+        setOriginal(content)
+        setSaved(true)
+        setTimeout(() => setSaved(false), 2000)
+      }
+    } catch (e) {
+      console.error('Failed to save compose file:', e)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const dirty = content !== original
+
+  return (
+    <section>
+      <button
+        onClick={toggle}
+        className="flex items-center gap-2 text-sm font-bold text-text font-display bg-transparent border-none cursor-pointer p-0 hover:text-primary transition-colors"
+      >
+        <svg className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+        docker-compose.yml
+      </button>
+      {open && (
+        <div className="mt-2">
+          <textarea
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            spellCheck={false}
+            className="w-full h-64 bg-[#08080F] text-gray-300 font-mono text-[11px] leading-5 p-3 rounded-xl border border-outline-dim resize-y focus:outline-none focus:border-primary/50"
+          />
+          <div className="flex items-center gap-2 mt-2">
+            <button
+              disabled={!dirty || saving}
+              onClick={save}
+              className="px-4 py-1.5 bg-primary text-white border-none rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-40 disabled:cursor-default transition-all"
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+            {saved && <span className="text-xs text-success font-label">Saved! Reinstall or relaunch to apply.</span>}
+          </div>
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -327,7 +428,7 @@ function fallbackCopy(text, setCopied) {
 }
 
 /* ═══ Terminal Panel ═══ */
-function TerminalPanel({ lines, isBuilding, isRunning, isReady, hasLogs, scrollRef }) {
+function TerminalPanel({ lines, isBuilding, isUpdating, isRunning, isReady, hasLogs, scrollRef }) {
   const [autoScroll, setAutoScroll] = useState(true)
 
   useEffect(() => {
@@ -354,11 +455,11 @@ function TerminalPanel({ lines, isBuilding, isRunning, isReady, hasLogs, scrollR
             <span className="w-2.5 h-2.5 rounded-full bg-[#28c840]/70" />
           </div>
           <span className="text-[10px] text-gray-500 font-mono">
-            {isBuilding ? 'build' : 'container'} — logs
+            {isUpdating ? 'update' : isBuilding ? 'build' : 'container'} — logs
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {isBuilding && <span className="text-[10px] text-primary animate-pulse font-mono">● building</span>}
+          {isBuilding && <span className="text-[10px] text-primary animate-pulse font-mono">{isUpdating ? '● updating' : '● building'}</span>}
           {!isBuilding && isRunning && isReady && <span className="text-[10px] text-emerald-400 font-mono">● running</span>}
           {!isBuilding && isRunning && !isReady && <span className="text-[10px] text-amber-400 animate-pulse font-mono">● starting</span>}
         </div>

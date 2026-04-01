@@ -7,6 +7,9 @@ services:
     volumes:
       - hunyuan3d-cache:/root/.cache/huggingface
       - hunyuan3d-output:/workspace/Hunyuan3D-2.1/output
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
     deploy:
       resources:
         reservations:

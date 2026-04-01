@@ -16,6 +16,8 @@ services:
       TRITON_CACHE_DIR: "/workspace/cache/triton"
       TORCH_HOME: "/workspace/cache/torch"
       ATTN_BACKEND: "flash-attn"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
     deploy:
       resources:
         reservations:

@@ -1,20 +1,21 @@
-name: "Qwen3.5-35B-A3B MoE (vLLM)"
+name: "Qwen3.5-35B-A3B MoE FP8"
 slug: vllm-qwen35-35b-a3b
 version: "1.0.0"
-description: "Mixture-of-Experts multimodal LLM (35B total, 3B active) with vision, thinking, and tool use. FP8, served via OpenAI-compatible API."
+description: "Qwen3.5-35B-A3B MoE FP8 with official vLLM reasoning parser and tool calling. Optimized for DGX Spark."
 author: "Alibaba Cloud"
-source: "community"
-website: "https://qwen.ai/blog?id=qwen3.5"
+source: "official"
+website: "https://docs.vllm.ai/projects/recipes/en/latest/Qwen/Qwen3.5.html"
 upstream: "https://huggingface.co/Qwen/Qwen3.5-35B-A3B-FP8"
 category: llm
 tags:
   - llm
   - multimodal
   - vision
+  - reasoning
   - coding
   - tool-use
   - vllm
-  - moe
+  - nvidia-official
 logo: "/logos/qwen.png"
 requirements:
   min_memory_gb: 49
@@ -23,18 +24,18 @@ requirements:
   cuda_compute: "12.1"
 ui:
   type: api-only
-  port: 8014
-  path: "/v1"
+  port: 8047
+  path: "/v1/models"
 docker:
   build: false
-  build_time_minutes: 10
+  build_time_minutes: 5
   gpu: true
 status: community-verified
 tested_on:
   dgx_os: "7.2"
-  date: "2026-03-20"
+  date: "2026-03-31"
 integration:
-  api_url: "http://<SPARK_IP>:8014/v1"
+  api_url: "http://<SPARK_IP>:8047/v1"
   model_id: "Qwen/Qwen3.5-35B-A3B-FP8"
   api_key: "not-needed"
-  curl_example: "curl http://<SPARK_IP>:8014/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"Qwen/Qwen3.5-35B-A3B-FP8\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+  curl_example: "curl http://<SPARK_IP>:8047/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"Qwen/Qwen3.5-35B-A3B-FP8\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"

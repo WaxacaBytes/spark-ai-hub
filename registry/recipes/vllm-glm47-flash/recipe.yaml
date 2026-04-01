@@ -1,0 +1,38 @@
+name: "GLM-4.7 Flash"
+slug: vllm-glm47-flash
+version: "1.0.0"
+description: "Zhipu GLM-4.7 Flash, 30B-A3B MoE. Fast inference with 3B active params, 131K context. Multilingual (EN/ZH)."
+author: "Zhipu AI"
+source: "official"
+website: "https://huggingface.co/zai-org/GLM-4.7-Flash"
+upstream: "https://huggingface.co/zai-org/GLM-4.7-Flash"
+category: llm
+tags:
+  - llm
+  - moe
+  - multilingual
+  - coding
+  - vllm
+logo: "/logos/zhipu.png"
+requirements:
+  min_memory_gb: 40
+  recommended_memory_gb: 50
+  disk_gb: 65
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8052
+  path: "/v1/models"
+docker:
+  build: false
+  build_time_minutes: 5
+  gpu: true
+status: community-verified
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-04-01"
+integration:
+  api_url: "http://<SPARK_IP>:8052/v1"
+  model_id: "zai-org/GLM-4.7-Flash"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:8052/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"zai-org/GLM-4.7-Flash\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"

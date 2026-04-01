@@ -1,0 +1,38 @@
+name: "Gemma 3 27B"
+slug: vllm-gemma3-27b
+version: "1.0.0"
+description: "Google Gemma 3 27B instruction-tuned. Multimodal (text+image), 128K context, 140+ languages."
+author: "Google"
+source: "official"
+website: "https://ai.google.dev/gemma"
+upstream: "https://huggingface.co/google/gemma-3-27b-it"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - multilingual
+  - vllm
+logo: "/logos/google.png"
+requirements:
+  min_memory_gb: 55
+  recommended_memory_gb: 65
+  disk_gb: 60
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8057
+  path: "/v1/models"
+docker:
+  build: false
+  build_time_minutes: 5
+  gpu: true
+status: community-verified
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-04-01"
+integration:
+  api_url: "http://<SPARK_IP>:8057/v1"
+  model_id: "google/gemma-3-27b-it"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:8057/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"google/gemma-3-27b-it\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"

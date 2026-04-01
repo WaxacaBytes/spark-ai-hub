@@ -1,8 +1,11 @@
 import asyncio
+from pathlib import Path
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 
 from daemon.services.docker_service import (
     install_recipe,
+    update_recipe,
     launch_recipe,
     stop_recipe,
     remove_recipe,
@@ -14,7 +17,7 @@ from daemon.services.docker_service import (
     is_ready,
     start_health_check,
 )
-from daemon.services.registry_service import get_recipe
+from daemon.services.registry_service import get_recipe, get_recipe_dir
 from daemon.models.container import ContainerInfo
 
 router = APIRouter(tags=["containers"])
@@ -45,6 +48,30 @@ async def install(slug: str):
             _builds[slug]["done"] = True
 
     asyncio.create_task(_run_build())
+    return {"status": "building", "slug": slug}
+
+
+@router.post("/api/recipes/{slug}/update")
+async def update(slug: str):
+    recipe = get_recipe(slug)
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+
+    if slug in _builds and not _builds[slug]["done"]:
+        return {"status": "building", "slug": slug}
+
+    _builds[slug] = {"lines": [], "done": False}
+
+    async def _run_update():
+        try:
+            async for line in update_recipe(slug):
+                _builds[slug]["lines"].append(line)
+        except Exception as e:
+            _builds[slug]["lines"].append(f"[error] {e}")
+        finally:
+            _builds[slug]["done"] = True
+
+    asyncio.create_task(_run_update())
     return {"status": "building", "slug": slug}
 
 
@@ -100,6 +127,31 @@ async def purge(slug: str):
         raise HTTPException(status_code=404, detail="Recipe not found")
     result = await purge_recipe(slug)
     return {"status": result, "slug": slug}
+
+
+class ComposeBody(BaseModel):
+    content: str
+
+
+@router.get("/api/recipes/{slug}/compose")
+async def get_compose(slug: str):
+    recipe_dir = get_recipe_dir(slug)
+    if not recipe_dir:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    compose_file = recipe_dir / "docker-compose.yml"
+    if not compose_file.is_file():
+        raise HTTPException(status_code=404, detail="docker-compose.yml not found")
+    return {"content": compose_file.read_text()}
+
+
+@router.put("/api/recipes/{slug}/compose")
+async def put_compose(slug: str, body: ComposeBody):
+    recipe_dir = get_recipe_dir(slug)
+    if not recipe_dir:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    compose_file = recipe_dir / "docker-compose.yml"
+    compose_file.write_text(body.content)
+    return {"status": "saved"}
 
 
 @router.get("/api/containers", response_model=list[ContainerInfo])

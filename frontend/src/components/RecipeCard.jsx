@@ -1,14 +1,18 @@
 import { useState } from 'react'
 import { useStore } from '../store'
+import { useThemedLogo } from '../hooks/useThemedLogo'
 
 export default function RecipeCard({ recipe }) {
   const selectRecipe = useStore((s) => s.selectRecipe)
   const installing = useStore((s) => s.installing)
+  const updating = useStore((s) => s.updating)
   const installRecipe = useStore((s) => s.installRecipe)
   const [logoFailed, setLogoFailed] = useState(false)
 
-  const logoUrl = recipe.logo || ''
+  const logoUrl = useThemedLogo(recipe.logo)
   const isBuilding = installing === recipe.slug
+  const isUpdating = updating === recipe.slug
+  const isBusy = isBuilding || isUpdating
 
   const handleInstall = (e) => {
     e.stopPropagation()
@@ -76,7 +80,12 @@ export default function RecipeCard({ recipe }) {
               <span className="inline-block animate-spin">⟳</span> Building
             </span>
           )}
-          {!isBuilding && recipe.running && recipe.ready && (
+          {isUpdating && (
+            <span className="text-primary text-xs font-medium font-label animate-pulse">
+              <span className="inline-block animate-spin">⟳</span> Updating
+            </span>
+          )}
+          {!isBusy && recipe.running && recipe.ready && (
             <a
               href={`http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`}
               target="_blank"
@@ -87,15 +96,15 @@ export default function RecipeCard({ recipe }) {
               Open
             </a>
           )}
-          {!isBuilding && recipe.running && !recipe.ready && (
+          {!isBusy && recipe.running && !recipe.ready && (
             <span className="text-warning text-[11px] font-medium font-label animate-pulse">Starting...</span>
           )}
-          {!isBuilding && !recipe.running && !recipe.installed && (
+          {!isBusy && !recipe.running && !recipe.installed && (
             <button onClick={handleInstall} className="btn-primary px-3.5 py-1.5 text-[11px] font-semibold">
               Install
             </button>
           )}
-          {!isBuilding && !recipe.running && recipe.installed && (
+          {!isBusy && !recipe.running && recipe.installed && (
             <span className="text-text-dim text-[11px] font-label bg-surface-high px-2.5 py-1 rounded-lg">Stopped</span>
           )}
         </div>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import os
 import subprocess
 from pathlib import Path
 from typing import AsyncGenerator
@@ -124,6 +125,75 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
         yield f"[sparkdeck] Install failed with exit code {proc.returncode}"
 
 
+async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
+    recipe_dir = get_recipe_dir(slug)
+    if not recipe_dir:
+        yield f"[error] Recipe directory not found for {slug}"
+        return
+
+    compose_file = recipe_dir / "docker-compose.yml"
+    if not compose_file.is_file():
+        yield f"[error] docker-compose.yml not found in {recipe_dir}"
+        return
+
+    # Phase 1: Pull latest images
+    yield f"[sparkdeck] Pulling latest images for {slug}..."
+    pull_cmd = _compose_cmd(slug, recipe_dir) + ["pull"]
+    yield f"[sparkdeck] Running: {' '.join(pull_cmd)}"
+
+    proc = await asyncio.create_subprocess_exec(
+        *pull_cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        cwd=str(recipe_dir),
+    )
+
+    async for line in proc.stdout:
+        text = line.decode(errors="replace").rstrip()
+        if '\r' in text:
+            text = text.rsplit('\r', 1)[-1]
+        if text:
+            yield text
+
+    await proc.wait()
+
+    if proc.returncode != 0:
+        yield f"[sparkdeck] Pull failed with exit code {proc.returncode}"
+        return
+
+    # Phase 2: Recreate containers with new images
+    yield f"[sparkdeck] Recreating containers for {slug}..."
+    up_cmd = _compose_cmd(slug, recipe_dir) + ["up", "-d"]
+    yield f"[sparkdeck] Running: {' '.join(up_cmd)}"
+
+    proc = await asyncio.create_subprocess_exec(
+        *up_cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        cwd=str(recipe_dir),
+    )
+
+    async for line in proc.stdout:
+        text = line.decode(errors="replace").rstrip()
+        if '\r' in text:
+            text = text.rsplit('\r', 1)[-1]
+        if text:
+            yield text
+
+    await proc.wait()
+
+    if proc.returncode == 0:
+        yield f"[sparkdeck] {slug} updated successfully!"
+    else:
+        yield f"[sparkdeck] Update failed with exit code {proc.returncode}"
+
+
+def _offline_env() -> dict:
+    """Environment with HuggingFace offline flags for launch time."""
+    env = {**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
+    return env
+
+
 async def launch_recipe(slug: str) -> str:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
@@ -135,6 +205,7 @@ async def launch_recipe(slug: str) -> str:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         cwd=str(recipe_dir),
+        env=_offline_env(),
     )
     output = await proc.stdout.read()
     await proc.wait()

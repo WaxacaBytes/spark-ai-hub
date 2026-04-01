@@ -1,0 +1,39 @@
+name: "Llama 3.1 8B Instruct FP8"
+slug: vllm-llama31-8b-fp8
+version: "1.0.0"
+description: "Meta's Llama 3.1 8B Instruct, FP8 quantized by NVIDIA. Served via OpenAI-compatible API."
+author: "Meta"
+source: "official"
+website: "https://build.nvidia.com/spark/vllm"
+upstream: "https://huggingface.co/nvidia/Llama-3.1-8B-Instruct-FP8"
+category: llm
+tags:
+  - llm
+  - coding
+  - tool-use
+  - vllm
+  - fp8
+  - nvidia-official
+logo: "/logos/meta.png"
+requirements:
+  min_memory_gb: 20
+  recommended_memory_gb: 24
+  disk_gb: 30
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8020
+  path: "/v1/models"
+docker:
+  build: false
+  build_time_minutes: 5
+  gpu: true
+status: community-verified
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-03-31"
+integration:
+  api_url: "http://<SPARK_IP>:8020/v1"
+  model_id: "nvidia/Llama-3.1-8B-Instruct-FP8"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:8020/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Llama-3.1-8B-Instruct-FP8\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
