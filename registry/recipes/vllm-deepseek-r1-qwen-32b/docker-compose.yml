@@ -1,9 +1,9 @@
 services:
   vllm:
     image: vllm/vllm-openai:cu130-nightly
-    container_name: sparkdeck-vllm-glm47-flash
+    container_name: sparkdeck-vllm-deepseek-r1-qwen-32b
     ports:
-      - "8052:8000"
+      - "9001:8000"
     volumes:
       - huggingface-cache:/root/.cache/huggingface
     environment:
@@ -12,17 +12,16 @@ services:
     ipc: host
     command:
       - --model
-      - zai-org/GLM-4.7-Flash
+      - deepseek-ai/DeepSeek-R1-Distill-Qwen-32B
       - --port
       - "8000"
       - --max-model-len
-      - "131072"
+      - "48000"
       - --enable-prefix-caching
-      - --trust-remote-code
       - --kv-cache-dtype
       - fp8_e4m3
       - --gpu-memory-utilization
-      - "0.50"
+      - "0.70"
     deploy:
       resources:
         reservations:

@@ -3,7 +3,7 @@ services:
     image: nvcr.io/nvidia/vllm:26.02-py3
     container_name: sparkdeck-vllm-nemotron3-nano-bf16
     ports:
-      - "8027:8000"
+      - "9001:8000"
     volumes:
       - huggingface-cache:/root/.cache/huggingface
     environment:
@@ -17,13 +17,13 @@ services:
       - --port
       - "8000"
       - --max-model-len
-      - "131072"
+      - "32768"
       - --enable-prefix-caching
       - --trust-remote-code
       - --kv-cache-dtype
       - fp8_e4m3
       - --gpu-memory-utilization
-      - "0.50"
+      - "0.70"
     deploy:
       resources:
         reservations:

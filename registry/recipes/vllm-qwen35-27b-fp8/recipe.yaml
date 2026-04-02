@@ -1,5 +1,5 @@
 name: "Qwen3.5-27B FP8"
-slug: vllm-qwen35-27b
+slug: vllm-qwen35-27b-fp8
 version: "1.0.0"
 description: "Qwen3.5-27B FP8 with official vLLM reasoning parser and tool calling. Optimized for DGX Spark."
 author: "Alibaba Cloud"

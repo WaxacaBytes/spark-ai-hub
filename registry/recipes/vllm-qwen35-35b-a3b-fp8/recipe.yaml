@@ -1,5 +1,5 @@
 name: "Qwen3.5-35B-A3B MoE FP8"
-slug: vllm-qwen35-35b-a3b
+slug: vllm-qwen35-35b-a3b-fp8
 version: "1.0.0"
 description: "Qwen3.5-35B-A3B MoE FP8 with official vLLM reasoning parser and tool calling. Optimized for DGX Spark."
 author: "Alibaba Cloud"

@@ -3,7 +3,7 @@ services:
     image: vllm/vllm-openai:cu130-nightly
     container_name: sparkdeck-vllm-nemotron-cascade2-30b-a3b
     ports:
-      - "8053:8000"
+      - "9001:8000"
     volumes:
       - huggingface-cache:/root/.cache/huggingface
     environment:
@@ -16,7 +16,7 @@ services:
       - --port
       - "8000"
       - --max-model-len
-      - "262144"
+      - "131072"
       - --reasoning-parser
       - nemotron_v3
       - --mamba-ssm-cache-dtype
@@ -29,7 +29,7 @@ services:
       - --kv-cache-dtype
       - fp8_e4m3
       - --gpu-memory-utilization
-      - "0.50"
+      - "0.70"
     deploy:
       resources:
         reservations:
