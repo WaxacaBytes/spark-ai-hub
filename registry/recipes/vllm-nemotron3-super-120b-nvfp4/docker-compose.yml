@@ -1,7 +1,7 @@
 services:
   vllm:
-    image: nvcr.io/nvidia/vllm:26.02-py3
-    container_name: sparkdeck-vllm-nemotron3-super-120b-fp8
+    image: nvcr.io/nvidia/vllm:26.03-py3
+    container_name: sparkdeck-vllm-nemotron3-super-120b-nvfp4
     ports:
       - "9001:8000"
     volumes:
@@ -13,17 +13,18 @@ services:
     command:
       - vllm
       - serve
-      - nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8
+      - nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4
       - --port
       - "8000"
       - --max-model-len
-      - "131072"
+      - "32768"
       - --enable-prefix-caching
       - --trust-remote-code
       - --kv-cache-dtype
       - fp8_e4m3
       - --gpu-memory-utilization
-      - "0.80"
+      - "0.88"
+      - --enforce-eager
     deploy:
       resources:
         reservations:
