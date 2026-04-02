@@ -33,7 +33,7 @@ docker:
 status: community-verified
 tested_on:
   dgx_os: "7.2"
-  date: "2026-03-31"
+  date: "2026-04-02"
 integration:
   api_url: "http://<SPARK_IP>:8043/v1"
   model_id: "Qwen/Qwen3.5-4B"

@@ -22,6 +22,8 @@ services:
       - --enable-auto-tool-choice
       - --tool-call-parser
       - qwen3_coder
+      - --max-num-batched-tokens
+      - "4096"
       - --enable-prefix-caching
       - --gpu-memory-utilization
       - "0.70"

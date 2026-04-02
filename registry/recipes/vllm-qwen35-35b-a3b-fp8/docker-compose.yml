@@ -3,7 +3,7 @@ services:
     image: vllm/vllm-openai:cu130-nightly
     container_name: sparkdeck-vllm-qwen35-35b-a3b-fp8
     ports:
-      - "8047:8000"
+      - "9001:8000"
     volumes:
       - huggingface-cache:/root/.cache/huggingface
     environment:
@@ -22,6 +22,8 @@ services:
       - --enable-auto-tool-choice
       - --tool-call-parser
       - qwen3_coder
+      - --max-num-batched-tokens
+      - "4096"
       - --enable-prefix-caching
       - --gpu-memory-utilization
       - "0.45"
