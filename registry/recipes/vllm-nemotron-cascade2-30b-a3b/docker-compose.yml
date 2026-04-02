@@ -1,6 +1,6 @@
 services:
   vllm:
-    image: vllm/vllm-openai:cu130-nightly
+    image: nvcr.io/nvidia/vllm:26.03-py3
     container_name: sparkdeck-vllm-nemotron-cascade2-30b-a3b
     ports:
       - "9001:8000"
@@ -11,19 +11,18 @@ services:
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
     ipc: host
     command:
-      - --model
+      - vllm
+      - serve
       - nvidia/Nemotron-Cascade-2-30B-A3B
       - --port
       - "8000"
       - --max-model-len
       - "131072"
       - --reasoning-parser
-      - nemotron_v3
-      - --mamba-ssm-cache-dtype
-      - float32
+      - deepseek_r1
       - --enable-auto-tool-choice
       - --tool-call-parser
-      - qwen3_coder
+      - hermes
       - --enable-prefix-caching
       - --trust-remote-code
       - --kv-cache-dtype
