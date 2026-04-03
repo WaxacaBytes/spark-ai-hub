@@ -1,6 +1,6 @@
 services:
   vllm:
-    image: vllm/vllm-openai:cu130-nightly
+    image: vllm/vllm-openai:v0.17.1-aarch64-cu130
     container_name: sparkdeck-vllm-qwen35-27b-bf16
     ports:
       - "9001:8000"
