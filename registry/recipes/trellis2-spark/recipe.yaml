@@ -1,7 +1,7 @@
 name: "TRELLIS.2"
 slug: trellis2-spark
-version: "1.0.0"
-description: "Large-scale image-to-3D generation using Sparse Structure Diffusion. Optimized for DGX Spark / Blackwell (CUDA 12.9 + PyTorch 2.9)."
+version: "2.0.0"
+description: "Large-scale image-to-3D generation using Sparse Structure Diffusion. Built from official Microsoft repo, pre-compiled for DGX Spark / Blackwell (CUDA 12.9)."
 author: "Microsoft"
 source: "sparkdeck"
 website: "https://github.com/microsoft/TRELLIS.2"
