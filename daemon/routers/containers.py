@@ -1,4 +1,5 @@
 import asyncio
+import subprocess
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -133,25 +134,61 @@ class ComposeBody(BaseModel):
     content: str
 
 
-@router.get("/api/recipes/{slug}/compose")
-async def get_compose(slug: str):
+def _compose_file_for_slug(slug: str) -> Path:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
         raise HTTPException(status_code=404, detail="Recipe not found")
     compose_file = recipe_dir / "docker-compose.yml"
     if not compose_file.is_file():
         raise HTTPException(status_code=404, detail="docker-compose.yml not found")
-    return {"content": compose_file.read_text()}
+    return compose_file
+
+
+def _get_default_compose_content(compose_file: Path) -> str:
+    repo_root = compose_file.parents[2]
+    rel_path = compose_file.relative_to(repo_root)
+    proc = subprocess.run(
+        ["git", "show", f"HEAD:{rel_path.as_posix()}"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        raise HTTPException(status_code=404, detail="Default docker-compose.yml not available")
+    return proc.stdout
+
+
+@router.get("/api/recipes/{slug}/compose")
+async def get_compose(slug: str):
+    compose_file = _compose_file_for_slug(slug)
+    content = compose_file.read_text()
+    try:
+        default_content = _get_default_compose_content(compose_file)
+    except HTTPException:
+        default_content = content
+    return {
+        "content": content,
+        "default_content": default_content,
+    }
 
 
 @router.put("/api/recipes/{slug}/compose")
 async def put_compose(slug: str, body: ComposeBody):
-    recipe_dir = get_recipe_dir(slug)
-    if not recipe_dir:
-        raise HTTPException(status_code=404, detail="Recipe not found")
-    compose_file = recipe_dir / "docker-compose.yml"
+    compose_file = _compose_file_for_slug(slug)
     compose_file.write_text(body.content)
     return {"status": "saved"}
+
+
+@router.post("/api/recipes/{slug}/compose/reset")
+async def reset_compose(slug: str):
+    compose_file = _compose_file_for_slug(slug)
+    default_content = _get_default_compose_content(compose_file)
+    compose_file.write_text(default_content)
+    return {
+        "status": "reset",
+        "content": default_content,
+    }
 
 
 @router.get("/api/containers", response_model=list[ContainerInfo])
