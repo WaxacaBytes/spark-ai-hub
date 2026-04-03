@@ -22,6 +22,9 @@ services:
       - "0.25"
       - --kv-cache-dtype
       - fp8_e4m3
+      - --enable-reasoning
+      - --reasoning-parser
+      - gemma3
     deploy:
       resources:
         reservations:
