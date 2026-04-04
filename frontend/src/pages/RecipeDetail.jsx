@@ -3,7 +3,7 @@ import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 
 const DETAIL_TABS = [
-  { id: 'details', label: 'Details' },
+  { id: 'details', label: 'Overview' },
   { id: 'logs', label: 'Logs' },
 ]
 
@@ -142,10 +142,10 @@ export default function RecipeDetail() {
             </div>
           </div>
 
-          <div className="hidden md:flex items-center gap-2 shrink-0">
-            <SpecBadge icon="🧠" value={`${recipe.requirements?.min_memory_gb ?? 8}–${recipe.requirements?.recommended_memory_gb ?? recipe.requirements?.min_memory_gb ?? 8} GB`} />
-            <SpecBadge icon="💾" value={`${recipe.requirements?.disk_gb ?? 10} GB`} />
-            <SpecBadge icon="⏱" value={`~${recipe.docker?.build_time_minutes ?? 5} min`} />
+          <div className="hidden lg:flex items-center gap-2 shrink-0">
+            <SpecBadge label="Memory" value={`${recipe.requirements?.min_memory_gb ?? 8}–${recipe.requirements?.recommended_memory_gb ?? recipe.requirements?.min_memory_gb ?? 8} GB`} />
+            <SpecBadge label="Disk" value={`${recipe.requirements?.disk_gb ?? 10} GB`} />
+            <SpecBadge label="Build" value={`~${recipe.docker?.build_time_minutes ?? 5} min`} />
           </div>
 
           <div className="shrink-0 flex items-center gap-2">
@@ -220,12 +220,12 @@ export default function RecipeDetail() {
 
       <div className="flex-1 min-h-0">
         {activeTab === 'details' ? (
-          <div className="h-full min-h-0 grid xl:grid-cols-[minmax(0,52rem)_minmax(0,1fr)]">
-            <div className="overflow-y-auto border-b border-outline-dim xl:border-b-0 xl:border-r">
+          <div className="h-full min-h-0 grid xl:grid-cols-[minmax(0,50rem)_minmax(24rem,1fr)]">
+            <div className="overflow-y-auto border-b border-outline-dim xl:border-b-0 xl:border-r bg-[linear-gradient(180deg,rgba(255,255,255,0.02),transparent_18%)]">
               <AboutTab recipe={recipe} purging={purging} purgeRecipe={purgeRecipe} isBuilding={isBusy} />
             </div>
 
-            <div className="bg-surface-low/35 min-h-0">
+            <div className="bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0))] min-h-0">
               <ComposeEditor slug={recipe.slug} />
             </div>
           </div>
@@ -265,11 +265,11 @@ function StatusPill({ color, pulse, children }) {
   )
 }
 
-function SpecBadge({ icon, value }) {
+function SpecBadge({ label, value }) {
   return (
-    <div className="bg-surface-high rounded-xl px-3 py-2 text-center">
-      <div className="text-sm mb-0.5">{icon}</div>
-      <div className="text-[11px] font-semibold text-text font-label">{value}</div>
+    <div className="border border-outline-dim rounded-xl px-3.5 py-2.5 bg-surface-high/65 min-w-[112px]">
+      <div className="text-[10px] uppercase tracking-[0.16em] text-text-dim font-label">{label}</div>
+      <div className="mt-1 text-[12px] font-semibold text-text font-display">{value}</div>
     </div>
   )
 }
@@ -279,79 +279,72 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
   const sourceUrl = recipe.upstream || recipe.fork || ''
 
   return (
-    <div className="w-full px-6 py-6 space-y-6">
-      <section>
-        <h2 className="text-sm font-bold text-text font-display m-0 mb-2">About</h2>
-        <p className="text-sm text-text-muted leading-relaxed m-0">{recipe.description}</p>
-      </section>
+    <div className="w-full px-6 py-6">
+      <div className="max-w-[44rem]">
+        <div className="space-y-7">
+          <p className="text-[15px] text-text-muted leading-7 m-0">{recipe.description}</p>
 
-      {recipe.tags.length > 0 && (
-        <section className="flex flex-wrap gap-1.5">
-          {recipe.tags.map((t) => (
-            <span key={t} className="bg-surface-high text-text-dim px-2.5 py-1 rounded-full text-[11px] font-label">{t}</span>
-          ))}
-        </section>
-      )}
-
-      <section>
-        <h2 className="text-sm font-bold text-text font-display m-0 mb-2">Requirements</h2>
-        <div className="grid grid-cols-3 gap-2">
-          <SpecCard icon="🧠" value={`${recipe.requirements?.min_memory_gb ?? 8} GB`} label="Min RAM" />
-          <SpecCard icon="💾" value={`${recipe.requirements?.disk_gb ?? 10} GB`} label="Disk" />
-          <SpecCard icon="⏱" value={`~${recipe.docker?.build_time_minutes ?? 5} min`} label="Build" />
-        </div>
-      </section>
-
-      {(officialUrl || sourceUrl) && (
-        <section>
-          <h2 className="text-sm font-bold text-text font-display m-0 mb-2">Links</h2>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-3 text-sm">
             {officialUrl && (
-              <a href={officialUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 bg-surface-high rounded-xl px-4 py-2.5 text-sm text-primary no-underline hover:bg-surface-highest transition-colors font-medium">
+              <a href={officialUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-primary no-underline hover:text-primary/80 transition-colors font-medium">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
                 Website
               </a>
             )}
             {sourceUrl && (
-              <a href={sourceUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 bg-surface-high rounded-xl px-4 py-2.5 text-sm text-text-muted no-underline hover:bg-surface-highest transition-colors font-medium">
+              <a href={sourceUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-text-dim no-underline hover:text-text transition-colors font-medium">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"/></svg>
                 Source
               </a>
             )}
           </div>
-        </section>
-      )}
 
-      {recipe.integration && (
-        <section>
-          <h2 className="text-sm font-bold text-text font-display m-0 mb-2">API Integration</h2>
-          <div className="bg-surface-high rounded-2xl p-4 space-y-2.5">
-            <Field label="API URL" value={recipe.integration.api_url.replace('<SPARK_IP>', location.hostname)} />
-            <Field label="Model ID" value={recipe.integration.model_id} />
-            <Field label="API Key" value={recipe.integration.api_key} />
-            {recipe.integration.max_context && <Field label="Max Context" value={recipe.integration.max_context} />}
-            {recipe.integration.max_output_tokens && <Field label="Max Output" value={recipe.integration.max_output_tokens} />}
-            {recipe.integration.curl_example && (
-              <div className="pt-1">
-                <span className="text-[10px] text-text-dim font-label block mb-1">curl example</span>
-                <pre className="bg-surface rounded-xl p-3 text-[11px] text-text-muted font-mono overflow-x-auto whitespace-pre-wrap break-all m-0 leading-relaxed">
-                  {recipe.integration.curl_example.replace(/<SPARK_IP>/g, location.hostname)}
-                </pre>
+          {recipe.tags.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {recipe.tags.map((t) => (
+                <span key={t} className="bg-surface-high/70 text-text-dim px-2.5 py-1 rounded-full text-[11px] font-label">{t}</span>
+              ))}
+            </div>
+          )}
+
+          {recipe.integration && (
+            <div className="space-y-4 pt-5 border-t border-outline-dim">
+              <div className="text-[11px] uppercase tracking-[0.16em] text-text-dim font-label">API Integration</div>
+              <div className="space-y-2.5">
+                <Field label="API URL" value={recipe.integration.api_url.replace('<SPARK_IP>', location.hostname)} />
+                <Field label="Model ID" value={recipe.integration.model_id} />
+                <Field label="API Key" value={recipe.integration.api_key} />
+                {recipe.integration.max_context && <Field label="Max Context" value={recipe.integration.max_context} />}
+                {recipe.integration.max_output_tokens && <Field label="Max Output" value={recipe.integration.max_output_tokens} />}
+                {recipe.integration.curl_example && (
+                  <div className="pt-2">
+                    <span className="text-[10px] text-text-dim font-label block mb-1">curl example</span>
+                    <pre className="bg-surface rounded-xl p-3 text-[11px] text-text-muted font-mono overflow-x-auto whitespace-pre-wrap break-all m-0 leading-relaxed border border-outline-dim">
+                      {recipe.integration.curl_example.replace(/<SPARK_IP>/g, location.hostname)}
+                    </pre>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </section>
-      )}
+            </div>
+          )}
+        </div>
 
-      {!recipe.installed && !isBuilding && recipe.has_leftovers && (
-        <button
-          disabled={purging === recipe.slug}
-          onClick={() => { if (window.confirm(`Wipe all data for ${recipe.name}?`)) purgeRecipe(recipe.slug) }}
-          className="w-full py-2.5 bg-warning/10 text-warning border-none rounded-xl text-sm font-semibold cursor-pointer hover:bg-warning/15 transition-all disabled:opacity-50"
-        >
-          {purging === recipe.slug ? '⟳ Wiping...' : 'Wipe cached data'}
-        </button>
-      )}
+        {!recipe.installed && !isBuilding && recipe.has_leftovers && (
+          <div className="mt-12 pt-6 border-t border-outline-dim space-y-3">
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.16em] text-text-dim font-label">Cleanup</div>
+              <p className="text-sm text-text-dim leading-6 m-0 mt-2">Remove leftover images or volumes from a previous uninstall. This is destructive and should only be used when you want to free all remaining app data.</p>
+            </div>
+            <button
+              disabled={purging === recipe.slug}
+              onClick={() => { if (window.confirm(`Wipe all data for ${recipe.name}?`)) purgeRecipe(recipe.slug) }}
+              className="px-4 py-2.5 bg-warning/10 text-warning border border-warning/20 rounded-xl text-sm font-semibold cursor-pointer hover:bg-warning/15 transition-all disabled:opacity-50"
+            >
+              {purging === recipe.slug ? 'Wiping cached data...' : 'Wipe cached data'}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -440,8 +433,8 @@ function ComposeEditor({ slug }) {
       <div className="shrink-0 px-5 py-4 border-b border-outline-dim bg-surface-low/60">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-sm font-bold text-text font-display m-0">docker-compose.yml</h2>
-            <p className="text-sm text-text-dim mt-1 mb-0 leading-relaxed">Edit the live recipe config here. Save keeps your custom version; reset restores the committed default.</p>
+            <h2 className="text-sm font-bold text-text font-display m-0">Compose Configuration</h2>
+            <p className="text-sm text-text-dim mt-1 mb-0 leading-relaxed">Edit the live `docker-compose.yml` for this recipe. Save keeps your custom version; restore brings back the default file from the registry.</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
@@ -449,14 +442,14 @@ function ComposeEditor({ slug }) {
               onClick={resetToDefault}
               className="px-4 py-2 bg-warning/10 text-warning border-none rounded-xl text-sm font-semibold cursor-pointer transition-all hover:bg-warning/15 disabled:opacity-40 disabled:cursor-default"
             >
-              {resetting ? 'Resetting...' : 'Reset'}
+              {resetting ? 'Restoring...' : 'Restore Default'}
             </button>
             <button
               disabled={!dirty || saving || loading}
               onClick={save}
               className="px-4 py-2 bg-primary text-white border-none rounded-xl text-sm font-semibold cursor-pointer transition-all disabled:opacity-40 disabled:cursor-default"
             >
-              {saving ? 'Saving...' : 'Save'}
+              {saving ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
         </div>
@@ -477,22 +470,12 @@ function ComposeEditor({ slug }) {
         )}
 
         <div className="flex flex-wrap items-center gap-3 mt-3 text-xs min-h-[20px]">
-          {saved && <span className="text-success font-label">Saved. Reinstall or relaunch to apply.</span>}
+          {saved && <span className="text-success font-label">Saved. Relaunch or reinstall to apply.</span>}
           {dirty && !saved && <span className="text-warning font-label">Unsaved changes</span>}
           {!dirty && canReset && !saved && <span className="text-text-dim font-label">Using a customized compose file.</span>}
           {error && <span className="text-error font-label">{error}</span>}
         </div>
       </div>
-    </div>
-  )
-}
-
-function SpecCard({ icon, value, label }) {
-  return (
-    <div className="bg-surface-high rounded-xl p-3 text-center">
-      <div className="text-base mb-0.5">{icon}</div>
-      <div className="text-sm font-bold text-text font-display">{value}</div>
-      <div className="text-[10px] text-text-dim font-label mt-0.5">{label}</div>
     </div>
   )
 }
