@@ -145,7 +145,7 @@ def _compose_file_for_slug(slug: str) -> Path:
 
 
 def _get_default_compose_content(compose_file: Path) -> str:
-    repo_root = compose_file.parents[2]
+    repo_root = compose_file.parents[3]
     rel_path = compose_file.relative_to(repo_root)
     proc = subprocess.run(
         ["git", "show", f"HEAD:{rel_path.as_posix()}"],

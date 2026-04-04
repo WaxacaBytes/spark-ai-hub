@@ -425,6 +425,7 @@ function ComposeEditor({ slug }) {
 
   const dirty = content !== original
   const canReset = original !== defaultContent || content !== defaultContent
+  const showingCustomizedState = !dirty && canReset
 
   useLayoutEffect(() => {
     const el = textareaRef.current
@@ -443,20 +444,23 @@ function ComposeEditor({ slug }) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            disabled={!dirty || saving || loading}
-            onClick={() => setContent(original)}
-            className="px-4 py-2 bg-surface-high text-text-muted border-none rounded-xl text-sm font-semibold cursor-pointer transition-all hover:text-text disabled:opacity-40 disabled:cursor-default"
-          >
-            Revert changes
-          </button>
-          <button
-            disabled={!canReset || resetting || loading}
-            onClick={resetToDefault}
-            className="px-4 py-2 bg-warning/10 text-warning border-none rounded-xl text-sm font-semibold cursor-pointer transition-all hover:bg-warning/15 disabled:opacity-40 disabled:cursor-default"
-          >
-            {resetting ? 'Resetting...' : 'Reset to default'}
-          </button>
+          {dirty ? (
+            <button
+              disabled={saving || loading}
+              onClick={() => setContent(original)}
+              className="px-4 py-2 bg-surface-high text-text-muted border-none rounded-xl text-sm font-semibold cursor-pointer transition-all hover:text-text disabled:opacity-40 disabled:cursor-default"
+            >
+              Revert edits
+            </button>
+          ) : (
+            <button
+              disabled={!canReset || resetting || loading}
+              onClick={resetToDefault}
+              className="px-4 py-2 bg-warning/10 text-warning border-none rounded-xl text-sm font-semibold cursor-pointer transition-all hover:bg-warning/15 disabled:opacity-40 disabled:cursor-default"
+            >
+              {resetting ? 'Restoring...' : 'Restore default'}
+            </button>
+          )}
           <button
             disabled={!dirty || saving || loading}
             onClick={save}
@@ -486,6 +490,7 @@ function ComposeEditor({ slug }) {
       <div className="flex flex-wrap items-center gap-3 mt-3 text-xs">
         {saved && <span className="text-success font-label">Saved. Reinstall or relaunch to apply.</span>}
         {dirty && !saved && <span className="text-warning font-label">Unsaved changes</span>}
+        {showingCustomizedState && !saved && <span className="text-text-dim font-label">Using a customized compose file.</span>}
         {error && <span className="text-error font-label">{error}</span>}
       </div>
     </section>
