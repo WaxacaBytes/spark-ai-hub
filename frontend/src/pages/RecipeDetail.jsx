@@ -40,18 +40,18 @@ export default function RecipeDetail() {
   const isBusy = isBuilding || isUpdating
 
   useEffect(() => {
-    if (recipe?.running) {
+    if (recipe?.running || recipe?.starting) {
       connectLogs(recipe.slug)
     } else {
       disconnectLogs()
     }
     return () => disconnectLogs()
-  }, [recipe?.running, recipe?.slug, connectLogs, disconnectLogs])
+  }, [recipe?.running, recipe?.starting, recipe?.slug, connectLogs, disconnectLogs])
 
   useEffect(() => {
     if (!recipe) return
 
-    const preferLogs = isBuilding || (recipe.running && !recipe.ready)
+    const preferLogs = isBuilding || recipe.starting
     const recipeChanged = previousRecipeRef.current !== recipe.slug
 
     if (recipeChanged) {
@@ -137,8 +137,8 @@ export default function RecipeDetail() {
               {isBuilding && <StatusPill color="primary" pulse>Building...</StatusPill>}
               {isUpdating && <StatusPill color="primary" pulse>Updating...</StatusPill>}
               {!isBusy && recipe.running && isReady && <StatusPill color="success">Running</StatusPill>}
-              {!isBusy && recipe.running && !isReady && <StatusPill color="warning" pulse>Starting...</StatusPill>}
-              {!isBusy && !recipe.running && recipe.installed && <StatusPill color="dim">Stopped</StatusPill>}
+              {!isBusy && recipe.starting && <StatusPill color="warning" pulse>Starting...</StatusPill>}
+              {!isBusy && !recipe.running && !recipe.starting && recipe.installed && <StatusPill color="dim">Stopped</StatusPill>}
             </div>
           </div>
 
@@ -164,7 +164,7 @@ export default function RecipeDetail() {
                 <span className="inline-block animate-spin mr-1">⟳</span>Updating
               </div>
             )}
-            {recipe.installed && !recipe.running && !isBusy && (
+            {recipe.installed && !recipe.running && !recipe.starting && !isBusy && (
               <>
                 <button disabled={launching || isRemoving} onClick={handleLaunch} className="btn-primary px-6 py-2.5 text-sm font-bold">
                   {launching ? '...' : '▶ Launch'}
@@ -177,7 +177,7 @@ export default function RecipeDetail() {
                 </button>
               </>
             )}
-            {recipe.running && (
+            {(recipe.running || recipe.starting) && (
               <>
                 {isReady && (
                   <a href={`http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`} target="_blank" rel="noreferrer"
@@ -235,7 +235,7 @@ export default function RecipeDetail() {
               lines={logLines}
               isBuilding={isBusy}
               isUpdating={isUpdating}
-              isRunning={recipe.running}
+              isRunning={recipe.running || recipe.starting}
               isReady={isReady}
               hasLogs={cLogs.length > 0}
               scrollRef={scrollRef}
@@ -309,7 +309,12 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
 
           {recipe.integration && (
             <div className="space-y-4 pt-5 border-t border-outline-dim">
-              <div className="text-[11px] uppercase tracking-[0.16em] text-text-dim font-label">API Integration</div>
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.16em] text-text-dim font-label">API Integration</div>
+                {recipe.tags?.includes('vllm') && (
+                  <div className="text-[10px] text-text-muted mt-1">All vLLM models are served on port 9001</div>
+                )}
+              </div>
               <div className="space-y-2.5">
                 <Field label="API URL" value={recipe.integration.api_url.replace('<SPARK_IP>', location.hostname)} />
                 <Field label="Model ID" value={recipe.integration.model_id} />
@@ -565,10 +570,10 @@ function TerminalPanel({ lines, isBuilding, isUpdating, isRunning, isReady, hasL
             key={i}
             className={
               l.includes('[error]') || l.includes('Error') || l.includes('FATAL') || l.includes('Traceback')
-                ? 'text-red-400'
+                ? 'text-red-400 whitespace-pre-wrap [tab-size:2]'
                 : l.includes('successfully') || l.includes('Started') || l.includes('Running on')
-                ? 'text-emerald-400'
-                : 'text-gray-400'
+                ? 'text-emerald-400 whitespace-pre-wrap [tab-size:2]'
+                : 'text-gray-400 whitespace-pre-wrap [tab-size:2]'
             }
           >
             {l}

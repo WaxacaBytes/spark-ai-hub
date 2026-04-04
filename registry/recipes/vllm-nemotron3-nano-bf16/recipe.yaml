@@ -22,7 +22,7 @@ requirements:
   cuda_compute: "12.1"
 ui:
   type: api-only
-  port: 8027
+  port: 9001
   path: "/v1/models"
 docker:
   build: false
@@ -33,7 +33,7 @@ tested_on:
   dgx_os: "7.2"
   date: "2026-03-31"
 integration:
-  api_url: "http://<SPARK_IP>:8027/v1"
+  api_url: "http://<SPARK_IP>:9001/v1"
   model_id: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16"
   api_key: "not-needed"
-  curl_example: "curl http://<SPARK_IP>:8027/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
