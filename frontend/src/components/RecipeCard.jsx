@@ -96,7 +96,7 @@ export default function RecipeCard({ recipe }) {
               Open
             </a>
           )}
-          {!isBusy && recipe.running && !recipe.ready && (
+          {!isBusy && recipe.starting && (
             <span className="text-warning text-[11px] font-medium font-label animate-pulse">Starting...</span>
           )}
           {!isBusy && !recipe.running && !recipe.installed && (
@@ -104,7 +104,7 @@ export default function RecipeCard({ recipe }) {
               Install
             </button>
           )}
-          {!isBusy && !recipe.running && recipe.installed && (
+          {!isBusy && !recipe.running && !recipe.starting && recipe.installed && (
             <span className="text-text-dim text-[11px] font-label bg-surface-high px-2.5 py-1 rounded-lg">Stopped</span>
           )}
         </div>

@@ -13,8 +13,11 @@ const BANNERS = {
   'vllm-qwen35-122b-a10b':{ img: '/banners/wide/qwen-coder.png', layout: 'wide' },
   'vllm-gemma4-e2b':      { img: '/banners/wide/gemma-small.webp', layout: 'wide' },
   'vllm-gemma4-e4b':      { img: '/banners/wide/gemma-small.webp', layout: 'wide' },
+  'vllm-gemma4-e4b-fp8':  { img: '/banners/wide/gemma-small.webp', layout: 'wide' },
   'vllm-gemma4-26b-a4b':  { img: '/banners/wide/gemma-large.webp', layout: 'wide' },
+  'vllm-gemma4-26b-a4b-fp8': { img: '/banners/wide/gemma-large.webp', layout: 'wide' },
   'vllm-gemma4-31b':      { img: '/banners/wide/gemma-large.webp', layout: 'wide' },
+  'vllm-gemma4-31b-fp8':  { img: '/banners/wide/gemma-large.webp', layout: 'wide' },
   'ollama-openwebui':      { img: '/banners/wide/ollama-openwebui.png', layout: 'wide' },
   'comfyui':               { img: '/banners/wide/comfyui-spark.jpg', layout: 'wide' },
   'facefusion':            { img: '/banners/wide/facefusion-spark.png', layout: 'wide' },
@@ -44,10 +47,16 @@ const CATEGORIES = [
 ]
 
 const SOURCE_SECTIONS = [
-  { id: 'sparkdeck', label: 'Spark-Optimized', subtitle: 'Built & tested for DGX Spark', icon: '⚡' },
-  { id: 'official', label: 'Official Images', subtitle: 'Published by original developers', icon: '✓' },
-  { id: 'community', label: 'Community', subtitle: 'Contributed by the community', icon: '👥' },
+  { id: 'sparkdeck', label: 'Spark-Optimized', subtitle: 'Built & tested for DGX Spark', icon: 'spark' },
+  { id: 'official', label: 'Official Apps', subtitle: 'Published by original developers', icon: 'official' },
+  { id: 'vllm', label: 'Ready-to-Serve Models', subtitle: 'Curated models for DGX Spark. Served on port 9001, one at a time', icon: 'models' },
 ]
+
+function getSectionId(recipe) {
+  if ((recipe.source || 'community') === 'sparkdeck') return 'sparkdeck'
+  if (recipe.slug.startsWith('vllm-')) return 'vllm'
+  return 'official'
+}
 
 export default function Catalog({ search = '' }) {
   const recipes = useStore((s) => s.recipes)
@@ -72,7 +81,7 @@ export default function Catalog({ search = '' }) {
   const grouped = useMemo(() => {
     return SOURCE_SECTIONS.map((section) => ({
       ...section,
-      recipes: filtered.filter((r) => (r.source || 'community') === section.id),
+      recipes: filtered.filter((r) => getSectionId(r) === section.id),
     })).filter((section) => section.recipes.length > 0)
   }, [filtered])
 
@@ -113,7 +122,7 @@ export default function Catalog({ search = '' }) {
 
             <div className="flex-1 min-w-0">
               <span className="inline-block text-[10px] font-bold font-label text-primary-on bg-primary px-2.5 py-0.5 rounded-full uppercase tracking-wider mb-2">
-                {featured.running ? 'Now Running' : 'Featured'}
+                {featured.running || featured.starting ? 'Now Running' : 'Featured'}
               </span>
               <h1 className="text-3xl font-bold text-text tracking-tight font-display m-0 drop-shadow-md">
                 {featured.name}
@@ -181,7 +190,7 @@ export default function Catalog({ search = '' }) {
         {grouped.map((section) => (
           <div key={section.id} className="animate-fadeIn">
             <div className="mb-4 flex items-center gap-2">
-              <span className="text-lg">{section.icon}</span>
+              <SectionIcon kind={section.icon} />
               <div>
                 <h2 className="text-lg font-bold text-text tracking-tight font-display m-0">
                   {section.label}
@@ -205,5 +214,45 @@ export default function Catalog({ search = '' }) {
         )}
       </div>
     </div>
+  )
+}
+
+function SectionIcon({ kind }) {
+  const shared = {
+    className: 'w-5 h-5 text-text-muted',
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: '1.8',
+    strokeLinecap: 'round',
+    strokeLinejoin: 'round',
+  }
+
+  if (kind === 'spark') {
+    return (
+      <svg {...shared}>
+        <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" />
+      </svg>
+    )
+  }
+
+  if (kind === 'official') {
+    return (
+      <svg {...shared}>
+        <circle cx="12" cy="12" r="9" />
+        <path d="m8.5 12 2.5 2.5L15.5 10" />
+      </svg>
+    )
+  }
+
+  return (
+    <svg {...shared}>
+      <rect x="3" y="4" width="18" height="6" rx="2" />
+      <rect x="3" y="14" width="18" height="6" rx="2" />
+      <path d="M7 7h.01" />
+      <path d="M7 17h.01" />
+      <path d="M17 7h-4" />
+      <path d="M17 17h-4" />
+    </svg>
   )
 }

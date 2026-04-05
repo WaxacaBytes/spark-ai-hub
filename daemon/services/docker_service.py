@@ -50,7 +50,7 @@ async def start_health_check(slug: str):
     ui_path = recipe.ui.path if recipe.ui else "/"
 
     async def _check():
-        url = f"http://0.0.0.0:{ui_port}{ui_path}"
+        url = f"http://127.0.0.1:{ui_port}{ui_path}"
         # Up to 5 minutes of polling
         async with aiohttp.ClientSession() as session:
             for _ in range(300):
@@ -90,8 +90,13 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
         yield f"[error] docker-compose.yml not found in {recipe_dir}"
         return
 
+    recipe = get_recipe(slug)
+    build_recipe = bool(recipe and recipe.docker and recipe.docker.build)
+
     yield f"[sparkdeck] Starting install for {slug}..."
-    cmd = _compose_cmd(slug, recipe_dir) + ["up", "-d", "--build"]
+    cmd = _compose_cmd(slug, recipe_dir) + ["up", "-d"]
+    if build_recipe:
+        cmd.append("--build")
     yield f"[sparkdeck] Running: {' '.join(cmd)}"
 
     proc = await asyncio.create_subprocess_exec(
@@ -134,6 +139,36 @@ async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
     compose_file = recipe_dir / "docker-compose.yml"
     if not compose_file.is_file():
         yield f"[error] docker-compose.yml not found in {recipe_dir}"
+        return
+
+    recipe = get_recipe(slug)
+    build_recipe = bool(recipe and recipe.docker and recipe.docker.build)
+
+    if build_recipe:
+        yield f"[sparkdeck] Rebuilding local image for {slug}..."
+        up_cmd = _compose_cmd(slug, recipe_dir) + ["up", "-d", "--build"]
+        yield f"[sparkdeck] Running: {' '.join(up_cmd)}"
+
+        proc = await asyncio.create_subprocess_exec(
+            *up_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=str(recipe_dir),
+        )
+
+        async for line in proc.stdout:
+            text = line.decode(errors="replace").rstrip()
+            if '\r' in text:
+                text = text.rsplit('\r', 1)[-1]
+            if text:
+                yield text
+
+        await proc.wait()
+
+        if proc.returncode == 0:
+            yield f"[sparkdeck] {slug} rebuilt successfully!"
+        else:
+            yield f"[sparkdeck] Rebuild failed with exit code {proc.returncode}"
         return
 
     # Phase 1: Pull latest images

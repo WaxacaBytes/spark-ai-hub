@@ -35,7 +35,7 @@ export default function App() {
     return () => clearInterval(interval)
   }, [fetchRecipes])
 
-  const runningCount = recipes.filter((r) => r.running).length
+  const runningCount = recipes.filter((r) => r.running || r.starting).length
 
   return (
     <div className="bg-bg text-text flex h-screen overflow-hidden transition-colors duration-300">

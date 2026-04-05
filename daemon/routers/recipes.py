@@ -23,11 +23,16 @@ async def list_recipes(category: str | None = None, search: str | None = None):
     for r in recipes:
         r.installed = r.slug in installed
         if r.installed:
-            r.running = await is_recipe_running(r.slug)
-            r.ready = is_ready(r.slug) if r.running else False
-            if r.running and not r.ready:
+            container_running = await is_recipe_running(r.slug)
+            r.ready = is_ready(r.slug) if container_running else False
+            r.starting = container_running and not r.ready
+            r.running = container_running and r.ready
+            if r.starting:
                 asyncio.create_task(start_health_check(r.slug))
         else:
+            r.running = False
+            r.ready = False
+            r.starting = False
             r.has_leftovers = await has_recipe_leftovers(r.slug)
         recipe_categories = r.categories if r.categories else [r.category]
         if category and category != "all" and category not in recipe_categories:
@@ -48,8 +53,15 @@ async def get_recipe_detail(slug: str):
     installed = await get_installed_slugs()
     recipe.installed = slug in installed
     if recipe.installed:
-        recipe.running = await is_recipe_running(slug)
-        recipe.ready = is_ready(slug) if recipe.running else False
+        container_running = await is_recipe_running(slug)
+        recipe.ready = is_ready(slug) if container_running else False
+        recipe.starting = container_running and not recipe.ready
+        recipe.running = container_running and recipe.ready
+        if recipe.starting:
+            asyncio.create_task(start_health_check(slug))
     else:
+        recipe.running = False
+        recipe.ready = False
+        recipe.starting = False
         recipe.has_leftovers = await has_recipe_leftovers(slug)
     return recipe

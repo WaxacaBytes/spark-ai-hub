@@ -48,7 +48,7 @@ export default function System() {
   const theme = useStore((s) => s.theme)
   const [history, setHistory] = useState([])
 
-  const runningApps = recipes.filter((r) => r.running)
+  const runningApps = recipes.filter((r) => r.running || r.starting)
 
   useEffect(() => {
     if (!metrics) return

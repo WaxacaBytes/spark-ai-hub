@@ -32,6 +32,7 @@ async def install(slug: str):
     recipe = get_recipe(slug)
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
+    clear_ready(slug)
 
     # If already building, return current status
     if slug in _builds and not _builds[slug]["done"]:
@@ -57,6 +58,7 @@ async def update(slug: str):
     recipe = get_recipe(slug)
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
+    clear_ready(slug)
 
     if slug in _builds and not _builds[slug]["done"]:
         return {"status": "building", "slug": slug}

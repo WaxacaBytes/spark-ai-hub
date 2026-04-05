@@ -9,8 +9,8 @@ export default function Running() {
   const stopRecipe = useStore((s) => s.stopRecipe)
   const metrics = useStore((s) => s.metrics)
 
-  const running = recipes.filter((r) => r.running)
-  const installed = recipes.filter((r) => r.installed && !r.running)
+  const running = recipes.filter((r) => r.running || r.starting)
+  const installed = recipes.filter((r) => r.installed && !r.running && !r.starting)
 
   return (
     <div className="px-6 py-6 pb-12">
