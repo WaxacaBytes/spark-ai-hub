@@ -227,7 +227,7 @@ def _launch_env() -> dict:
     """Environment for container launches, with auto-detected HF token."""
     env = {**os.environ}
     # Auto-detect HuggingFace token so gated models work out of the box
-    if "HF_TOKEN" not in env:
+    if not env.get("HF_TOKEN"):
         token_path = Path.home() / ".cache" / "huggingface" / "token"
         if token_path.is_file():
             env["HF_TOKEN"] = token_path.read_text().strip()
