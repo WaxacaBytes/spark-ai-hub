@@ -1,6 +1,6 @@
 services:
   foundation-1:
-    image: ghcr.io/waxacabytes/foundation-1-sparkdeck:latest
+    image: ghcr.io/waxacabytes/foundation1-sparkdeck:latest
     container_name: sparkdeck-foundation-1
     ports:
       - "7866:7860"
@@ -27,4 +27,3 @@ volumes:
   foundation-1-models:
   foundation-1-hf-home:
   foundation-1-outputs:
-
