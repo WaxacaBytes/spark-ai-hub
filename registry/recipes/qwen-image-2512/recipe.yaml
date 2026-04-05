@@ -1,7 +1,7 @@
 name: "Qwen Image 2512"
 slug: qwen-image-2512
 version: "1.0.0"
-description: "Latest official Qwen text-to-image model in a Gradio app for DGX Spark. Pull-only package with prompt, aspect ratio, seed, and download controls. Models download on first run."
+description: "Generate images from text prompts with Qwen-Image-2512, the updated Qwen text-to-image model with stronger human realism and finer natural detail, plus controls for aspect ratio, seed, and sampling."
 author: "Qwen"
 source: "sparkdeck"
 website: "https://huggingface.co/Qwen/Qwen-Image-2512"

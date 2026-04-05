@@ -1,7 +1,7 @@
 name: "Qwen Image Multiple Angles 3D Camera"
 slug: qwen-image-perspective
 version: "1.0.0"
-description: "3D camera-control interface for Qwen Image Edit 2511 with the Multiple Angles LoRA. Pull-only package with draggable azimuth, elevation, and distance controls plus slider sync."
+description: "Reframe an image from new viewpoints with 3D camera controls for azimuth, elevation, and distance, powered by a multi-angle LoRA that supports 96 precise camera poses."
 author: "multimodalart"
 source: "sparkdeck"
 website: "https://huggingface.co/fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA"

@@ -1,7 +1,7 @@
 name: "ComfyUI"
 slug: comfyui-spark
 version: "1.0.0"
-description: "Node-based image and video generation workflow editor. Pre-built for DGX Spark with PyTorch CUDA 13 and Blackwell support. Downloads SD 1.5 on first run."
+description: "Create and run node-based workflows for image, video, 3D, and audio generation with ComfyUI, with full visual control to branch, remix, and reuse complex generative pipelines."
 author: "ComfyAnonymous"
 source: "sparkdeck"
 website: "https://www.comfy.org/"

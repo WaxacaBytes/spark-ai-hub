@@ -359,7 +359,7 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
         <div className="space-y-7">
           <p className="text-[15px] text-text-muted leading-7 m-0">{recipe.description}</p>
 
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-3 text-sm">
+          <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-3 text-sm">
             {officialUrl && (
               <a href={officialUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 text-primary no-underline hover:text-primary/80 transition-colors font-medium">
                 <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>

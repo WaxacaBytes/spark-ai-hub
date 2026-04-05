@@ -1,7 +1,7 @@
 name: "Chatterbox Turbo"
 slug: chatterbox-turbo
 version: "1.0.0"
-description: "Zero-shot voice cloning and expressive English TTS with a Gradio web UI. Pull-only DGX Spark package with the official Chatterbox Turbo app and Python 3.11 runtime. Downloads model weights on first launch."
+description: "Generate expressive English speech and clone voices from short audio samples with Chatterbox Turbo, including paralinguistic tags like laughs, coughs, and chuckles for voice agents, narration, and creative audio workflows."
 author: "Resemble AI"
 source: "sparkdeck"
 website: "https://github.com/resemble-ai/chatterbox"

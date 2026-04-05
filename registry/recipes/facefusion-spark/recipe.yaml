@@ -1,7 +1,7 @@
 name: "FaceFusion"
 slug: facefusion-spark
 version: "1.0.0"
-description: "Face swap and enhancement tool with a Gradio web UI. Pre-built for DGX Spark with a custom onnxruntime-gpu build for CUDA 13 on ARM64."
+description: "Perform face swaps, lip-sync, and face enhancement across images and videos with FaceFusion, an industry-leading face manipulation platform built for practical restoration and editing workflows."
 author: "FaceFusion"
 source: "sparkdeck"
 website: "https://github.com/facefusion/facefusion"
