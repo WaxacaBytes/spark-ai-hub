@@ -51,6 +51,7 @@ class Recipe(BaseModel):
     source: str = "community"  # sparkdeck | official | community
     status: str = "experimental"
     depends_on: list[str] = []
+    requires_hf_token: bool = False
 
     # runtime state (not from yaml)
     installed: bool = False

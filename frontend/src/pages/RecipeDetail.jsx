@@ -34,6 +34,10 @@ export default function RecipeDetail() {
   const [launching, setLaunching] = useState(false)
   const [stopping, setStopping] = useState(false)
   const [activeTab, setActiveTab] = useState('details')
+  const [showHfModal, setShowHfModal] = useState(false)
+  const [hfToken, setHfToken] = useState('')
+  const [hfSaving, setHfSaving] = useState(false)
+  const [hfError, setHfError] = useState('')
 
   const isBuilding = installing === recipe?.slug
   const isUpdating = updating === recipe?.slug
@@ -92,9 +96,40 @@ export default function RecipeDetail() {
   }
 
   const handleLaunch = async () => {
+    if (recipe.requires_hf_token) {
+      const res = await fetch('/api/system/hf-token')
+      const { has_token } = await res.json()
+      if (!has_token) {
+        setShowHfModal(true)
+        return
+      }
+    }
     setLaunching(true)
     await launchRecipe(recipe.slug)
     setLaunching(false)
+  }
+
+  const handleHfSubmit = async () => {
+    if (!hfToken.trim()) return
+    setHfSaving(true)
+    setHfError('')
+    try {
+      const res = await fetch('/api/system/hf-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: hfToken.trim() }),
+      })
+      if (!res.ok) throw new Error('Failed to save token')
+      setShowHfModal(false)
+      setHfToken('')
+      setLaunching(true)
+      await launchRecipe(recipe.slug)
+      setLaunching(false)
+    } catch {
+      setHfError('Failed to save token. Please try again.')
+    } finally {
+      setHfSaving(false)
+    }
   }
 
   const handleStop = async () => {
@@ -244,6 +279,46 @@ export default function RecipeDetail() {
           </div>
         )}
       </div>
+
+      {showHfModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-surface-high rounded-2xl p-6 w-full max-w-md shadow-2xl border border-outline-dim">
+            <h3 className="text-lg font-bold text-text font-display m-0">HuggingFace Token Required</h3>
+            <p className="text-sm text-text-dim mt-2 mb-4 leading-relaxed">
+              This model uses gated assets on HuggingFace. Paste your access token below to continue.
+              You can create one at{' '}
+              <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                huggingface.co/settings/tokens
+              </a>.
+            </p>
+            <input
+              type="password"
+              placeholder="hf_..."
+              value={hfToken}
+              onChange={(e) => setHfToken(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleHfSubmit()}
+              className="w-full px-4 py-2.5 rounded-xl bg-surface-low text-text border border-outline-dim text-sm font-mono focus:outline-none focus:border-primary"
+              autoFocus
+            />
+            {hfError && <p className="text-xs text-error mt-2 m-0">{hfError}</p>}
+            <div className="flex justify-end gap-3 mt-4">
+              <button
+                onClick={() => { setShowHfModal(false); setHfToken(''); setHfError('') }}
+                className="px-4 py-2 bg-transparent text-text-muted border border-outline-dim rounded-xl text-sm font-semibold cursor-pointer hover:text-text transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleHfSubmit}
+                disabled={!hfToken.trim() || hfSaving}
+                className="px-5 py-2 bg-primary text-white border-none rounded-xl text-sm font-bold cursor-pointer disabled:opacity-40 disabled:cursor-default"
+              >
+                {hfSaving ? 'Saving...' : 'Save & Launch'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
