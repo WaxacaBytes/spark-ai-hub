@@ -223,9 +223,14 @@ async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
         yield f"[sparkdeck] Update failed with exit code {proc.returncode}"
 
 
-def _offline_env() -> dict:
-    """Environment with HuggingFace offline flags for launch time."""
-    env = {**os.environ, "HF_HUB_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1"}
+def _launch_env() -> dict:
+    """Environment for container launches, with auto-detected HF token."""
+    env = {**os.environ}
+    # Auto-detect HuggingFace token so gated models work out of the box
+    if "HF_TOKEN" not in env:
+        token_path = Path.home() / ".cache" / "huggingface" / "token"
+        if token_path.is_file():
+            env["HF_TOKEN"] = token_path.read_text().strip()
     return env
 
 
@@ -240,7 +245,7 @@ async def launch_recipe(slug: str) -> str:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         cwd=str(recipe_dir),
-        env=_offline_env(),
+        env=_launch_env(),
     )
     output = await proc.stdout.read()
     await proc.wait()
