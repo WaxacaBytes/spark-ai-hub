@@ -21,7 +21,7 @@ services:
     volumes:
       - openwebui-data:/app/backend/data
     environment:
-      - OLLAMA_BASE_URL=http://ollama:11434
+      - OLLAMA_BASE_URLS=http://ollama:11434;http://172.17.0.1:11434
       - OPENAI_API_BASE_URLS=http://172.17.0.1:9001/v1
       - OPENAI_API_KEYS=not-needed
     deploy:
