@@ -8,6 +8,7 @@ services:
       - anythingllm-data:/app/server/storage
     environment:
       - STORAGE_DIR=/app/server/storage
+      - OLLAMA_BASE_PATH=http://172.17.0.1:11435
     restart: unless-stopped
 
 volumes:
