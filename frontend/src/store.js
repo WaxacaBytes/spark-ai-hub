@@ -215,20 +215,26 @@ export const useStore = create((set, get) => ({
   },
 
   launchRecipe: async (slug) => {
+    // Optimistic: show starting immediately
+    set({ recipes: get().recipes.map(r => r.slug === slug ? { ...r, starting: true, running: false } : r) })
     try {
       await fetch(`/api/recipes/${slug}/launch`, { method: 'POST' })
-      get().fetchRecipes()
+      await get().fetchRecipes()
     } catch (e) {
       console.error('Launch failed:', e)
+      await get().fetchRecipes()
     }
   },
 
   stopRecipe: async (slug) => {
+    // Optimistic: clear running/starting immediately
+    set({ recipes: get().recipes.map(r => r.slug === slug ? { ...r, running: false, ready: false, starting: false } : r) })
     try {
       await fetch(`/api/recipes/${slug}/stop`, { method: 'POST' })
-      get().fetchRecipes()
+      await get().fetchRecipes()
     } catch (e) {
       console.error('Stop failed:', e)
+      await get().fetchRecipes()
     }
   },
 
@@ -239,7 +245,7 @@ export const useStore = create((set, get) => ({
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`)
       }
-      get().fetchRecipes()
+      await get().fetchRecipes()
     } catch (e) {
       console.error('Remove failed:', e)
     } finally {
@@ -254,7 +260,7 @@ export const useStore = create((set, get) => ({
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`)
       }
-      get().fetchRecipes()
+      await get().fetchRecipes()
     } catch (e) {
       console.error('Purge failed:', e)
     } finally {

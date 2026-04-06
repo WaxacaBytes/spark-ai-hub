@@ -184,7 +184,7 @@ export default function RecipeDetail() {
           </div>
 
           <div className="shrink-0 flex items-center gap-2">
-            {!recipe.installed && !isBusy && (
+            {!recipe.installed && !isBusy && !isRemoving && (
               <button onClick={() => installRecipe(recipe.slug)} className="btn-primary px-6 py-2.5 text-sm font-bold">
                 Install
               </button>
@@ -199,7 +199,12 @@ export default function RecipeDetail() {
                 <span className="inline-block animate-spin mr-1">⟳</span>Updating
               </div>
             )}
-            {recipe.installed && !recipe.running && !recipe.starting && !isBusy && (
+            {isRemoving && (
+              <div className="px-5 py-2.5 bg-error-surface rounded-xl text-sm text-error font-semibold font-label">
+                <span className="inline-block animate-spin mr-1">⟳</span>Uninstalling
+              </div>
+            )}
+            {recipe.installed && !recipe.running && !recipe.starting && !isBusy && !isRemoving && (
               <>
                 <button disabled={launching || isRemoving} onClick={handleLaunch} className="btn-primary px-6 py-2.5 text-sm font-bold">
                   {launching ? '...' : '▶ Launch'}

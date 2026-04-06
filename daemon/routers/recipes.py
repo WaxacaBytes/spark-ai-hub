@@ -9,6 +9,7 @@ from daemon.services.docker_service import (
     is_ready,
     has_recipe_leftovers,
     start_health_check,
+    get_pending,
 )
 
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
@@ -22,18 +23,29 @@ async def list_recipes(category: str | None = None, search: str | None = None):
     result = []
     for r in recipes:
         r.installed = r.slug in installed
+        pending = get_pending(r.slug)
         if r.installed:
             container_running = await is_recipe_running(r.slug)
             r.ready = is_ready(r.slug) if container_running else False
-            r.starting = container_running and not r.ready
-            r.running = container_running and r.ready
-            if r.starting:
+            # If an action is in-flight, keep showing the right transition state
+            if pending == "launching":
+                r.starting = True
+                r.running = False
+            elif pending == "stopping":
+                r.running = False
+                r.starting = False
+            else:
+                r.starting = container_running and not r.ready
+                r.running = container_running and r.ready
+            if r.starting or (container_running and not r.ready):
                 asyncio.create_task(start_health_check(r.slug))
         else:
             r.running = False
             r.ready = False
-            r.starting = False
-            r.has_leftovers = await has_recipe_leftovers(r.slug)
+            # If launching/installing, still show starting
+            r.starting = pending in ("launching", "installing")
+            if not r.starting:
+                r.has_leftovers = await has_recipe_leftovers(r.slug)
         recipe_categories = r.categories if r.categories else [r.category]
         if category and category != "all" and category not in recipe_categories:
             continue
@@ -52,16 +64,25 @@ async def get_recipe_detail(slug: str):
         raise HTTPException(status_code=404, detail="Recipe not found")
     installed = await get_installed_slugs()
     recipe.installed = slug in installed
+    pending = get_pending(slug)
     if recipe.installed:
         container_running = await is_recipe_running(slug)
         recipe.ready = is_ready(slug) if container_running else False
-        recipe.starting = container_running and not recipe.ready
-        recipe.running = container_running and recipe.ready
-        if recipe.starting:
+        if pending == "launching":
+            recipe.starting = True
+            recipe.running = False
+        elif pending == "stopping":
+            recipe.running = False
+            recipe.starting = False
+        else:
+            recipe.starting = container_running and not recipe.ready
+            recipe.running = container_running and recipe.ready
+        if recipe.starting or (container_running and not recipe.ready):
             asyncio.create_task(start_health_check(slug))
     else:
         recipe.running = False
         recipe.ready = False
-        recipe.starting = False
-        recipe.has_leftovers = await has_recipe_leftovers(slug)
+        recipe.starting = pending in ("launching", "installing")
+        if not recipe.starting:
+            recipe.has_leftovers = await has_recipe_leftovers(slug)
     return recipe

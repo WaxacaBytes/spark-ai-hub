@@ -17,6 +17,8 @@ from daemon.services.docker_service import (
     clear_ready,
     is_ready,
     start_health_check,
+    set_pending,
+    clear_pending,
 )
 from daemon.services.registry_service import get_recipe, get_recipe_dir
 from daemon.models.container import ContainerInfo
@@ -32,12 +34,13 @@ async def install(slug: str):
     recipe = get_recipe(slug)
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
-    clear_ready(slug)
 
     # If already building, return current status
     if slug in _builds and not _builds[slug]["done"]:
         return {"status": "building", "slug": slug}
 
+    set_pending(slug, "installing")
+    clear_ready(slug)
     _builds[slug] = {"lines": [], "done": False}
 
     async def _run_build():
@@ -48,6 +51,7 @@ async def install(slug: str):
             _builds[slug]["lines"].append(f"[error] {e}")
         finally:
             _builds[slug]["done"] = True
+            clear_pending(slug)
 
     asyncio.create_task(_run_build())
     return {"status": "building", "slug": slug}
@@ -94,12 +98,14 @@ async def launch(slug: str):
     recipe = get_recipe(slug)
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
+    set_pending(slug, "launching")
     clear_ready(slug)
     result = await launch_recipe(slug)
     if result == "launched":
-        # Start background health check
+        # Start background health check (will clear_pending when ready)
         await start_health_check(slug)
         return {"status": "launched", "slug": slug}
+    clear_pending(slug)
     raise HTTPException(status_code=500, detail=result)
 
 
@@ -108,8 +114,10 @@ async def stop(slug: str):
     recipe = get_recipe(slug)
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
+    set_pending(slug, "stopping")
     clear_ready(slug)
     result = await stop_recipe(slug)
+    clear_pending(slug)
     return {"status": result, "slug": slug}
 
 
@@ -118,8 +126,10 @@ async def remove(slug: str):
     recipe = get_recipe(slug)
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
+    set_pending(slug, "removing")
     clear_ready(slug)
     result = await remove_recipe(slug)
+    clear_pending(slug)
     return {"status": result, "slug": slug}
 
 

@@ -18,10 +18,14 @@ from daemon.services.registry_service import get_recipe_dir, get_recipe
 _ready_cache: dict[str, bool] = {}
 # Track active health check tasks: slug -> Task
 _health_tasks: dict[str, asyncio.Task] = {}
+# Track in-flight actions to prevent wrong states during transitions
+# slug -> "launching" | "stopping" | "installing"
+_pending_actions: dict[str, str] = {}
 
 
 def mark_ready(slug: str):
     _ready_cache[slug] = True
+    _pending_actions.pop(slug, None)
 
 
 def clear_ready(slug: str):
@@ -33,6 +37,18 @@ def clear_ready(slug: str):
 
 def is_ready(slug: str) -> bool:
     return _ready_cache.get(slug, False)
+
+
+def set_pending(slug: str, action: str):
+    _pending_actions[slug] = action
+
+
+def clear_pending(slug: str):
+    _pending_actions.pop(slug, None)
+
+
+def get_pending(slug: str) -> str | None:
+    return _pending_actions.get(slug)
 
 
 async def start_health_check(slug: str):
