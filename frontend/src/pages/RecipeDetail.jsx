@@ -354,9 +354,48 @@ function SpecBadge({ label, value }) {
   )
 }
 
+function RelatedRecipeCard({ recipe, onSelect }) {
+  const logoUrl = useThemedLogo(recipe.logo)
+  const [logoFailed, setLogoFailed] = useState(false)
+
+  return (
+    <div className="rounded-2xl border border-outline-dim bg-surface-high/50 p-4 flex items-center justify-between gap-4">
+      <div className="flex items-center gap-4 min-w-0">
+        {logoUrl && !logoFailed ? (
+          <img
+            src={logoUrl}
+            alt={recipe.name}
+            className="w-12 h-12 rounded-xl object-contain bg-surface-highest p-2 shrink-0"
+            onError={() => setLogoFailed(true)}
+          />
+        ) : (
+          <div className="w-12 h-12 rounded-xl bg-surface-highest flex items-center justify-center text-lg shrink-0">
+            {recipe.icon || '◻'}
+          </div>
+        )}
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-text">{recipe.name}</div>
+          <div className="text-sm text-text-dim mt-1">{recipe.description}</div>
+        </div>
+      </div>
+      <button
+        onClick={() => onSelect(recipe.slug)}
+        className="px-4 py-2.5 bg-surface-highest text-text border border-outline-dim rounded-xl text-sm font-semibold cursor-pointer hover:border-primary hover:text-primary transition-all shrink-0"
+      >
+        View
+      </button>
+    </div>
+  )
+}
+
 function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
+  const recipes = useStore((s) => s.recipes)
+  const selectRecipe = useStore((s) => s.selectRecipe)
   const officialUrl = recipe.website || ''
   const sourceUrl = recipe.upstream || recipe.fork || ''
+  const relatedRecipes = (recipe.depends_on || [])
+    .map((slug) => recipes.find((item) => item.slug === slug))
+    .filter(Boolean)
 
   return (
     <div className="w-full px-6 py-6">
@@ -384,6 +423,35 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
               {recipe.tags.map((t) => (
                 <span key={t} className="bg-surface-high/70 text-text-dim px-2.5 py-1 rounded-full text-[11px] font-label">{t}</span>
               ))}
+            </div>
+          )}
+
+          {relatedRecipes.length > 0 && (
+            <div className="space-y-4 pt-5 border-t border-outline-dim">
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.16em] text-text-dim font-label">Suggested Add-On</div>
+                <p className="text-sm text-text-dim leading-6 m-0 mt-2">
+                  For quick local testing, install a shared Ollama runtime and connect this app to its default endpoint.
+                </p>
+              </div>
+              <div className="space-y-3">
+                {relatedRecipes.map((item) => (
+                  <RelatedRecipeCard key={item.slug} recipe={item} onSelect={selectRecipe} />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {recipe.runtime_env_path && (
+            <div className="space-y-4 pt-5 border-t border-outline-dim">
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.16em] text-text-dim font-label">Advanced Configuration</div>
+                <p className="text-sm text-text-dim leading-6 m-0 mt-2">
+                  This app creates a local runtime config file on first install. Most users should leave it alone.
+                  If you know what you are doing, you can edit it manually and relaunch the app.
+                </p>
+              </div>
+              <Field label="Runtime env file" value={recipe.runtime_env_path} />
             </div>
           )}
 

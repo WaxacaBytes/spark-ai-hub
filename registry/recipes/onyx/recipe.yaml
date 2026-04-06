@@ -14,7 +14,7 @@ tags:
   - knowledge-base
   - assistants
 icon: "🔎"
-logo: "/logos/onyx.svg"
+logo: "/logos/onyx.png"
 requirements:
   min_memory_gb: 16
   recommended_memory_gb: 32
@@ -24,8 +24,11 @@ ui:
   type: web
   port: 3003
   path: "/"
+  health_path: "/api/health"
 docker:
   build: false
   build_time_minutes: 5
   gpu: false
 status: official
+depends_on:
+  - ollama-runtime

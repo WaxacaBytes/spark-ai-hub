@@ -13,6 +13,7 @@ class RecipeUI(BaseModel):
     type: str = "web"
     port: int = 8080
     path: str = "/"
+    health_path: str | None = None
 
 
 class RecipeDocker(BaseModel):
@@ -52,6 +53,7 @@ class Recipe(BaseModel):
     status: str = "experimental"
     depends_on: list[str] = []
     requires_hf_token: bool = False
+    runtime_env_path: str = ""
 
     # runtime state (not from yaml)
     installed: bool = False

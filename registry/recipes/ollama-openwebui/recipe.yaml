@@ -28,3 +28,5 @@ docker:
   build_time_minutes: 3
   gpu: true
 status: official
+depends_on:
+  - ollama-runtime

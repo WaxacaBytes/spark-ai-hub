@@ -14,6 +14,7 @@ export const useStore = create((set, get) => ({
   updating: null,
   removing: null,
   purging: null,
+  _inFlight: {},  // slug -> { starting, running, ready, installed } overrides during transitions
   _ws: null,
   selectedRecipe: null,
   containerLogs: {},
@@ -110,7 +111,12 @@ export const useStore = create((set, get) => ({
   fetchRecipes: async () => {
     try {
       const res = await fetch(`/api/recipes?t=${Date.now()}`)
-      if (res.ok) set({ recipes: await res.json() })
+      if (!res.ok) return
+      const fresh = await res.json()
+      const inFlight = get()._inFlight
+      // Overlay in-flight state so polling can't flash wrong states
+      const merged = fresh.map(r => inFlight[r.slug] ? { ...r, ...inFlight[r.slug] } : r)
+      set({ recipes: merged })
     } catch (e) {
       console.error('Failed to fetch recipes:', e)
     }
@@ -215,41 +221,52 @@ export const useStore = create((set, get) => ({
   },
 
   launchRecipe: async (slug) => {
-    // Optimistic: show starting immediately
-    set({ recipes: get().recipes.map(r => r.slug === slug ? { ...r, starting: true, running: false } : r) })
+    const override = { starting: true, running: false, ready: false }
+    set({
+      _inFlight: { ...get()._inFlight, [slug]: override },
+      recipes: get().recipes.map(r => r.slug === slug ? { ...r, ...override } : r),
+    })
     try {
       await fetch(`/api/recipes/${slug}/launch`, { method: 'POST' })
-      await get().fetchRecipes()
     } catch (e) {
       console.error('Launch failed:', e)
+    } finally {
+      set({ _inFlight: { ...get()._inFlight, [slug]: undefined } })
       await get().fetchRecipes()
     }
   },
 
   stopRecipe: async (slug) => {
-    // Optimistic: clear running/starting immediately
-    set({ recipes: get().recipes.map(r => r.slug === slug ? { ...r, running: false, ready: false, starting: false } : r) })
+    const override = { running: false, ready: false, starting: false }
+    set({
+      _inFlight: { ...get()._inFlight, [slug]: override },
+      recipes: get().recipes.map(r => r.slug === slug ? { ...r, ...override } : r),
+    })
     try {
       await fetch(`/api/recipes/${slug}/stop`, { method: 'POST' })
-      await get().fetchRecipes()
     } catch (e) {
       console.error('Stop failed:', e)
+    } finally {
+      set({ _inFlight: { ...get()._inFlight, [slug]: undefined } })
       await get().fetchRecipes()
     }
   },
 
   removeRecipe: async (slug) => {
-    set({ removing: slug })
+    const override = { installed: false, running: false, ready: false, starting: false }
+    set({
+      removing: slug,
+      _inFlight: { ...get()._inFlight, [slug]: override },
+      recipes: get().recipes.map(r => r.slug === slug ? { ...r, ...override } : r),
+    })
     try {
       const res = await fetch(`/api/recipes/${slug}`, { method: 'DELETE' })
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`)
-      }
-      await get().fetchRecipes()
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
     } catch (e) {
       console.error('Remove failed:', e)
     } finally {
-      set({ removing: null })
+      set({ removing: null, _inFlight: { ...get()._inFlight, [slug]: undefined } })
+      await get().fetchRecipes()
     }
   },
 
@@ -257,14 +274,12 @@ export const useStore = create((set, get) => ({
     set({ purging: slug })
     try {
       const res = await fetch(`/api/recipes/${slug}/purge`, { method: 'POST' })
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`)
-      }
-      await get().fetchRecipes()
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
     } catch (e) {
       console.error('Purge failed:', e)
     } finally {
       set({ purging: null })
+      await get().fetchRecipes()
     }
   },
 }))

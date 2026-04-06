@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import os
+import secrets
 import subprocess
 from pathlib import Path
 from typing import AsyncGenerator
@@ -64,18 +65,20 @@ async def start_health_check(slug: str):
 
     ui_port = recipe.ui.port if recipe.ui else 8080
     ui_path = recipe.ui.path if recipe.ui else "/"
+    health_path = recipe.ui.health_path if recipe.ui and recipe.ui.health_path else ui_path
 
     async def _check():
-        url = f"http://127.0.0.1:{ui_port}{ui_path}"
+        url = f"http://127.0.0.1:{ui_port}{health_path}"
         # Up to 5 minutes of polling
         async with aiohttp.ClientSession() as session:
             for _ in range(300):
                 await asyncio.sleep(1)
                 try:
-                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=3)):
-                        mark_ready(slug)
-                        print(f"[health] {slug} is ready at {url}")
-                        return
+                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=3), allow_redirects=True) as resp:
+                        if 200 <= resp.status < 400:
+                            mark_ready(slug)
+                            print(f"[health] {slug} is ready at {url} ({resp.status})")
+                            return
                 except Exception:
                     pass
         print(f"[health] {slug} health check timed out")
@@ -95,6 +98,54 @@ def _compose_cmd(slug: str, recipe_dir: Path) -> list[str]:
     ]
 
 
+def _runtime_env_file(recipe_dir: Path) -> Path:
+    return recipe_dir / ".env"
+
+
+def _runtime_env_template_file(recipe_dir: Path) -> Path:
+    return recipe_dir / ".env.example"
+
+
+def _render_runtime_env(template_text: str) -> str:
+    shared_secrets: dict[str, str] = {
+        "minio_password": secrets.token_urlsafe(24),
+    }
+    generated_values = {
+        "USER_AUTH_SECRET": secrets.token_urlsafe(48),
+        "POSTGRES_PASSWORD": secrets.token_urlsafe(24),
+        "OPENSEARCH_ADMIN_PASSWORD": secrets.token_urlsafe(24),
+        "MINIO_ROOT_PASSWORD": shared_secrets["minio_password"],
+        "S3_AWS_SECRET_ACCESS_KEY": shared_secrets["minio_password"],
+    }
+
+    rendered_lines: list[str] = []
+    for line in template_text.splitlines():
+        if not line or line.lstrip().startswith("#") or "=" not in line:
+            rendered_lines.append(line)
+            continue
+
+        key, value = line.split("=", 1)
+        if key in generated_values and not value.strip():
+            value = generated_values[key]
+        rendered_lines.append(f"{key}={value}")
+
+    return "\n".join(rendered_lines) + "\n"
+
+
+def ensure_runtime_env(recipe_dir: Path) -> tuple[Path | None, bool]:
+    env_file = _runtime_env_file(recipe_dir)
+    if env_file.is_file():
+        return env_file, False
+
+    template_file = _runtime_env_template_file(recipe_dir)
+    if not template_file.is_file():
+        return None, False
+
+    env_file.write_text(_render_runtime_env(template_file.read_text()))
+    env_file.chmod(0o600)
+    return env_file, True
+
+
 async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
@@ -105,6 +156,13 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
     if not compose_file.is_file():
         yield f"[error] docker-compose.yml not found in {recipe_dir}"
         return
+
+    runtime_env_file, created_env = ensure_runtime_env(recipe_dir)
+    if _runtime_env_template_file(recipe_dir).is_file() and runtime_env_file is None:
+        yield f"[error] Failed to prepare runtime env for {slug}"
+        return
+    if created_env and runtime_env_file:
+        yield f"[spark-ai-hub] Generated runtime config at {runtime_env_file}"
 
     recipe = get_recipe(slug)
     build_recipe = bool(recipe and recipe.docker and recipe.docker.build)
@@ -156,6 +214,13 @@ async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
     if not compose_file.is_file():
         yield f"[error] docker-compose.yml not found in {recipe_dir}"
         return
+
+    runtime_env_file, created_env = ensure_runtime_env(recipe_dir)
+    if _runtime_env_template_file(recipe_dir).is_file() and runtime_env_file is None:
+        yield f"[error] Failed to prepare runtime env for {slug}"
+        return
+    if created_env and runtime_env_file:
+        yield f"[spark-ai-hub] Generated runtime config at {runtime_env_file}"
 
     recipe = get_recipe(slug)
     build_recipe = bool(recipe and recipe.docker and recipe.docker.build)
@@ -254,6 +319,10 @@ async def launch_recipe(slug: str) -> str:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
         return f"Recipe directory not found for {slug}"
+
+    runtime_env_file, _ = ensure_runtime_env(recipe_dir)
+    if _runtime_env_template_file(recipe_dir).is_file() and runtime_env_file is None:
+        return f"Failed to prepare runtime env for {slug}"
 
     cmd = _compose_cmd(slug, recipe_dir) + ["up", "-d"]
     proc = await asyncio.create_subprocess_exec(

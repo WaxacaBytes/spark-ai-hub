@@ -15,5 +15,8 @@ frontend/dist/
 # Local dev workspaces
 comfyui-src/
 
+# Generated recipe runtime env files
+registry/recipes/*/.env
+
 # OS
 .DS_Store
