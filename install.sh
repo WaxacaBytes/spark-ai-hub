@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -e
 
-REPO="https://github.com/WaxacaBytes/sparkdeck.git"
-INSTALL_DIR="$HOME/sparkdeck"
+REPO="https://github.com/WaxacaBytes/spark-ai-hub.git"
+INSTALL_DIR="$HOME/spark-ai-hub"
 PORT=9000
 
 echo ""
-echo "  SparkDeck Installer"
+echo "  Spark AI Hub Installer"
 echo "  ==================="
 echo ""
 
@@ -23,7 +23,7 @@ need_sudo() {
 apt_updated=false
 ensure_apt_updated() {
     if [ "$apt_updated" = false ]; then
-        echo "[sparkdeck] Updating package lists..."
+        echo "[spark-ai-hub] Updating package lists..."
         need_sudo apt-get update -qq
         apt_updated=true
     fi
@@ -32,7 +32,7 @@ ensure_apt_updated() {
 # ---------- git ----------
 
 if ! command -v git &>/dev/null; then
-    echo "[sparkdeck] Installing git..."
+    echo "[spark-ai-hub] Installing git..."
     ensure_apt_updated
     need_sudo apt-get install -y -qq git
 fi
@@ -40,11 +40,11 @@ fi
 # ---------- python3 + venv ----------
 
 if ! command -v python3 &>/dev/null; then
-    echo "[sparkdeck] Installing python3..."
+    echo "[spark-ai-hub] Installing python3..."
     ensure_apt_updated
     need_sudo apt-get install -y -qq python3 python3-venv python3-pip
 elif ! python3 -m venv --help &>/dev/null 2>&1; then
-    echo "[sparkdeck] Installing python3-venv..."
+    echo "[spark-ai-hub] Installing python3-venv..."
     ensure_apt_updated
     need_sudo apt-get install -y -qq python3-venv
 fi
@@ -52,7 +52,7 @@ fi
 # ---------- docker ----------
 
 if ! command -v docker &>/dev/null; then
-    echo "[sparkdeck] Installing Docker Engine..."
+    echo "[spark-ai-hub] Installing Docker Engine..."
     ensure_apt_updated
     need_sudo apt-get install -y -qq ca-certificates curl
 
@@ -69,16 +69,16 @@ if ! command -v docker &>/dev/null; then
 
     # Let current user run docker without sudo
     need_sudo usermod -aG docker "$USER"
-    echo "[sparkdeck] Added $USER to docker group (takes effect on next login or after 'newgrp docker')"
+    echo "[spark-ai-hub] Added $USER to docker group (takes effect on next login or after 'newgrp docker')"
 fi
 
 # ---------- clone or update ----------
 
 if [ -d "$INSTALL_DIR" ]; then
-    echo "[sparkdeck] Updating existing installation..."
+    echo "[spark-ai-hub] Updating existing installation..."
     git -C "$INSTALL_DIR" pull --ff-only
 else
-    echo "[sparkdeck] Cloning SparkDeck..."
+    echo "[spark-ai-hub] Cloning Spark AI Hub..."
     git clone "$REPO" "$INSTALL_DIR"
 fi
 
@@ -87,19 +87,19 @@ cd "$INSTALL_DIR"
 # ---------- python venv + deps ----------
 
 if [ ! -d ".venv" ]; then
-    echo "[sparkdeck] Creating virtual environment..."
+    echo "[spark-ai-hub] Creating virtual environment..."
     python3 -m venv .venv
 fi
 source .venv/bin/activate
-echo "[sparkdeck] Installing Python dependencies..."
+echo "[spark-ai-hub] Installing Python dependencies..."
 pip install -q -r requirements.txt
 
 # ---------- launch ----------
 
 echo ""
-echo "[sparkdeck] Installation complete!"
-echo "[sparkdeck] Starting SparkDeck on port $PORT..."
-echo "[sparkdeck] Open http://localhost:$PORT in your browser"
+echo "[spark-ai-hub] Installation complete!"
+echo "[spark-ai-hub] Starting Spark AI Hub on port $PORT..."
+echo "[spark-ai-hub] Open http://localhost:$PORT in your browser"
 echo ""
 
 exec uvicorn daemon.main:app --host 0.0.0.0 --port "$PORT"

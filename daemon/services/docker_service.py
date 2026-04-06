@@ -84,7 +84,7 @@ async def start_health_check(slug: str):
 
 
 def _compose_project(slug: str) -> str:
-    return f"sparkdeck-{slug}"
+    return f"spark-ai-hub-{slug}"
 
 
 def _compose_cmd(slug: str, recipe_dir: Path) -> list[str]:
@@ -109,11 +109,11 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
     recipe = get_recipe(slug)
     build_recipe = bool(recipe and recipe.docker and recipe.docker.build)
 
-    yield f"[sparkdeck] Starting install for {slug}..."
+    yield f"[spark-ai-hub] Starting install for {slug}..."
     cmd = _compose_cmd(slug, recipe_dir) + ["up", "-d"]
     if build_recipe:
         cmd.append("--build")
-    yield f"[sparkdeck] Running: {' '.join(cmd)}"
+    yield f"[spark-ai-hub] Running: {' '.join(cmd)}"
 
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -141,9 +141,9 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
             await db.commit()
         finally:
             await db.close()
-        yield f"[sparkdeck] {slug} installed successfully!"
+        yield f"[spark-ai-hub] {slug} installed successfully!"
     else:
-        yield f"[sparkdeck] Install failed with exit code {proc.returncode}"
+        yield f"[spark-ai-hub] Install failed with exit code {proc.returncode}"
 
 
 async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
@@ -161,9 +161,9 @@ async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
     build_recipe = bool(recipe and recipe.docker and recipe.docker.build)
 
     if build_recipe:
-        yield f"[sparkdeck] Rebuilding local image for {slug}..."
+        yield f"[spark-ai-hub] Rebuilding local image for {slug}..."
         up_cmd = _compose_cmd(slug, recipe_dir) + ["up", "-d", "--build"]
-        yield f"[sparkdeck] Running: {' '.join(up_cmd)}"
+        yield f"[spark-ai-hub] Running: {' '.join(up_cmd)}"
 
         proc = await asyncio.create_subprocess_exec(
             *up_cmd,
@@ -182,15 +182,15 @@ async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
         await proc.wait()
 
         if proc.returncode == 0:
-            yield f"[sparkdeck] {slug} rebuilt successfully!"
+            yield f"[spark-ai-hub] {slug} rebuilt successfully!"
         else:
-            yield f"[sparkdeck] Rebuild failed with exit code {proc.returncode}"
+            yield f"[spark-ai-hub] Rebuild failed with exit code {proc.returncode}"
         return
 
     # Phase 1: Pull latest images
-    yield f"[sparkdeck] Pulling latest images for {slug}..."
+    yield f"[spark-ai-hub] Pulling latest images for {slug}..."
     pull_cmd = _compose_cmd(slug, recipe_dir) + ["pull"]
-    yield f"[sparkdeck] Running: {' '.join(pull_cmd)}"
+    yield f"[spark-ai-hub] Running: {' '.join(pull_cmd)}"
 
     proc = await asyncio.create_subprocess_exec(
         *pull_cmd,
@@ -209,13 +209,13 @@ async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
     await proc.wait()
 
     if proc.returncode != 0:
-        yield f"[sparkdeck] Pull failed with exit code {proc.returncode}"
+        yield f"[spark-ai-hub] Pull failed with exit code {proc.returncode}"
         return
 
     # Phase 2: Recreate containers with new images
-    yield f"[sparkdeck] Recreating containers for {slug}..."
+    yield f"[spark-ai-hub] Recreating containers for {slug}..."
     up_cmd = _compose_cmd(slug, recipe_dir) + ["up", "-d"]
-    yield f"[sparkdeck] Running: {' '.join(up_cmd)}"
+    yield f"[spark-ai-hub] Running: {' '.join(up_cmd)}"
 
     proc = await asyncio.create_subprocess_exec(
         *up_cmd,
@@ -234,9 +234,9 @@ async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
     await proc.wait()
 
     if proc.returncode == 0:
-        yield f"[sparkdeck] {slug} updated successfully!"
+        yield f"[spark-ai-hub] {slug} updated successfully!"
     else:
-        yield f"[sparkdeck] Update failed with exit code {proc.returncode}"
+        yield f"[spark-ai-hub] Update failed with exit code {proc.returncode}"
 
 
 def _launch_env() -> dict:
@@ -438,14 +438,14 @@ def _parse_compose_images(slug: str) -> list[str]:
 
 
 async def _find_project_volumes(slug: str) -> list[str]:
-    """Find Docker volumes belonging to any sparkdeck compose project for this slug."""
+    """Find Docker volumes belonging to any spark-ai-hub compose project for this slug."""
     # Try both the current project name and common historical variants
     project = _compose_project(slug)
-    # Also check without the trailing slug suffix parts (e.g. sparkdeck-hunyuan3d vs sparkdeck-hunyuan3d-spark)
+    # Also check without the trailing slug suffix parts (e.g. spark-ai-hub-hunyuan3d vs spark-ai-hub-hunyuan3d-spark)
     prefixes = {project + "_"}
     base = slug.rsplit("-", 1)[0] if "-" in slug else slug
     if base != slug:
-        prefixes.add(f"sparkdeck-{base}_")
+        prefixes.add(f"spark-ai-hub-{base}_")
 
     proc = await asyncio.create_subprocess_exec(
         "docker", "volume", "ls", "-q",
@@ -463,10 +463,10 @@ async def _find_project_volumes(slug: str) -> list[str]:
 
 
 async def _find_project_images(slug: str) -> list[str]:
-    """Find Docker images that were used by a sparkdeck compose project for this slug.
+    """Find Docker images that were used by a spark-ai-hub compose project for this slug.
 
     Only matches images that are not currently used by any running container,
-    to avoid removing images used by non-SparkDeck containers.
+    to avoid removing images used by non-Spark AI Hub containers.
     """
     compose_images = _parse_compose_images(slug)
     if not compose_images:

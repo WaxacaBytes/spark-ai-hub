@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 
 const getInitialTheme = () => {
-  const saved = localStorage.getItem('sparkdeck-theme')
+  const saved = localStorage.getItem('spark-ai-hub-theme')
   if (saved === 'light' || saved === 'dark') return saved
   return 'dark'
 }
@@ -22,7 +22,7 @@ export const useStore = create((set, get) => ({
 
   toggleTheme: () => {
     const next = get().theme === 'dark' ? 'light' : 'dark'
-    localStorage.setItem('sparkdeck-theme', next)
+    localStorage.setItem('spark-ai-hub-theme', next)
     document.documentElement.setAttribute('data-theme', next)
     set({ theme: next })
   },
@@ -49,7 +49,7 @@ export const useStore = create((set, get) => ({
     })
 
     ws.onmessage = (e) => {
-      if (e.data === '[sparkdeck:ready]') {
+      if (e.data === '[spark-ai-hub:ready]') {
         // Backend marked it ready; refetch so recipe.ready updates everywhere
         get().fetchRecipes()
         return

@@ -1,7 +1,7 @@
 services:
   voicebox:
-    image: ghcr.io/waxacabytes/voicebox-sparkdeck:latest
-    container_name: sparkdeck-voicebox
+    image: ghcr.io/waxacabytes/voicebox-spark-ai-hub:latest
+    container_name: spark-ai-hub-voicebox
     ports:
       - "7867:17493"
     environment:

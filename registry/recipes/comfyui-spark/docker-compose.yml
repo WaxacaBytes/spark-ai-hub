@@ -1,7 +1,7 @@
 services:
   comfyui:
     image: abelpc/comfyui-spark:latest
-    container_name: sparkdeck-comfyui
+    container_name: spark-ai-hub-comfyui
     ports:
       - "8188:8188"
     volumes:

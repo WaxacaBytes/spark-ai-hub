@@ -1,13 +1,13 @@
-# SparkDeck
+# Spark AI Hub
 
 **Your AI app store for NVIDIA DGX Spark.** Browse, install, and launch AI apps with one click.
 
-![SparkDeck](SparkDeck.png)
+![Spark AI Hub](Spark AI Hub.png)
 
 ## Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WaxacaBytes/sparkdeck/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/WaxacaBytes/spark-ai-hub/main/install.sh | bash
 ```
 
 Open **http://localhost:9000** (or `http://<your-spark-ip>:9000` from another device).
@@ -41,10 +41,10 @@ All apps run as Docker containers with ARM64 + CUDA support.
 ## Uninstall
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/WaxacaBytes/sparkdeck/main/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/WaxacaBytes/spark-ai-hub/main/uninstall.sh | bash
 ```
 
-Removes all SparkDeck containers, volumes, and files. Does not touch Docker itself.
+Removes all Spark AI Hub containers, volumes, and files. Does not touch Docker itself.
 
 ## Requirements
 

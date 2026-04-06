@@ -47,13 +47,13 @@ const CATEGORIES = [
 ]
 
 const SOURCE_SECTIONS = [
-  { id: 'sparkdeck', label: 'Spark-Optimized', subtitle: 'Built & tested for DGX Spark', icon: 'spark' },
+  { id: 'spark-ai-hub', label: 'Spark-Optimized', subtitle: 'Built & tested for DGX Spark', icon: 'spark' },
   { id: 'official', label: 'Official Apps', subtitle: 'Published by original developers', icon: 'official' },
   { id: 'vllm', label: 'Ready-to-Serve Models', subtitle: 'Curated models for DGX Spark. Served on port 9001, one at a time', icon: 'models' },
 ]
 
 function getSectionId(recipe) {
-  if ((recipe.source || 'community') === 'sparkdeck') return 'sparkdeck'
+  if ((recipe.source || 'community') === 'spark-ai-hub') return 'spark-ai-hub'
   if (recipe.slug.startsWith('vllm-')) return 'vllm'
   return 'official'
 }

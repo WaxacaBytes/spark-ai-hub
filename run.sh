@@ -3,14 +3,14 @@ set -e
 cd "$(dirname "$0")"
 
 if [ ! -d ".venv" ]; then
-    echo "[sparkdeck] Creating virtual environment..."
+    echo "[spark-ai-hub] Creating virtual environment..."
     python3 -m venv .venv
 fi
 
 source .venv/bin/activate
 
-echo "[sparkdeck] Installing Python dependencies..."
+echo "[spark-ai-hub] Installing Python dependencies..."
 pip install -q -r requirements.txt
 
-echo "[sparkdeck] Starting SparkDeck on port 9000..."
+echo "[spark-ai-hub] Starting Spark AI Hub on port 9000..."
 exec uvicorn daemon.main:app --host 0.0.0.0 --port 9000

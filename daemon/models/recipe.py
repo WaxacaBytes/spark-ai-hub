@@ -48,7 +48,7 @@ class Recipe(BaseModel):
     ui: RecipeUI = RecipeUI()
     docker: RecipeDocker = RecipeDocker()
     integration: RecipeIntegration | None = None
-    source: str = "community"  # sparkdeck | official | community
+    source: str = "community"  # spark-ai-hub | official | community
     status: str = "experimental"
     depends_on: list[str] = []
     requires_hf_token: bool = False

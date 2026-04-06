@@ -1,11 +1,11 @@
-# SparkDeck — Project Blueprint
+# Spark AI Hub — Project Blueprint
 ## A Docker-Native AI App Launcher for NVIDIA DGX Spark
 
 ---
 
 ## 1. Vision & Positioning
 
-**One-liner:** SparkDeck is the missing app store for DGX Spark — a web-based launcher that turns community-verified Docker recipes into one-click AI workloads.
+**One-liner:** Spark AI Hub is the missing app store for DGX Spark — a web-based launcher that turns community-verified Docker recipes into one-click AI workloads.
 
 **The gap it fills:**
 - Pinokio (the leading AI app launcher) is broken on DGX Spark due to ARM64 incompatibility
@@ -14,7 +14,7 @@
 - The DGX Spark community is scattered across forum threads, GitHub repos, Medium posts, and gists
 - Users are paying $4,000 for a machine that requires Docker expertise to use beyond the basics
 
-**SparkDeck unifies all of this** into a browsable catalog with one-click deploy.
+**Spark AI Hub unifies all of this** into a browsable catalog with one-click deploy.
 
 ---
 
@@ -26,7 +26,7 @@
 │              (laptop/desktop via network)                │
 │                                                         │
 │   ┌───────────────────────────────────────────────────┐ │
-│   │           SparkDeck Web UI (React)                │ │
+│   │           Spark AI Hub Web UI (React)                │ │
 │   │                                                    │ │
 │   │  ┌──────────┐ ┌──────────┐ ┌──────────────────┐  │ │
 │   │  │ Catalog   │ │ Running  │ │ System Monitor   │  │ │
@@ -41,7 +41,7 @@
 │                   DGX SPARK DEVICE                       │
 │                                                          │
 │  ┌────────────────────────────────────────────────────┐  │
-│  │         SparkDeck Daemon (Python/FastAPI)          │  │
+│  │         Spark AI Hub Daemon (Python/FastAPI)          │  │
 │  │                                                     │  │
 │  │  ┌─────────────┐  ┌──────────────┐  ┌───────────┐ │  │
 │  │  │ Recipe       │  │ Docker       │  │ System    │ │  │
@@ -234,7 +234,7 @@ models:
 - Copy-paste or auto-configure via SSH
 
 **P2.3 — Model Manager**
-- Shared model storage directory (`~/sparkdeck/models/`)
+- Shared model storage directory (`~/spark-ai-hub/models/`)
 - Mount into containers via bind mounts
 - Browse downloaded models
 - Download models from Hugging Face / Ollama registry
@@ -262,21 +262,21 @@ models:
 
 ---
 
-## 6. Installation of SparkDeck Itself
+## 6. Installation of Spark AI Hub Itself
 
 The tool must be trivially installable. One command:
 
 ```bash
-curl -fsSL https://sparkdeck.dev/install.sh | bash
+curl -fsSL https://spark-ai-hub.dev/install.sh | bash
 ```
 
 What this does:
-1. Creates `~/sparkdeck/` directory
-2. Clones the SparkDeck daemon + frontend (pre-built)
+1. Creates `~/spark-ai-hub/` directory
+2. Clones the Spark AI Hub daemon + frontend (pre-built)
 3. Clones the recipe registry
-4. Installs a systemd service (`sparkdeck.service`)
+4. Installs a systemd service (`spark-ai-hub.service`)
 5. Starts the service on port 9000
-6. Prints: "SparkDeck is running at http://localhost:9000"
+6. Prints: "Spark AI Hub is running at http://localhost:9000"
 
 No pip, no conda, no node — the daemon is a single Python file with vendored dependencies, and the frontend is pre-built static files.
 
@@ -285,7 +285,7 @@ No pip, no conda, no node — the daemon is a single Python file with vendored d
 ## 7. Project Structure
 
 ```
-sparkdeck/
+spark-ai-hub/
 ├── daemon/                          # Backend
 │   ├── main.py                      # FastAPI app entry
 │   ├── routers/
@@ -328,7 +328,7 @@ sparkdeck/
 │       ├── vllm-community/
 │       └── ...
 ├── install.sh                       # One-line installer
-├── sparkdeck.service               # systemd unit
+├── spark-ai-hub.service               # systemd unit
 └── README.md
 ```
 
@@ -353,7 +353,7 @@ sparkdeck/
 
 ## 9. Differentiation vs. Alternatives
 
-| Feature | Pinokio | NVIDIA Sync | NVIDIA Playbooks | SparkDeck |
+| Feature | Pinokio | NVIDIA Sync | NVIDIA Playbooks | Spark AI Hub |
 |---------|---------|-------------|-----------------|------------|
 | Works on DGX Spark | ❌ | ✅ | ✅ | ✅ |
 | One-click install | ✅ | ⚠️ Manual scripts | ❌ Copy-paste | ✅ |
@@ -381,7 +381,7 @@ sparkdeck/
 
 ## 11. Name & Branding Ideas
 
-- **SparkDeck** — Spark (DGX Spark) + Forge (building/crafting). Strong, memorable.
+- **Spark AI Hub** — Spark (DGX Spark) + Forge (building/crafting). Strong, memorable.
 - **SparkHub** — Marketplace feel. Risk: too similar to DockerHub.
 - **Ignite** — "Ignite your Spark." Clean but generic.
 - **SparkStore** — Clear but Apple-ish.
