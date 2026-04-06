@@ -5,7 +5,7 @@ description: "Generate tempo-synced, key-aware musical loops and production-read
 author: "RoyalCities"
 source: "spark-ai-hub"
 website: "https://huggingface.co/RoyalCities/Foundation-1"
-upstream: "https://github.com/WaxacaBytes/foundation-1-spark-ai-hub"
+upstream: "https://github.com/WaxacaBytes/foundation-1-sparkdeck"
 fork: "https://github.com/RoyalCities/RC-stable-audio-tools"
 category: multi-modal
 tags:
@@ -15,7 +15,7 @@ tags:
   - gradio
   - loop-generation
 icon: "🎵"
-logo: "/logos/foundation1.png"
+logo: "/logos/foundation1-official.png"
 requirements:
   min_memory_gb: 20
   recommended_memory_gb: 40
@@ -30,4 +30,3 @@ docker:
   build_time_minutes: 10
   gpu: true
 status: experimental
-
