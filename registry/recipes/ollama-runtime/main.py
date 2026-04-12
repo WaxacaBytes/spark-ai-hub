@@ -450,10 +450,8 @@ INDEX_HTML = """
     .status-value.offline { color: var(--error); }
     .status-value.pending { color: var(--warning); }
 
-    /* Section header */
-    .section-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; flex-wrap: wrap; }
+    /* Section title */
     .section-title { font-family: 'Sora', sans-serif; font-size: 1.1rem; font-weight: 700; letter-spacing: -0.02em; }
-    .section-header .pull-bar { flex: 1; min-width: 280px; }
 
     /* Pull bar */
     .pull-bar { display: flex; gap: 8px; margin-bottom: 20px; }
@@ -525,6 +523,23 @@ INDEX_HTML = """
     .row-badge.downloading { background: rgba(251,191,36,0.12); color: var(--warning); }
     .downloading-card { border-color: rgba(251,191,36,0.2); }
 
+    /* External link icon */
+    .ext-icon { width: 11px; height: 11px; display: inline-block; vertical-align: -1px; margin-left: 2px; }
+
+    /* Model link */
+    .model-link { display: inline-flex; align-items: center; gap: 3px; font-size: 0.75rem; color: var(--text-dim); text-decoration: none; transition: color 150ms; }
+    .model-link:hover { color: var(--tertiary); }
+    .model-link .ext-icon { width: 10px; height: 10px; }
+
+    /* Copy button */
+    .model-id { display: inline-flex; align-items: center; gap: 5px; }
+    .copy-btn { background: none; border: none; padding: 2px; cursor: pointer; color: var(--text-dim); transition: color 150ms; line-height: 0; }
+    .copy-btn:hover { color: var(--text); }
+    .copy-btn svg { width: 13px; height: 13px; }
+
+    /* Quant badge */
+    .tag-quant { background: rgba(0,206,201,0.1); color: var(--tertiary); }
+
     /* Empty state */
     .empty { text-align: center; padding: 32px 16px; color: var(--text-dim); font-size: 0.88rem; }
 
@@ -543,8 +558,8 @@ INDEX_HTML = """
         <h1>Ollama Runtime</h1>
       </div>
       <nav class="header-links">
-        <a href="https://ollama.com/library" target="_blank" rel="noreferrer">Model Library</a>
-        <a href="https://docs.ollama.com/" target="_blank" rel="noreferrer">Docs</a>
+        <a href="https://ollama.com/library" target="_blank" rel="noreferrer">Model Library <svg class="ext-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3H3.5A1.5 1.5 0 002 4.5v8A1.5 1.5 0 003.5 14h8a1.5 1.5 0 001.5-1.5V10M10 2h4v4M14 2L7 9"/></svg></a>
+        <a href="https://docs.ollama.com/" target="_blank" rel="noreferrer">Docs <svg class="ext-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3H3.5A1.5 1.5 0 002 4.5v8A1.5 1.5 0 003.5 14h8a1.5 1.5 0 001.5-1.5V10M10 2h4v4M14 2L7 9"/></svg></a>
       </nav>
     </header>
 
@@ -561,12 +576,10 @@ INDEX_HTML = """
 
     <div id="active-section"></div>
 
-    <div class="section-header">
-      <h2 class="section-title">Models</h2>
-      <div class="pull-bar" style="margin-bottom:0">
-        <input id="catalog-search" placeholder="Search or pull any model name...">
-        <button class="btn btn-primary" id="manual-pull">Pull</button>
-      </div>
+    <h2 class="section-title" style="margin-bottom:12px">Models</h2>
+    <div class="pull-bar">
+      <input id="catalog-search" placeholder="Search catalog or pull by name — e.g. llama3.2:3b (browse ollama.com/library)">
+      <button class="btn btn-primary" id="manual-pull">Pull</button>
     </div>
     <div class="catalog-grid" id="catalog-grid"></div>
   </div>
@@ -576,6 +589,22 @@ INDEX_HTML = """
 
     const $ = (s) => document.getElementById(s)
     const esc = (v) => String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+    const extSvg = '<svg class="ext-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3H3.5A1.5 1.5 0 002 4.5v8A1.5 1.5 0 003.5 14h8a1.5 1.5 0 001.5-1.5V10M10 2h4v4M14 2L7 9"/></svg>'
+    const copySvg = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5"/></svg>'
+    const checkSvg = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8.5l3.5 3.5 6.5-8"/></svg>'
+    function copyName(btn, name) {
+      navigator.clipboard.writeText(name).then(() => {
+        btn.innerHTML = checkSvg
+        btn.style.color = 'var(--success)'
+        setTimeout(() => { btn.innerHTML = copySvg; btn.style.color = '' }, 1200)
+      })
+    }
+    function ollamaUrl(name) {
+      const parts = name.split(':')
+      const base = parts[0]
+      const tag = parts[1] || 'latest'
+      return 'https://ollama.com/library/' + encodeURIComponent(base) + (tag !== 'latest' ? '/tags' : '')
+    }
 
     function fmtBytes(b) {
       if (!b) return '?'
@@ -642,22 +671,30 @@ INDEX_HTML = """
         let btn = ''
         if (isDel) btn = '<button class="btn btn-outline" disabled>Deleting...</button>'
         else btn = '<button class="btn btn-danger" data-del="' + esc(m.name) + '">Delete</button>'
-        const desc = [m.family, m.parameter_size, m.quantization_level].filter(Boolean).join(' &middot; ')
+        const cat = S.catalog.find(c => c.name === m.name)
+        const title = cat ? cat.title : m.name
+        const desc = cat ? cat.summary : [m.family, m.parameter_size].filter(Boolean).join(' \u00b7 ') || 'Installed model'
+        const size = cat ? cat.size : fmtBytes(m.size)
+        const caps = cat ? (cat.capabilities || []) : []
+        const quant = m.quantization_level || ''
         const tags = []
         if (isLoaded) tags.push('<span class="tag tag-loaded">loaded</span>')
+        if (quant) tags.push('<span class="tag tag-quant">' + esc(quant) + '</span>')
+        caps.forEach(c => { tags.push('<span class="tag">' + esc(c) + '</span>') })
+        const url = ollamaUrl(m.name)
         html += `
         <div class="catalog-card">
           <div class="catalog-header">
             <div>
-              <div class="catalog-title">${esc(m.name)}</div>
-              <div class="catalog-meta">${desc || 'Model'}</div>
+              <div class="catalog-title">${esc(title)}</div>
+              <div class="catalog-meta"><a href="${url}" target="_blank" rel="noreferrer" class="model-link">${esc(m.name)} ${extSvg}</a></div>
             </div>
             ${btn}
           </div>
-          <div class="catalog-desc">${esc(fmtBytes(m.size))}</div>
+          <div class="catalog-desc">${esc(desc)}</div>
           <div class="catalog-footer">
             <div class="tags">${tags.join('')}</div>
-            <span class="catalog-meta"></span>
+            <span class="catalog-meta">${esc(size)}</span>
           </div>
         </div>`
       })
@@ -677,22 +714,24 @@ INDEX_HTML = """
 
     function renderCatalog() {
       const q = $('catalog-search').value.trim().toLowerCase()
-      const items = S.catalog.filter(m => !q || [m.name,m.title,m.summary,...(m.capabilities||[])].join(' ').toLowerCase().includes(q))
+      const items = S.catalog.filter(m => !m.installed && (!q || [m.name,m.title,m.summary,...(m.capabilities||[])].join(' ').toLowerCase().includes(q)))
       const el = $('catalog-grid')
+      if (!items.length && !q) { el.innerHTML = '<div class="empty">All catalog models are installed.</div>'; return }
+      if (!items.length) { el.innerHTML = '<div class="empty">No matches. Use the Pull button to download any model from ollama.com/library.</div>'; return }
       el.innerHTML = items.map(m => {
         let btnClass, btnText, btnDisabled
         if (m.downloading) { btnClass = 'btn-outline'; btnText = Math.round(m.download_progress) + '%'; btnDisabled = true }
-        else if (m.installed) { btnClass = 'btn-outline'; btnText = 'Installed'; btnDisabled = true }
         else { btnClass = 'btn-primary'; btnText = 'Pull'; btnDisabled = false }
         const progressHtml = m.downloading
           ? '<div class="progress-bar" style="margin-top:10px"><div class="progress-fill" style="width:' + Math.round(m.download_progress) + '%"></div></div>'
           : ''
+        const url = ollamaUrl(m.name)
         return `
         <div class="catalog-card">
           <div class="catalog-header">
             <div>
               <div class="catalog-title">${esc(m.title)}</div>
-              <div class="catalog-meta">${esc(m.name)}</div>
+              <div class="catalog-meta"><a href="${url}" target="_blank" rel="noreferrer" class="model-link">${esc(m.name)} ${extSvg}</a></div>
             </div>
             <button class="btn ${btnClass}" data-pull="${esc(m.name)}" ${btnDisabled ? 'disabled' : ''}>${btnText}</button>
           </div>
@@ -726,11 +765,8 @@ INDEX_HTML = """
     $('manual-pull').addEventListener('click', async () => {
       const inp = $('catalog-search'), n = inp.value.trim()
       if (!n) return
-      // If it looks like a model name (contains : or /), pull it; otherwise just search
-      if (n.includes(':') || n.includes('/')) {
-        try { await api('/api/models/pull', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:n}) }); inp.value = ''; await refreshAll() }
-        catch(e) { alert(e.message) }
-      }
+      try { await api('/api/models/pull', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name:n}) }); inp.value = ''; await refreshAll() }
+      catch(e) { alert(e.message) }
     })
     $('catalog-search').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('manual-pull').click() })
 
