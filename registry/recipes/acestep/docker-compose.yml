@@ -1,0 +1,36 @@
+services:
+  acestep:
+    image: ghcr.io/waxacabytes/acestep-spark-ai-hub:latest
+    container_name: spark-ai-hub-acestep
+    ports:
+      - "7868:7860"
+    environment:
+      PORT: "7860"
+      HF_HOME: "/root/.cache/huggingface"
+      HF_HUB_OFFLINE: "0"
+      TRANSFORMERS_OFFLINE: "0"
+      ACESTEP_CONFIG_PATH: "acestep-v15-turbo"
+      ACESTEP_LM_MODEL_PATH: "acestep-5Hz-lm-4B"
+      ACESTEP_LLM_BACKEND: "pt"
+      ACESTEP_INIT_SERVICE: "true"
+      TOKENIZERS_PARALLELISM: "false"
+    volumes:
+      - acestep-checkpoints:/app/checkpoints
+      - acestep-hf-cache:/root/.cache/huggingface
+      - acestep-outputs:/app/gradio_outputs
+      - acestep-lora:/app/lora_output
+    shm_size: "2gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  acestep-checkpoints:
+  acestep-hf-cache:
+  acestep-outputs:
+  acestep-lora:

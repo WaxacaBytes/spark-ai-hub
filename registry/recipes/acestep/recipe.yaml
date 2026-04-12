@@ -1,0 +1,32 @@
+name: "ACE-Step 1.5"
+slug: acestep
+version: "1.0.0"
+description: "Generate full songs from text prompts with ACE-Step 1.5, an open-source music foundation model supporting lyrics in 50+ languages, 1000+ instruments, vocal styles, LoRA fine-tuning, and durations from 10 seconds to 10 minutes."
+author: "ACE-Step"
+source: "spark-ai-hub"
+website: "https://github.com/ACE-Step/ACE-Step-1.5"
+upstream: "https://github.com/WaxacaBytes/acestep-spark-ai-hub"
+fork: "https://github.com/ACE-Step/ACE-Step-1.5"
+category: multi-modal
+tags:
+  - music
+  - audio
+  - text-to-music
+  - gradio
+  - diffusion
+icon: "🎵"
+logo: "/logos/acestep.png"
+requirements:
+  min_memory_gb: 16
+  recommended_memory_gb: 32
+  disk_gb: 25
+  cuda_compute: "12.1"
+ui:
+  type: web
+  port: 7868
+  path: "/"
+docker:
+  build: false
+  build_time_minutes: 15
+  gpu: true
+status: experimental
