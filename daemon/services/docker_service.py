@@ -146,6 +146,49 @@ def ensure_runtime_env(recipe_dir: Path) -> tuple[Path | None, bool]:
     return env_file, True
 
 
+def _parse_vllm_model_service(recipe_dir: Path) -> tuple[str, str] | None:
+    """If the compose file has a vllm-style service with `--model <repo>`,
+    return (service_name, model_repo). Used to detect recipes whose install
+    should prefetch HF weights via a no-port sidecar instead of binding ports."""
+    compose_file = recipe_dir / "docker-compose.yml"
+    if not compose_file.is_file():
+        return None
+    try:
+        with open(compose_file) as f:
+            data = yaml.safe_load(f) or {}
+    except Exception:
+        return None
+    for svc_name, svc in (data.get("services") or {}).items():
+        cmd = svc.get("command")
+        if not cmd:
+            continue
+        tokens = cmd.split() if isinstance(cmd, str) else [str(x) for x in cmd]
+        for i, t in enumerate(tokens):
+            if t == "--model" and i + 1 < len(tokens):
+                return svc_name, tokens[i + 1]
+            if t.startswith("--model="):
+                return svc_name, t.split("=", 1)[1]
+    return None
+
+
+async def _stream_proc(cmd: list[str], cwd: str, env: dict | None = None) -> AsyncGenerator[tuple[str, int | None], None]:
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        cwd=cwd,
+        env=env,
+    )
+    async for line in proc.stdout:
+        text = line.decode(errors="replace").rstrip()
+        if "\r" in text:
+            text = text.rsplit("\r", 1)[-1]
+        if text:
+            yield text, None
+    await proc.wait()
+    yield "", proc.returncode
+
+
 async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
@@ -168,40 +211,78 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
     build_recipe = bool(recipe and recipe.docker and recipe.docker.build)
 
     yield f"[spark-ai-hub] Starting install for {slug}..."
-    cmd = _compose_cmd(slug, recipe_dir) + ["up", "-d"]
-    if build_recipe:
-        cmd.append("--build")
-    yield f"[spark-ai-hub] Running: {' '.join(cmd)}"
 
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.STDOUT,
-        cwd=str(recipe_dir),
-    )
+    vllm_model = None if build_recipe else _parse_vllm_model_service(recipe_dir)
 
-    async for line in proc.stdout:
-        text = line.decode(errors="replace").rstrip()
-        if '\r' in text:
-            text = text.rsplit('\r', 1)[-1]
-        if text:
-            yield text
+    if vllm_model is not None:
+        service_name, model_repo = vllm_model
+        # Phase 1: pull image (no ports, no container start)
+        pull_cmd = _compose_cmd(slug, recipe_dir) + ["pull"]
+        yield f"[spark-ai-hub] Pulling image: {' '.join(pull_cmd)}"
+        rc = None
+        async for text, code in _stream_proc(pull_cmd, str(recipe_dir)):
+            if text:
+                yield text
+            if code is not None:
+                rc = code
+        if rc != 0:
+            yield f"[spark-ai-hub] Install failed with exit code {rc}"
+            return
 
-    await proc.wait()
-
-    if proc.returncode == 0:
-        db = await get_db()
-        try:
-            await db.execute(
-                "INSERT OR REPLACE INTO installed_recipes (slug, status, compose_project) VALUES (?, 'installed', ?)",
-                (slug, _compose_project(slug)),
-            )
-            await db.commit()
-        finally:
-            await db.close()
-        yield f"[spark-ai-hub] {slug} installed successfully!"
+        # Phase 2: prefetch HF weights via compose run (no port publishing)
+        env = _launch_env()
+        token = env.get("HF_TOKEN", "")
+        run_cmd = _compose_cmd(slug, recipe_dir) + [
+            "run", "--rm", "--no-deps",
+            "-e", f"HF_TOKEN={token}",
+            "-e", "HF_HUB_OFFLINE=0",
+            "-e", "TRANSFORMERS_OFFLINE=0",
+            "--entrypoint", "python3",
+            service_name,
+            "-c",
+            (
+                "import os; from huggingface_hub import snapshot_download; "
+                f"p = snapshot_download('{model_repo}'); "
+                "print(f'[prefetch] weights ready at {p}')"
+            ),
+        ]
+        yield f"[spark-ai-hub] Prefetching weights for {model_repo} (no port bind)..."
+        yield f"[spark-ai-hub] Running: {' '.join(run_cmd)}"
+        rc = None
+        async for text, code in _stream_proc(run_cmd, str(recipe_dir), env=env):
+            if text:
+                yield text
+            if code is not None:
+                rc = code
+        if rc != 0:
+            yield f"[spark-ai-hub] Install failed with exit code {rc}"
+            return
     else:
-        yield f"[spark-ai-hub] Install failed with exit code {proc.returncode}"
+        # Legacy path: non-vllm recipes keep the old "up -d" install behavior.
+        cmd = _compose_cmd(slug, recipe_dir) + ["up", "-d"]
+        if build_recipe:
+            cmd.append("--build")
+        yield f"[spark-ai-hub] Running: {' '.join(cmd)}"
+        rc = None
+        async for text, code in _stream_proc(cmd, str(recipe_dir)):
+            if text:
+                yield text
+            if code is not None:
+                rc = code
+        if rc != 0:
+            yield f"[spark-ai-hub] Install failed with exit code {rc}"
+            return
+
+    db = await get_db()
+    try:
+        await db.execute(
+            "INSERT OR REPLACE INTO installed_recipes (slug, status, compose_project) VALUES (?, 'installed', ?)",
+            (slug, _compose_project(slug)),
+        )
+        await db.commit()
+    finally:
+        await db.close()
+    yield f"[spark-ai-hub] {slug} installed successfully!"
 
 
 async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
