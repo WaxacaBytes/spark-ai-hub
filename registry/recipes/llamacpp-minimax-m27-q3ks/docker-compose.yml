@@ -2,7 +2,16 @@ services:
   llama-server:
     image: ghcr.io/ggml-org/llama.cpp:full-cuda13-b8953
     container_name: spark-ai-hub-llamacpp-minimax-m27-q3ks
-    entrypoint: ["/bin/sh", "/scripts/start.sh"]
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        if [ ! -f /models/UD-Q3_K_S/MiniMax-M2.7-UD-Q3_K_S-00003-of-00003.gguf ]; then
+          echo "[spark-ai-hub] Downloading MiniMax-M2.7 UD-Q3_K_S (~94 GB)..."
+          huggingface-cli download unsloth/MiniMax-M2.7-GGUF --include 'UD-Q3_K_S/*' --local-dir /models
+        fi
+        exec /app/llama-server "$$@"
+      - --
     command:
       - -m
       - /models/UD-Q3_K_S/MiniMax-M2.7-UD-Q3_K_S-00001-of-00003.gguf
@@ -45,7 +54,6 @@ services:
       - "9001:8080"
     volumes:
       - llamacpp-minimax-m27-models:/models
-      - ./start.sh:/scripts/start.sh:ro
       - ./minimax-m2-chat-template.jinja:/config/minimax-m2-chat-template.jinja:ro
     environment:
       - GGML_CUDA_ENABLE_UNIFIED_MEMORY=1
