@@ -54,7 +54,7 @@ const SOURCE_SECTIONS = [
 
 function getSectionId(recipe) {
   if ((recipe.source || 'community') === 'spark-ai-hub') return 'spark-ai-hub'
-  if (recipe.slug.startsWith('vllm-')) return 'vllm'
+  if (recipe.slug.startsWith('vllm-') || recipe.slug.startsWith('llamacpp-')) return 'vllm'
   return 'official'
 }
 
