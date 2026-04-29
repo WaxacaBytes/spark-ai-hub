@@ -30,4 +30,4 @@ docker:
   build_time_minutes: 10
   gpu: true
 status: experimental
-release_date: "2024-08"
+release_date: "2023-09"

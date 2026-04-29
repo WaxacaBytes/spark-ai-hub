@@ -35,4 +35,4 @@ integration:
   api_key: "not required"
   curl_example: "curl http://<SPARK_IP>:11435/api/tags"
 status: experimental
-release_date: "2023-11"
+release_date: "2023-06"
