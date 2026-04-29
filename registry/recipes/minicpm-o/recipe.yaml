@@ -1,0 +1,33 @@
+name: "MiniCPM-o 2.6"
+slug: minicpm-o
+version: "1.0.0"
+description: "Streaming multimodal chat with MiniCPM-o 2.6 — talk to your camera in real time, ask questions about what the AI sees, and get spoken answers back. Vision + speech + text, all on-device."
+author: "OpenBMB"
+source: "spark-ai-hub"
+website: "https://github.com/OpenBMB/MiniCPM-o"
+upstream: "https://github.com/WaxacaBytes/minicpm-o-spark-ai-hub"
+fork: "https://github.com/OpenBMB/MiniCPM-o"
+category: multimodal
+tags:
+  - multimodal
+  - vision
+  - speech
+  - webcam
+  - streaming
+  - chat
+icon: "\U0001F441"
+requirements:
+  min_memory_gb: 24
+  recommended_memory_gb: 32
+  disk_gb: 40
+  cuda_compute: "12.1"
+ui:
+  type: web
+  port: 7869
+  path: "/"
+docker:
+  build: false
+  build_time_minutes: 15
+  gpu: true
+status: experimental
+release_date: "2024-09"

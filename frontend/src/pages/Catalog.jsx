@@ -81,7 +81,9 @@ export default function Catalog({ search = '' }) {
   const grouped = useMemo(() => {
     return SOURCE_SECTIONS.map((section) => ({
       ...section,
-      recipes: filtered.filter((r) => getSectionId(r) === section.id),
+      recipes: filtered
+        .filter((r) => getSectionId(r) === section.id)
+        .sort((a, b) => (b.release_date || '').localeCompare(a.release_date || '')),
     })).filter((section) => section.recipes.length > 0)
   }, [filtered])
 

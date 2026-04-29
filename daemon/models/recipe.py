@@ -51,6 +51,7 @@ class Recipe(BaseModel):
     integration: RecipeIntegration | None = None
     source: str = "community"  # spark-ai-hub | official | community
     status: str = "experimental"
+    release_date: str = ""  # YYYY-MM, model/tool original release date — used for catalog ordering
     depends_on: list[str] = []
     requires_hf_token: bool = False
     runtime_env_path: str = ""
