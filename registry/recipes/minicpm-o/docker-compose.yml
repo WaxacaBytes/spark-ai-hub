@@ -1,0 +1,22 @@
+services:
+  minicpm-o:
+    image: ghcr.io/waxacabytes/minicpm-o-spark-ai-hub:latest
+    container_name: spark-ai-hub-minicpm-o
+    ports:
+      - "7869:7860"
+    environment:
+      MINICPM_MODEL: "openbmb/MiniCPM-o-2_6"
+      HF_HOME: /app/hf-cache
+    volumes:
+      - minicpm-o-hf-cache:/app/hf-cache
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  minicpm-o-hf-cache:
