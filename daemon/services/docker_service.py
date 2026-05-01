@@ -1,5 +1,6 @@
 from __future__ import annotations
 import asyncio
+import json
 import os
 import secrets
 import subprocess
@@ -171,6 +172,43 @@ def _parse_vllm_model_service(recipe_dir: Path) -> tuple[str, str] | None:
     return None
 
 
+def _parse_vllm_model_repos(recipe_dir: Path) -> tuple[str, list[str]] | None:
+    parsed = _parse_vllm_model_service(recipe_dir)
+    if not parsed:
+        return None
+
+    service_name, model_repo = parsed
+    repos = [model_repo]
+
+    compose_file = recipe_dir / "docker-compose.yml"
+    try:
+        with open(compose_file) as f:
+            data = yaml.safe_load(f) or {}
+    except Exception:
+        return service_name, repos
+
+    svc = (data.get("services") or {}).get(service_name) or {}
+    cmd = svc.get("command") or []
+    tokens = cmd.split() if isinstance(cmd, str) else [str(x) for x in cmd]
+    for i, token in enumerate(tokens):
+        if token == "--speculative-config" and i + 1 < len(tokens):
+            raw_config = tokens[i + 1]
+        elif token.startswith("--speculative-config="):
+            raw_config = token.split("=", 1)[1]
+        else:
+            continue
+
+        try:
+            spec_config = json.loads(raw_config)
+        except json.JSONDecodeError:
+            continue
+        draft_model = spec_config.get("model")
+        if draft_model and draft_model not in repos:
+            repos.append(draft_model)
+
+    return service_name, repos
+
+
 async def _stream_proc(cmd: list[str], cwd: str, env: dict | None = None) -> AsyncGenerator[tuple[str, int | None], None]:
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -212,10 +250,10 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
 
     yield f"[spark-ai-hub] Starting install for {slug}..."
 
-    vllm_model = None if build_recipe else _parse_vllm_model_service(recipe_dir)
+    vllm_model = None if build_recipe else _parse_vllm_model_repos(recipe_dir)
 
     if vllm_model is not None:
-        service_name, model_repo = vllm_model
+        service_name, model_repos = vllm_model
         # Phase 1: pull image (no ports, no container start)
         pull_cmd = _compose_cmd(slug, recipe_dir) + ["pull"]
         yield f"[spark-ai-hub] Pulling image: {' '.join(pull_cmd)}"
@@ -232,6 +270,7 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
         # Phase 2: prefetch HF weights via compose run (no port publishing)
         env = _launch_env()
         token = env.get("HF_TOKEN", "")
+        repos_arg = ", ".join(repr(repo) for repo in model_repos)
         run_cmd = _compose_cmd(slug, recipe_dir) + [
             "run", "--rm", "--no-deps",
             "-e", f"HF_TOKEN={token}",
@@ -242,11 +281,13 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
             "-c",
             (
                 "import os; from huggingface_hub import snapshot_download; "
-                f"p = snapshot_download('{model_repo}'); "
-                "print(f'[prefetch] weights ready at {p}')"
+                f"repos = [{repos_arg}]\n"
+                "for repo in repos:\n"
+                "    p = snapshot_download(repo)\n"
+                "    print(f'[prefetch] {repo} weights ready at {p}')"
             ),
         ]
-        yield f"[spark-ai-hub] Prefetching weights for {model_repo} (no port bind)..."
+        yield f"[spark-ai-hub] Prefetching weights for {', '.join(model_repos)} (no port bind)..."
         yield f"[spark-ai-hub] Running: {' '.join(run_cmd)}"
         rc = None
         async for text, code in _stream_proc(run_cmd, str(recipe_dir), env=env):
@@ -264,7 +305,7 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
             cmd.append("--build")
         yield f"[spark-ai-hub] Running: {' '.join(cmd)}"
         rc = None
-        async for text, code in _stream_proc(cmd, str(recipe_dir)):
+        async for text, code in _stream_proc(cmd, str(recipe_dir), env=_launch_env()):
             if text:
                 yield text
             if code is not None:

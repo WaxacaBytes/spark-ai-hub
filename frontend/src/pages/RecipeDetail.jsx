@@ -184,7 +184,7 @@ export default function RecipeDetail() {
           </div>
 
           <div className="shrink-0 flex items-center gap-2">
-            {!recipe.installed && !isBusy && !isRemoving && (
+            {!recipe.installed && !recipe.starting && !isBusy && !isRemoving && (
               <button onClick={() => installRecipe(recipe.slug)} className="btn-primary px-6 py-2.5 text-sm font-bold">
                 Install
               </button>
@@ -217,7 +217,7 @@ export default function RecipeDetail() {
                 </button>
               </>
             )}
-            {(recipe.running || recipe.starting) && (
+            {(recipe.running || (recipe.installed && recipe.starting)) && (
               <>
                 {isReady && (
                   <a href={`http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`} target="_blank" rel="noreferrer"

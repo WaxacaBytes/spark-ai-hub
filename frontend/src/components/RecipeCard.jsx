@@ -99,7 +99,7 @@ export default function RecipeCard({ recipe }) {
           {!isBusy && recipe.starting && (
             <span className="text-warning text-[11px] font-medium font-label animate-pulse">Starting...</span>
           )}
-          {!isBusy && !recipe.running && !recipe.installed && (
+          {!isBusy && !recipe.running && !recipe.starting && !recipe.installed && (
             <button onClick={handleInstall} className="btn-primary px-3.5 py-1.5 text-[11px] font-semibold">
               Install
             </button>

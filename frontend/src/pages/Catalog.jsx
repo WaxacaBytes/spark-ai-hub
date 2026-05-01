@@ -18,6 +18,7 @@ const BANNERS = {
   'vllm-gemma4-26b-a4b-fp8': { img: '/banners/wide/gemma-large.webp', layout: 'wide' },
   'vllm-gemma4-31b':      { img: '/banners/wide/gemma-large.webp', layout: 'wide' },
   'vllm-gemma4-31b-fp8':  { img: '/banners/wide/gemma-large.webp', layout: 'wide' },
+  'llamacpp-deepseek-v4-flash-q3km': { img: '/banners/wide/deepseek-v4-flash.svg', layout: 'wide' },
   'ollama-openwebui':      { img: '/banners/wide/ollama-openwebui.png', layout: 'wide' },
   'comfyui':               { img: '/banners/wide/comfyui-spark.jpg', layout: 'wide' },
   'facefusion':            { img: '/banners/wide/facefusion-spark.png', layout: 'wide' },
@@ -83,7 +84,11 @@ export default function Catalog({ search = '' }) {
       ...section,
       recipes: filtered
         .filter((r) => getSectionId(r) === section.id)
-        .sort((a, b) => (b.release_date || '').localeCompare(a.release_date || '')),
+        .sort((a, b) => {
+          const dateOrder = (b.release_date || '').localeCompare(a.release_date || '')
+          if (dateOrder !== 0) return dateOrder
+          return (a.name || '').localeCompare(b.name || '')
+        }),
     })).filter((section) => section.recipes.length > 0)
   }, [filtered])
 
@@ -143,7 +148,7 @@ export default function Catalog({ search = '' }) {
                   >
                     Open ↗
                   </a>
-                ) : !featured.installed ? (
+                ) : !featured.installed && !featured.starting ? (
                   <button
                     onClick={(e) => { e.stopPropagation(); installRecipe(featured.slug) }}
                     className="btn-primary px-6 py-2 text-sm font-bold"

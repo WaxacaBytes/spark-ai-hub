@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Spark AI Hub Banner Test</title>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0e0e14;
+    color: #f0ecf6;
+    font-family: 'Inter', system-ui, sans-serif;
+    padding: 40px;
+  }
+  h1 { font-family: 'Manrope'; font-size: 32px; margin-bottom: 10px; }
+  h2 { font-family: 'Manrope'; font-size: 22px; margin: 50px 0 8px; color: #b1fa50; }
+  h3 { font-family: 'Manrope'; font-size: 15px; margin: 20px 0 8px; color: #acaab2; }
+  .subtitle { color: #76747c; font-size: 14px; margin-bottom: 30px; }
+  .grid { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 20px; }
+
+  /* ─── Option 1: Current (280px) ─── */
+  .hero-current {
+    position: relative; border-radius: 24px; overflow: hidden;
+    height: 280px; cursor: pointer; width: 100%;
+  }
+  .hero-current img.bg {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover;
+  }
+
+  /* ─── Option 2: Taller (400px) ─── */
+  .hero-tall {
+    position: relative; border-radius: 24px; overflow: hidden;
+    height: 400px; cursor: pointer; width: 100%;
+  }
+  .hero-tall img.bg {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover;
+  }
+
+  /* ─── Option 3: Image on right ─── */
+  .hero-split {
+    position: relative; border-radius: 24px; overflow: hidden;
+    height: 320px; cursor: pointer; width: 100%;
+    display: flex;
+    background: #131319;
+  }
+  .hero-split .left {
+    flex: 1; padding: 40px; display: flex; flex-direction: column; justify-content: center;
+    position: relative; z-index: 2;
+  }
+  .hero-split .right {
+    width: 45%; display: flex; align-items: center; justify-content: center;
+    padding: 20px; position: relative;
+  }
+  .hero-split .right img {
+    max-width: 100%; max-height: 100%; object-fit: contain;
+    border-radius: 16px;
+  }
+  .hero-split .right::before {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(circle at center, rgba(177,250,80,0.04) 0%, transparent 70%);
+  }
+
+  /* ─── Option 4: Full-width + less gradient ─── */
+  .hero-full {
+    position: relative; border-radius: 24px; overflow: hidden;
+    height: 360px; cursor: pointer; width: 100%;
+  }
+  .hero-full img.bg {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; object-position: top center;
+  }
+
+  /* ─── Option 5: AI-extended 3:1 ─── */
+  .hero-wide {
+    position: relative; border-radius: 24px; overflow: hidden;
+    height: 320px; cursor: pointer; width: 100%;
+  }
+  .hero-wide img.bg {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover;
+  }
+  .hero-wide .no-image {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #48474e; font-size: 14px; font-style: italic;
+    background: #131319;
+  }
+
+  /* ─── Shared overlays ─── */
+  .overlay-left {
+    position: absolute; inset: 0;
+    background: linear-gradient(to right, #0e0e14 0%, rgba(14,14,20,0.8) 40%, rgba(14,14,20,0.2) 100%);
+  }
+  .overlay-left-soft {
+    position: absolute; inset: 0;
+    background: linear-gradient(to right, #0e0e14 0%, rgba(14,14,20,0.6) 35%, transparent 100%);
+  }
+  .overlay-bottom {
+    position: absolute; inset: 0;
+    background: linear-gradient(to top, rgba(14,14,20,0.6) 0%, transparent 40%);
+  }
+
+  /* ─── Content overlay ─── */
+  .hero-content {
+    position: relative; z-index: 2; height: 100%;
+    display: flex; align-items: center; gap: 24px; padding: 40px;
+  }
+  .hero-content .icon {
+    width: 96px; height: 96px; border-radius: 20px;
+    background: rgba(25,25,32,0.8); backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.08);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 40px; flex-shrink: 0;
+    overflow: hidden;
+  }
+  .hero-content .icon img {
+    width: 100%; height: 100%; object-fit: contain; padding: 12px;
+  }
+  .hero-content .info { flex: 1; min-width: 0; }
+  .hero-content .label {
+    font-size: 11px; font-weight: 700; color: #b1fa50;
+    text-transform: uppercase; letter-spacing: 2px;
+  }
+  .hero-content .name {
+    font-family: 'Manrope'; font-size: 36px; font-weight: 800;
+    margin: 4px 0 8px; line-height: 1.1;
+    text-shadow: 0 2px 8px rgba(0,0,0,0.5);
+  }
+  .hero-content .desc {
+    color: #acaab2; font-size: 14px; line-height: 1.5;
+    max-width: 500px;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .hero-content .btn {
+    margin-top: 20px;
+    display: inline-block; padding: 10px 28px; border-radius: 12px;
+    background: linear-gradient(135deg, #b1fa50, #77bb04);
+    color: #1b3000; font-weight: 700; font-size: 14px;
+    text-decoration: none; border: none; cursor: pointer;
+    box-shadow: 0 4px 20px rgba(177,250,80,0.25);
+  }
+
+  .banner-name {
+    font-size: 12px; color: #48474e; text-align: center;
+    margin-top: 8px; font-family: monospace;
+  }
+</style>
+</head>
+<body>
+
+<h1>Banner Layout Comparison</h1>
+<p class="subtitle">All banners shown in each layout option. Scroll down to compare.</p>
+
+<script>
+const BANNERS = [
+  { name: 'Qwen 0.8B (Beach)', slug: 'vllm-qwen35-08b', img: '/banners/qwen-beach.png', icon: '/logos/qwen.png', author: 'Alibaba Cloud', desc: 'Lightweight multimodal LLM. BF16, served via OpenAI-compatible API.' },
+  { name: 'Qwen 4B (Basketball)', slug: 'vllm-qwen35-4b', img: '/banners/qwen-basketball.png', icon: '/logos/qwen.png', author: 'Alibaba Cloud', desc: 'Mid-size multimodal LLM with vision, thinking, and tool use.' },
+  { name: 'Qwen 9B (Driving)', slug: 'vllm-qwen35-9b', img: '/banners/qwen-driving.png', icon: '/logos/qwen.png', author: 'Alibaba Cloud', desc: 'Large multimodal LLM with vision, thinking, and tool use.' },
+  { name: 'Qwen 122B (Coder)', slug: 'vllm-qwen35-122b', img: '/banners/qwen-coder.png', icon: '/logos/qwen.png', author: 'Alibaba Cloud', desc: 'Massive MoE LLM — 122B total, 10B active. Maximum capability.' },
+  { name: 'ComfyUI', slug: 'comfyui-spark', img: '/banners/comfyui-spark.jpg', icon: '/logos/comfyui.png', author: 'ComfyAnonymous', desc: 'Node-based image and video generation workflow editor.' },
+  { name: 'FaceFusion', slug: 'facefusion-spark', img: '/banners/facefusion-spark.png', icon: '/logos/facefusion.png', author: 'FaceFusion', desc: 'Next-gen face swapping and enhancement toolkit.' },
+  { name: 'Open WebUI', slug: 'ollama-openwebui', img: '/banners/ollama-openwebui.png', icon: '/logos/openwebui.png', author: 'Open WebUI', desc: 'ChatGPT-like interface for local LLMs with model management.' },
+  { name: 'Hunyuan3D', slug: 'hunyuan3d-spark', img: '/banners/hunyuan3d-spark.png', icon: '/logos/hunyuan3d.png', author: 'Tencent', desc: 'Image-to-3D mesh generation with PBR textures.' },
+  { name: 'AnythingLLM', slug: 'anythingllm', img: '/banners/anythingllm.png', icon: '/logos/anythingllm.png', author: 'Mintplex Labs', desc: 'All-in-one AI desktop app with RAG, agents, and multi-model support.' },
+  { name: 'Flowise', slug: 'flowise', img: '/banners/flowise.png', icon: '/logos/flowise.png', author: 'FlowiseAI', desc: 'Drag & drop LLM flow builder with agents, tools, and memory.' },
+  { name: 'Langflow', slug: 'langflow', img: '/banners/langflow.png', icon: '/logos/langflow.png', author: 'Langflow AI', desc: 'Visual framework for building multi-agent and RAG applications.' },
+  { name: 'TRELLIS 2', slug: 'trellis2-spark', img: '/banners/trellis2-spark.png', icon: '/logos/trellis2.png', author: 'Microsoft', desc: 'Image and text to high-quality 3D assets with PBR materials.' },
+  { name: 'LocalAI', slug: 'localai', img: '/banners/localai.png', icon: '/logos/localai.png', author: 'LocalAI', desc: 'Drop-in OpenAI-compatible API for local inference. Supports LLMs, image, audio.' },
+];
+
+function heroContent(b) {
+  return `
+    <div class="hero-content">
+      <div class="icon"><img src="${b.icon}" onerror="this.parentElement.textContent='◻'"></div>
+      <div class="info">
+        <div class="label">Featured</div>
+        <div class="name">${b.name}</div>
+        <div class="desc">${b.desc}</div>
+        <button class="btn">View Details</button>
+      </div>
+    </div>`;
+}
+
+function renderSection(title, desc, className, overlayClass, extraStyle = '') {
+  let html = `<h2>${title}</h2><p class="subtitle">${desc}</p>`;
+  for (const b of BANNERS) {
+    if (className === 'hero-split') {
+      html += `
+        <div class="${className}" style="margin-bottom: 16px; ${extraStyle}">
+          <div class="left">
+            <div class="label" style="font-size:11px;font-weight:700;color:#b1fa50;text-transform:uppercase;letter-spacing:2px;">Featured</div>
+            <div style="font-family:Manrope;font-size:36px;font-weight:800;margin:4px 0 8px;line-height:1.1;">${b.name}</div>
+            <div style="color:#acaab2;font-size:14px;line-height:1.5;max-width:400px;">${b.desc}</div>
+            <button class="btn" style="margin-top:20px;">View Details</button>
+          </div>
+          <div class="right">
+            <img src="${b.img}" alt="${b.name}">
+          </div>
+        </div>
+        <div class="banner-name">${b.slug}</div>`;
+    } else if (className === 'hero-wide') {
+      const wideImg = b.img.replace('/banners/', '/banners/wide/');
+      html += `
+        <div class="${className}" style="margin-bottom: 16px; ${extraStyle}">
+          <img class="bg" src="${wideImg}" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+          <div class="no-image" style="display:none;">AI-extended image not yet generated</div>
+          <div class="${overlayClass}"></div>
+          <div class="overlay-bottom"></div>
+          ${heroContent(b)}
+        </div>
+        <div class="banner-name">${b.slug}</div>`;
+    } else {
+      html += `
+        <div class="${className}" style="margin-bottom: 16px; ${extraStyle}">
+          <img class="bg" src="${b.img}" alt="">
+          <div class="${overlayClass}"></div>
+          <div class="overlay-bottom"></div>
+          ${heroContent(b)}
+        </div>
+        <div class="banner-name">${b.slug}</div>`;
+    }
+  }
+  return html;
+}
+
+document.body.innerHTML += renderSection(
+  '1. Current (280px)',
+  'Current layout — 280px tall, object-cover, gradient from left',
+  'hero-current', 'overlay-left'
+);
+
+document.body.innerHTML += renderSection(
+  '2. Taller (400px)',
+  'Same layout but 400px tall — more of the image visible',
+  'hero-tall', 'overlay-left'
+);
+
+document.body.innerHTML += renderSection(
+  '3. Image on Right (contained)',
+  'Text on left, full image shown on the right — no cropping',
+  'hero-split', ''
+);
+
+document.body.innerHTML += renderSection(
+  '4. Full-width + Less Gradient (360px)',
+  '360px tall, object-position: top center, gradient only covers left 35%',
+  'hero-full', 'overlay-left-soft'
+);
+
+document.body.innerHTML += renderSection(
+  '5. AI-Extended 3:1 (320px)',
+  'Images extended to 3:1 ratio with AI outpainting — pending generation',
+  'hero-wide', 'overlay-left-soft'
+);
+</script>
+
+</body>
+</html>
