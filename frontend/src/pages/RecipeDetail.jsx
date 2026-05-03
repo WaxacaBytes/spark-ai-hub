@@ -635,18 +635,15 @@ function ComposeEditor({ slug }) {
 
 function SpeedTestSnippet({ apiUrl, modelId }) {
   const [copied, setCopied] = useState(false)
-  const script = `python3 -c "
-import urllib.request, json, time
-url = '${apiUrl}/chat/completions'
-req = urllib.request.Request(url,
-  json.dumps({'model': '${modelId}', 'messages': [{'role': 'user', 'content': 'Write a quicksort in Python.'}], 'max_tokens': 300, 'temperature': 0}).encode(),
-  {'Content-Type': 'application/json'})
-t0 = time.time()
-d = json.load(urllib.request.urlopen(req))
-elapsed = time.time() - t0
-tok = d['usage']['completion_tokens']
+  const script = `curl -s '${apiUrl}/chat/completions' \\
+  -H 'Content-Type: application/json' \\
+  -d '{"model": "${modelId}", "messages": [{"role": "user", "content": "Write a quicksort in Python."}], "max_tokens": 300, "temperature": 0}' \\
+  -w '\\n%{time_total}' | python3 -c "
+import sys, json
+out, t = sys.stdin.read().rsplit('\\n', 1)
+d = json.loads(out); tok = d['usage']['completion_tokens']
 print(d['choices'][0]['message']['content'])
-print(f'\\n--- {tok} tokens in {elapsed:.1f}s = {tok/elapsed:.1f} tok/s ---')
+print(f'\\n--- {tok} tokens in {float(t):.1f}s = {tok/float(t):.1f} tok/s ---')
 "`
   const copy = () => {
     if (navigator.clipboard?.writeText) {
@@ -659,7 +656,7 @@ print(f'\\n--- {tok} tokens in {elapsed:.1f}s = {tok/elapsed:.1f} tok/s ---')
   return (
     <div className="pt-2">
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] text-text-dim font-label">quick test</span>
+        <span className="text-[10px] text-text-dim font-label">curl example</span>
         <button onClick={copy} className="p-1.5 bg-surface border-none rounded-lg cursor-pointer text-text-dim hover:text-primary transition-colors" title="Copy">
           {copied ? (
             <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
