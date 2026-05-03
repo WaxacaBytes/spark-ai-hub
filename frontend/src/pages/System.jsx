@@ -103,8 +103,8 @@ export default function System() {
           unit="GB" color="var(--tertiary)"
         />
         <CircularGauge
-          value={metrics.disk_free_gb} max={metrics.disk_total_gb}
-          label="Disk Free" sublabel={`of ${metrics.disk_total_gb} GB`}
+          value={metrics.disk_used_gb} max={metrics.disk_total_gb}
+          label="Disk Usage" sublabel={`of ${metrics.disk_total_gb} GB`}
           unit="GB" color="var(--primary)"
         />
         <CircularGauge

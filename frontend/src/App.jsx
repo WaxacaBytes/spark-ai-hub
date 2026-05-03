@@ -10,7 +10,6 @@ import RecipeDetail from './pages/RecipeDetail'
 const NAV_ITEMS = [
   { id: 'catalog', label: 'Store', icon: StorefrontIcon },
   { id: 'running', label: 'Running', icon: PlayIcon },
-  { id: 'system', label: 'System', icon: GaugeIcon },
   { id: 'about', label: 'About', icon: InfoIcon },
 ]
 
@@ -79,9 +78,32 @@ export default function App() {
         {/* Bottom: System gauges + Theme toggle */}
         <div className="flex flex-col items-center gap-3 mt-auto">
           {metrics && (
-            <div className="flex flex-col items-center gap-1.5">
-              <MiniGauge value={metrics.gpu_utilization} label="GPU" color="var(--tertiary)" />
-              <MiniGauge value={metrics.ram_total_gb > 0 ? Math.round((metrics.ram_used_gb / metrics.ram_total_gb) * 100) : 0} label="RAM" color="var(--tertiary)" />
+            <div className="flex flex-col items-center gap-1">
+              <MiniGauge
+                value={metrics.gpu_utilization}
+                label="GPU"
+                color="var(--tertiary)"
+                onClick={() => { clearRecipe(); setTab('system') }}
+              />
+              <MiniGauge
+                value={metrics.ram_total_gb > 0 ? Math.round((metrics.ram_used_gb / metrics.ram_total_gb) * 100) : 0}
+                label="RAM"
+                color="var(--tertiary)"
+                onClick={() => { clearRecipe(); setTab('system') }}
+              />
+              <MiniGauge
+                value={metrics.disk_total_gb > 0 ? Math.round((metrics.disk_used_gb / metrics.disk_total_gb) * 100) : 0}
+                label="DSK"
+                color="var(--primary)"
+                onClick={() => { clearRecipe(); setTab('system') }}
+              />
+              <MiniGauge
+                value={Math.round(metrics.gpu_temperature)}
+                label="TMP"
+                color={metrics.gpu_temperature > 80 ? 'var(--error)' : '#FBBF24'}
+                displayUnit="°"
+                onClick={() => { clearRecipe(); setTab('system') }}
+              />
             </div>
           )}
           <ThemeToggle />
@@ -201,14 +223,20 @@ function About() {
 }
 
 /* ─── Mini Gauge for sidebar ─── */
-function MiniGauge({ value, label, color }) {
+function MiniGauge({ value, label, color, displayUnit = '%', onClick }) {
   const radius = 14
   const stroke = 3
   const circ = 2 * Math.PI * radius
-  const offset = circ - (value / 100) * circ
+  const pct = Math.min(Math.max(value, 0), 100)
+  const offset = circ - (pct / 100) * circ
 
   return (
-    <div className="flex flex-col items-center" title={`${label}: ${value}%`}>
+    <button
+      type="button"
+      onClick={onClick}
+      title={`${label}: ${value}${displayUnit} — open System Monitor`}
+      className="flex flex-col items-center bg-transparent border-none p-0 cursor-pointer hover:opacity-80 transition-opacity"
+    >
       <svg width="36" height="36" viewBox="0 0 36 36">
         <circle cx="18" cy="18" r={radius} fill="none" stroke="var(--outline-dim)" strokeWidth={stroke} />
         <circle
@@ -220,11 +248,11 @@ function MiniGauge({ value, label, color }) {
           className="gauge-ring"
         />
         <text x="18" y="19" textAnchor="middle" dominantBaseline="middle" fill="var(--text-muted)" fontSize="8" fontFamily="Space Grotesk" fontWeight="600">
-          {value}%
+          {value}{displayUnit}
         </text>
       </svg>
       <span className="text-[9px] text-text-dim font-label mt-0.5">{label}</span>
-    </div>
+    </button>
   )
 }
 
@@ -244,15 +272,6 @@ function PlayIcon({ className }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <polygon points="5 3 19 12 5 21 5 3" />
-    </svg>
-  )
-}
-
-function GaugeIcon({ className }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z" />
-      <path d="M12 6v6l4 2" />
     </svg>
   )
 }
