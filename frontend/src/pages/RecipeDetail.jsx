@@ -472,12 +472,16 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
                 {recipe.integration.max_context && <Field label="Max Context" value={recipe.integration.max_context} />}
                 {recipe.integration.max_output_tokens && <Field label="Max Output" value={recipe.integration.max_output_tokens} />}
                 {recipe.integration.curl_example && (
-                  <div className="pt-2">
-                    <span className="text-[10px] text-text-dim font-label block mb-1">curl example</span>
-                    <pre className="bg-surface rounded-xl p-3 text-[11px] text-text-muted font-mono overflow-x-auto whitespace-pre-wrap break-all m-0 leading-relaxed border border-outline-dim">
-                      {recipe.integration.curl_example.replace(/<SPARK_IP>/g, location.hostname)}
-                    </pre>
-                  </div>
+                  <CodeBlock
+                    label="curl example"
+                    value={recipe.integration.curl_example.replace(/<SPARK_IP>/g, location.hostname)}
+                  />
+                )}
+                {recipe.tags?.includes('vllm') && (
+                  <CodeBlock
+                    label="inference speed"
+                    value={`curl -s http://${location.hostname}:9001/metrics | awk '/^vllm:inter_token_latency_seconds_sum/{s=$2} /^vllm:inter_token_latency_seconds_count/{c=$2} /^vllm:time_to_first_token_seconds_sum/{ts=$2} /^vllm:time_to_first_token_seconds_count/{tc=$2} END{if(c>0)printf "Decode: %.2f tok/s (over %d tokens)\\n",c/s,c; if(tc>0)printf "Time to first token: %.3fs avg (over %d requests)\\n",ts/tc,tc}'`}
+                  />
                 )}
               </div>
             </div>
@@ -659,6 +663,36 @@ function Field({ label, value }) {
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
         )}
       </button>
+    </div>
+  )
+}
+
+function CodeBlock({ label, value }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    const text = String(value)
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200) })
+        .catch(() => fallbackCopy(text, setCopied))
+    } else {
+      fallbackCopy(text, setCopied)
+    }
+  }
+  return (
+    <div className="pt-2">
+      <span className="text-[10px] text-text-dim font-label block mb-1">{label}</span>
+      <div className="relative">
+        <pre className="bg-surface rounded-xl p-3 pr-10 text-[11px] text-text-muted font-mono overflow-x-auto whitespace-pre-wrap break-all m-0 leading-relaxed border border-outline-dim">
+          {value}
+        </pre>
+        <button onClick={copy} className="absolute top-2 right-2 p-1.5 bg-surface border-none rounded-lg cursor-pointer text-text-dim hover:text-primary transition-colors" title="Copy">
+          {copied ? (
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          ) : (
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          )}
+        </button>
+      </div>
     </div>
   )
 }
