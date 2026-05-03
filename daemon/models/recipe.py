@@ -18,7 +18,6 @@ class RecipeUI(BaseModel):
 
 class RecipeDocker(BaseModel):
     build: bool = False
-    build_time_minutes: int = 5
     gpu: bool = True
 
 
