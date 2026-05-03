@@ -471,11 +471,13 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
                 <Field label="API Key" value={recipe.integration.api_key} />
                 {recipe.integration.max_context && <Field label="Max Context" value={recipe.integration.max_context} />}
                 {recipe.integration.max_output_tokens && <Field label="Max Output" value={recipe.integration.max_output_tokens} />}
-                {recipe.integration.api_url && recipe.integration.model_id && (
-                  <SpeedTestSnippet
-                    apiUrl={recipe.integration.api_url.replace('<SPARK_IP>', location.hostname)}
-                    modelId={recipe.integration.model_id}
-                  />
+                {recipe.integration.curl_example && (
+                  <div className="pt-2">
+                    <span className="text-[10px] text-text-dim font-label block mb-1">curl example</span>
+                    <pre className="bg-surface rounded-xl p-3 text-[11px] text-text-muted font-mono overflow-x-auto whitespace-pre-wrap break-all m-0 leading-relaxed border border-outline-dim">
+                      {recipe.integration.curl_example.replace(/<SPARK_IP>/g, location.hostname)}
+                    </pre>
+                  </div>
                 )}
               </div>
             </div>
@@ -629,45 +631,6 @@ function ComposeEditor({ slug }) {
           {error && <span className="text-error font-label">{error}</span>}
         </div>
       </div>
-    </div>
-  )
-}
-
-function SpeedTestSnippet({ apiUrl, modelId }) {
-  const [copied, setCopied] = useState(false)
-  const script = `curl -s '${apiUrl}/chat/completions' \\
-  -H 'Content-Type: application/json' \\
-  -d '{"model": "${modelId}", "messages": [{"role": "user", "content": "Write a quicksort in Python."}], "max_tokens": 300, "temperature": 0}' \\
-  -w '\\n%{time_total}' | python3 -c "
-import sys, json
-out, t = sys.stdin.read().rsplit('\\n', 1)
-d = json.loads(out); tok = d['usage']['completion_tokens']
-print(d['choices'][0]['message']['content'])
-print(f'\\n--- {tok} tokens in {float(t):.1f}s = {tok/float(t):.1f} tok/s ---')
-"`
-  const copy = () => {
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(script).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200) })
-        .catch(() => fallbackCopy(script, setCopied))
-    } else {
-      fallbackCopy(script, setCopied)
-    }
-  }
-  return (
-    <div className="pt-2">
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] text-text-dim font-label">curl example</span>
-        <button onClick={copy} className="p-1.5 bg-surface border-none rounded-lg cursor-pointer text-text-dim hover:text-primary transition-colors" title="Copy">
-          {copied ? (
-            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-          ) : (
-            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-          )}
-        </button>
-      </div>
-      <pre className="bg-surface rounded-xl p-3 text-[11px] text-text-muted font-mono overflow-x-auto whitespace-pre-wrap break-all m-0 leading-relaxed border border-outline-dim">
-        {script}
-      </pre>
     </div>
   )
 }
