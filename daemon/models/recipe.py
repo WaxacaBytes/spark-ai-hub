@@ -54,6 +54,7 @@ class Recipe(BaseModel):
     depends_on: list[str] = []
     requires_hf_token: bool = False
     runtime_env_path: str = ""
+    tokens_per_second: float | None = None
 
     # runtime state (not from yaml)
     installed: bool = False

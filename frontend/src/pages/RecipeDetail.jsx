@@ -180,6 +180,9 @@ export default function RecipeDetail() {
           <div className="hidden lg:flex items-center gap-2 shrink-0">
             <SpecBadge label="Memory" value={`${recipe.requirements?.min_memory_gb ?? 8}–${recipe.requirements?.recommended_memory_gb ?? recipe.requirements?.min_memory_gb ?? 8} GB`} />
             <SpecBadge label="Disk" value={`${recipe.requirements?.disk_gb ?? 10} GB`} />
+            {recipe.tokens_per_second != null && (
+              <SpecBadge label="Speed" value={`${recipe.tokens_per_second} tok/s`} />
+            )}
           </div>
 
           <div className="shrink-0 flex items-center gap-2">

@@ -70,6 +70,9 @@ export default function RecipeCard({ recipe }) {
             {!recipe.docker?.gpu && (
               <span className="text-[10px] font-label text-text-dim bg-surface-high px-2 py-0.5 rounded-full">CPU</span>
             )}
+            {recipe.tokens_per_second != null && (
+              <span className="text-[10px] font-label text-primary bg-primary/10 px-2 py-0.5 rounded-full">{recipe.tokens_per_second} tok/s</span>
+            )}
           </div>
         </div>
 
