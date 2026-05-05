@@ -1,18 +1,19 @@
 """OpenAI-compatible proxy.
 
-One stable endpoint (the Hub itself) that forwards to whatever LLM is
-currently running on the upstream slot. The model name in incoming requests
-is rewritten to whatever the upstream actually has loaded — clients can be
-configured once with any placeholder and never touched again as the user
-swaps models in the Hub.
+One stable endpoint (the Hub itself) that forwards every /v1/* request to
+whichever LLM is loaded on the upstream slot. POST bodies that carry a
+"model" field have it rewritten to the actually-loaded model so clients
+can be configured once with any placeholder and survive model swaps in
+the Hub.
 """
 from __future__ import annotations
 
+import json
 import time
 from typing import Any
 
 import aiohttp
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from daemon.config import settings
@@ -21,6 +22,12 @@ router = APIRouter(prefix="/v1", tags=["openai"])
 
 _MODEL_CACHE: dict[str, Any] = {"name": None, "fetched_at": 0.0}
 _MODEL_CACHE_TTL = 5.0  # seconds
+
+# Hop-by-hop headers we shouldn't forward in either direction
+_HOP_BY_HOP = {
+    "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+    "te", "trailers", "transfer-encoding", "upgrade", "host", "content-length",
+}
 
 
 async def _fetch_current_model() -> str | None:
@@ -58,44 +65,92 @@ def _no_model_running() -> JSONResponse:
     )
 
 
-@router.get("/models")
-async def list_models() -> JSONResponse:
-    url = f"{settings.upstream_openai_url.rstrip('/')}/models"
-    try:
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2)) as s:
-            async with s.get(url) as r:
-                if r.status != 200:
+def _filter_headers(src) -> dict[str, str]:
+    return {k: v for k, v in src.items() if k.lower() not in _HOP_BY_HOP}
+
+
+@router.api_route(
+    "/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+)
+async def proxy(path: str, request: Request):
+    upstream_base = settings.upstream_openai_url.rstrip("/")
+    url = f"{upstream_base}/{path}"
+
+    raw_body = await request.body()
+
+    # Rewrite model field on JSON POST/PUT/PATCH bodies that carry one,
+    # and patch role="developer" → "system" for vLLM compat (Responses API).
+    if request.method in ("POST", "PUT", "PATCH") and raw_body:
+        try:
+            body = json.loads(raw_body)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            body = None
+        if isinstance(body, dict):
+            mutated = False
+            if "model" in body:
+                current = await _fetch_current_model()
+                if not current:
                     return _no_model_running()
-                data = await r.json()
-    except Exception:
-        return _no_model_running()
-    return JSONResponse(content=data)
+                body["model"] = current
+                mutated = True
+            # vLLM compat: messages with role="developer" must become "system",
+            # and Responses-API "input" items with role="developer" must be
+            # folded into top-level "instructions" (vLLM rejects mixed system
+            # placements when both fields are present).
+            messages = body.get("messages")
+            if isinstance(messages, list):
+                for item in messages:
+                    if isinstance(item, dict) and item.get("role") == "developer":
+                        item["role"] = "system"
+                        mutated = True
+            input_items = body.get("input")
+            if isinstance(input_items, list):
+                extra_instr_parts: list[str] = []
+                kept: list[Any] = []
+                for item in input_items:
+                    if isinstance(item, dict) and item.get("role") == "developer":
+                        content = item.get("content")
+                        if isinstance(content, str):
+                            extra_instr_parts.append(content)
+                        elif isinstance(content, list):
+                            for c in content:
+                                if isinstance(c, dict):
+                                    text = c.get("text") or c.get("content")
+                                    if isinstance(text, str):
+                                        extra_instr_parts.append(text)
+                        mutated = True
+                        continue
+                    kept.append(item)
+                if extra_instr_parts:
+                    existing = body.get("instructions") or ""
+                    body["instructions"] = (
+                        existing + ("\n\n" if existing else "") + "\n\n".join(extra_instr_parts)
+                    )
+                    body["input"] = kept
+            if mutated:
+                raw_body = json.dumps(body).encode()
 
+    headers = _filter_headers(request.headers)
 
-async def _proxy_post(request: Request, path: str) -> Any:
-    current = await _fetch_current_model()
-    if not current:
-        return _no_model_running()
+    streaming = False
+    if raw_body:
+        try:
+            parsed = json.loads(raw_body)
+            if isinstance(parsed, dict) and parsed.get("stream"):
+                streaming = True
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
 
-    try:
-        body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Body must be valid JSON")
-
-    body["model"] = current
-    streaming = bool(body.get("stream"))
-    url = f"{settings.upstream_openai_url.rstrip('/')}/{path}"
-
-    headers = {"content-type": "application/json"}
-    if auth := request.headers.get("authorization"):
-        headers["authorization"] = auth
+    params = dict(request.query_params)
 
     if streaming:
-
         async def gen():
             timeout = aiohttp.ClientTimeout(total=None, sock_read=None)
             async with aiohttp.ClientSession(timeout=timeout) as s:
-                async with s.post(url, json=body, headers=headers) as r:
+                async with s.request(
+                    request.method, url, data=raw_body, headers=headers, params=params
+                ) as r:
                     async for chunk in r.content.iter_any():
                         if chunk:
                             yield chunk
@@ -104,30 +159,14 @@ async def _proxy_post(request: Request, path: str) -> Any:
 
     timeout = aiohttp.ClientTimeout(total=600)
     async with aiohttp.ClientSession(timeout=timeout) as s:
-        async with s.post(url, json=body, headers=headers) as r:
+        async with s.request(
+            request.method, url, data=raw_body, headers=headers, params=params
+        ) as r:
             content = await r.read()
+            resp_headers = _filter_headers(r.headers)
             return Response(
                 content=content,
                 status_code=r.status,
-                media_type=r.headers.get("content-type", "application/json"),
+                headers=resp_headers,
+                media_type=r.headers.get("content-type"),
             )
-
-
-@router.post("/chat/completions")
-async def chat_completions(request: Request):
-    return await _proxy_post(request, "chat/completions")
-
-
-@router.post("/completions")
-async def completions(request: Request):
-    return await _proxy_post(request, "completions")
-
-
-@router.post("/embeddings")
-async def embeddings(request: Request):
-    return await _proxy_post(request, "embeddings")
-
-
-@router.post("/responses")
-async def responses(request: Request):
-    return await _proxy_post(request, "responses")
