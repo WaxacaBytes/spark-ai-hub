@@ -215,12 +215,6 @@ def cmd_claude(args) -> None:
         "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
         "CLAUDE_CODE_SUBAGENT_MODEL": model,
     }
-    print(
-        "warning: sah claude requires the Hub's Anthropic-compat endpoint "
-        "(/v1/messages), which is not yet implemented. claude will likely "
-        "error until that lands.",
-        file=sys.stderr,
-    )
     os.execvpe("claude", ["claude", "--model", model, *args.passthrough], env)
 
 

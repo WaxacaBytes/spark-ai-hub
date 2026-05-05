@@ -9,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from daemon.config import settings
 from daemon.db import init_db
-from daemon.routers import recipes, containers, system, openai_proxy
+from daemon.routers import recipes, containers, system, openai_proxy, anthropic_proxy
 from daemon.services.registry_service import load_recipes, get_recipes
 from daemon.services.docker_service import is_recipe_running, start_health_check
 
@@ -46,6 +46,9 @@ app.add_middleware(
 app.include_router(recipes.router)
 app.include_router(containers.router)
 app.include_router(system.router)
+# Anthropic must come before openai_proxy: the latter is a /v1/{path:path}
+# catch-all that would otherwise swallow /v1/messages.
+app.include_router(anthropic_proxy.router)
 app.include_router(openai_proxy.router)
 
 # Serve the `sah` CLI for `curl ${HUB}/sah/install.sh | sh`
