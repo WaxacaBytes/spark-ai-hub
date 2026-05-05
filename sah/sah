@@ -123,14 +123,38 @@ def cmd_codex(args) -> None:
         )
     model = info["id"]
     _ensure_codex_profile()
+    catalog_path = _write_codex_catalog(model, info)
     env = {**os.environ, "OPENAI_API_KEY": "sah"}
     cmd = ["codex", "--profile", "sah", "-m", model]
-    # Tell codex the model's real context window so it stops warning about
-    # "Model metadata not found" and uses the right auto-compact threshold.
-    if ctx := info.get("max_model_len"):
+    if catalog_path:
+        cmd += ["-c", f'model_catalog_json="{catalog_path}"']
+    elif ctx := info.get("max_model_len"):
         cmd += ["-c", f"model_context_window={int(ctx)}"]
     cmd += args.passthrough
     os.execvpe("codex", cmd, env)
+
+
+def _write_codex_catalog(model: str, info: dict) -> str | None:
+    """Fetch the catalog template from the Hub, repoint to the live model,
+    write to ~/.config/sah/codex-catalog.json. Returns the absolute path or None.
+    """
+    try:
+        with urllib.request.urlopen(f"{hub_url()}/sah/codex-model-template.json", timeout=2) as r:
+            tpl = json.loads(r.read())
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return None
+    if not (tpl.get("models") and isinstance(tpl["models"], list)):
+        return None
+    entry = tpl["models"][0]
+    entry["slug"] = model
+    entry["display_name"] = model
+    if ctx := info.get("max_model_len"):
+        entry["context_window"] = int(ctx)
+        entry["max_context_window"] = int(ctx)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    out = CONFIG_DIR / "codex-catalog.json"
+    out.write_text(json.dumps(tpl))
+    return str(out)
 
 
 def _ensure_codex_profile() -> None:
