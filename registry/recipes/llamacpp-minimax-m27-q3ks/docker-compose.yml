@@ -1,64 +1,40 @@
 services:
-  llama-server:
-    image: ghcr.io/ggml-org/llama.cpp:full-cuda13-b8953
+  vllm:
+    image: vllm/vllm-openai:minimax27
     container_name: spark-ai-hub-llamacpp-minimax-m27-q3ks
-    entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        if [ ! -f /models/UD-Q3_K_S/MiniMax-M2.7-UD-Q3_K_S-00003-of-00003.gguf ]; then
-          echo "[spark-ai-hub] Downloading MiniMax-M2.7 UD-Q3_K_S (~94 GB)..."
-          hf download unsloth/MiniMax-M2.7-GGUF --include 'UD-Q3_K_S/*' --local-dir /models
-        fi
-        exec /app/llama-server "$$@"
-      - --
-    command:
-      - -m
-      - /models/UD-Q3_K_S/MiniMax-M2.7-UD-Q3_K_S-00001-of-00003.gguf
-      - -ngl
-      - "999"
-      - -c
-      - "131072"
-      - --host
-      - "0.0.0.0"
-      - --port
-      - "8080"
-      - --alias
-      - minimax-m2.7
-      - -fa
-      - "on"
-      - -ctk
-      - q4_0
-      - -ctv
-      - q4_0
-      - --jinja
-      - --chat-template-file
-      - /config/minimax-m2-chat-template.jinja
-      - --temp
-      - "1.0"
-      - --top-p
-      - "0.95"
-      - --top-k
-      - "40"
-      - --min-p
-      - "0.01"
-      - --no-mmap
-      - --cont-batching
-      - -np
-      - "1"
-      - -t
-      - "16"
-      - -tb
-      - "16"
     ports:
-      - "9001:8080"
+      - "9001:8000"
     volumes:
-      - llamacpp-minimax-m27-models:/models
-      - ./minimax-m2-chat-template.jinja:/config/minimax-m2-chat-template.jinja:ro
+      - huggingface-cache:/root/.cache/huggingface
     environment:
-      - GGML_CUDA_ENABLE_UNIFIED_MEMORY=1
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
       - HF_TOKEN=${HF_TOKEN:-}
-      - PYTHONUNBUFFERED=1
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1
+    ipc: host
+    command:
+      - --model
+      - MJPansa/MiniMax-M2.7-REAP-172B-A10B-AutoRound-W4A16
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --max-model-len
+      - "65536"
+      - --served-model-name
+      - minimax-m2.7
+      - --gpu-memory-utilization
+      - "0.88"
+      - --kv-cache-dtype
+      - fp8
+      - --load-format
+      - fastsafetensors
+      - --enable-prefix-caching
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - minimax_m2
+      - --reasoning-parser
+      - minimax_m2
     deploy:
       resources:
         reservations:
@@ -69,4 +45,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  llamacpp-minimax-m27-models:
+  huggingface-cache:
