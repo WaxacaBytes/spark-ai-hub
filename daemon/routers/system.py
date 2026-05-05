@@ -1,20 +1,17 @@
 import asyncio
-from pathlib import Path
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from daemon.models.container import SystemMetrics
+from daemon.services import hf_token
 from daemon.services.monitor_service import get_system_metrics
 
 router = APIRouter(tags=["system"])
 
-_HF_TOKEN_PATH = Path.home() / ".cache" / "huggingface" / "token"
-
 
 @router.get("/api/system/hf-token")
 async def get_hf_token():
-    """Check if a HuggingFace token is configured."""
-    return {"has_token": _HF_TOKEN_PATH.is_file() and _HF_TOKEN_PATH.read_text().strip() != ""}
+    return {"has_token": hf_token.has_token()}
 
 
 class HFTokenBody(BaseModel):
@@ -23,9 +20,7 @@ class HFTokenBody(BaseModel):
 
 @router.post("/api/system/hf-token")
 async def set_hf_token(body: HFTokenBody):
-    """Save a HuggingFace token."""
-    _HF_TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _HF_TOKEN_PATH.write_text(body.token.strip())
+    hf_token.write_token(body.token)
     return {"status": "saved"}
 
 

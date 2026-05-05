@@ -23,6 +23,7 @@ export default function RecipeDetail() {
   const purgeRecipe = useStore((s) => s.purgeRecipe)
   const buildLogs = useStore((s) => s.buildLogs)
   const containerLogs = useStore((s) => s.containerLogs)
+  const lastInstallFailed = useStore((s) => s.lastInstallFailed)
   const connectLogs = useStore((s) => s.connectLogs)
   const disconnectLogs = useStore((s) => s.disconnectLogs)
 
@@ -43,14 +44,16 @@ export default function RecipeDetail() {
   const isUpdating = updating === recipe?.slug
   const isBusy = isBuilding || isUpdating
 
+  const installFailed = !!lastInstallFailed[recipe?.slug]
+
   useEffect(() => {
-    if (recipe?.running || recipe?.starting) {
+    if ((recipe?.running || recipe?.starting) && !installFailed) {
       connectLogs(recipe.slug)
     } else {
       disconnectLogs()
     }
     return () => disconnectLogs()
-  }, [recipe?.running, recipe?.starting, recipe?.slug, connectLogs, disconnectLogs])
+  }, [recipe?.running, recipe?.starting, recipe?.slug, installFailed, connectLogs, disconnectLogs])
 
   useEffect(() => {
     if (!recipe) return
@@ -87,7 +90,11 @@ export default function RecipeDetail() {
   const logoUrl = useThemedLogo(recipe.logo)
   const isReady = recipe.ready
   const cLogs = containerLogs[recipe.slug] || []
-  const logLines = isBusy ? (buildLogs[recipe.slug] || []) : cLogs
+  const bLogs = buildLogs[recipe.slug] || []
+  // Pin to build logs while installing/updating, or when the last install
+  // failed (so the user can read the error instead of seeing it flash to
+  // "Container not running").
+  const logLines = isBusy || installFailed ? bLogs : cLogs
 
   const handleRemove = () => {
     if (window.confirm(`Uninstall ${recipe.name}? This removes containers, images, and volumes.`)) {
@@ -478,9 +485,29 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
                   />
                 )}
                 {recipe.tags?.includes('vllm') && (
-                  <CodeBlock
-                    label="inference speed"
-                    value={`curl -s http://${location.hostname}:9001/metrics | awk '/^vllm:inter_token_latency_seconds_sum/{s=$2} /^vllm:inter_token_latency_seconds_count/{c=$2} /^vllm:time_to_first_token_seconds_sum/{ts=$2} /^vllm:time_to_first_token_seconds_count/{tc=$2} END{if(c>0)printf "Decode: %.2f tok/s (over %d tokens)\\n",c/s,c; if(tc>0)printf "Time to first token: %.3fs avg (over %d requests)\\n",ts/tc,tc}'`}
+                  <BenchmarkBlock
+                    value={`python3 - <<'EOF'
+import time, urllib.request, json
+HOST = "http://${location.hostname}:9001"
+MODEL = "${recipe.integration.model_id}"
+PROMPTS = [
+    ("code", "Write a quicksort implementation in Python with comments explaining each step."),
+    ("explainer", "Explain the differences between TCP and UDP, and when each is preferred."),
+    ("prose", "Plan a 3-day cultural travel itinerary for Kyoto, Japan in autumn."),
+]
+def call(p, mt=512):
+    body = json.dumps({"model":MODEL,"messages":[{"role":"user","content":p}],"max_tokens":mt,"temperature":0}).encode()
+    req = urllib.request.Request(HOST+"/v1/chat/completions", data=body, headers={"Content-Type":"application/json"})
+    t = time.time()
+    with urllib.request.urlopen(req, timeout=600) as r: d = json.loads(r.read())
+    return d["usage"]["completion_tokens"], time.time()-t
+print("warmup (discarded)..."); call("hi", 32)
+total_tok = total_t = 0
+for label, p in PROMPTS:
+    n, dt = call(p); total_tok += n; total_t += dt
+    print(f"  {label:<10} {n} tok / {dt:.2f}s = {n/dt:.2f} tok/s")
+print(f"Avg: {total_tok/total_t:.2f} tok/s ({total_tok} tok / {total_t:.2f}s across {len(PROMPTS)} mixed prompts)")
+EOF`}
                   />
                 )}
               </div>
@@ -683,6 +710,47 @@ function CodeBlock({ label, value }) {
       <span className="text-[10px] text-text-dim font-label block mb-1">{label}</span>
       <div className="relative">
         <pre className="bg-surface rounded-xl p-3 pr-10 text-[11px] text-text-muted font-mono overflow-x-auto whitespace-pre-wrap break-all m-0 leading-relaxed border border-outline-dim">
+          {value}
+        </pre>
+        <button onClick={copy} className="absolute top-2 right-2 p-1.5 bg-surface border-none rounded-lg cursor-pointer text-text-dim hover:text-primary transition-colors" title="Copy">
+          {copied ? (
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          ) : (
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          )}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function BenchmarkBlock({ value }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => {
+    const text = String(value)
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200) })
+        .catch(() => fallbackCopy(text, setCopied))
+    } else {
+      fallbackCopy(text, setCopied)
+    }
+  }
+  return (
+    <div className="pt-2">
+      <span className="text-[10px] text-text-dim font-label block mb-1">benchmark inference speed</span>
+      <div className="relative bg-surface rounded-xl border border-outline-dim overflow-hidden">
+        <div className="px-3 py-2 border-b border-outline-dim bg-surface-high/40">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[10px] font-label">
+            <span className="text-text-dim uppercase tracking-wider">prompts:</span>
+            <span className="text-text-muted"><span className="text-primary">code</span> · quicksort</span>
+            <span className="text-outline-dim">|</span>
+            <span className="text-text-muted"><span className="text-primary">explainer</span> · TCP vs UDP</span>
+            <span className="text-outline-dim">|</span>
+            <span className="text-text-muted"><span className="text-primary">prose</span> · Kyoto travel</span>
+          </div>
+          <div className="text-[10px] text-text-dim font-label mt-1">512 tok · temp=0 · warmup discarded</div>
+        </div>
+        <pre className="p-3 pr-10 text-[11px] text-text-muted font-mono overflow-x-auto whitespace-pre-wrap break-all m-0 leading-relaxed">
           {value}
         </pre>
         <button onClick={copy} className="absolute top-2 right-2 p-1.5 bg-surface border-none rounded-lg cursor-pointer text-text-dim hover:text-primary transition-colors" title="Copy">

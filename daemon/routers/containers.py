@@ -246,7 +246,22 @@ async def container_log_ws(websocket: WebSocket, slug: str):
     proc = None
     health_task = None
     try:
-        container = await get_container_name(slug)
+        # Poll briefly for the container to appear — during launch the
+        # WS often connects before `docker compose up` finishes creating
+        # the container. Bailing immediately would leave the user staring
+        # at "Container not running" for the entire model-load window.
+        container = None
+        deadline_ticks = 60  # ~60s at 1s/tick
+        announced_wait = False
+        while deadline_ticks > 0:
+            container = await get_container_name(slug)
+            if container:
+                break
+            if not announced_wait:
+                await websocket.send_text("[spark-ai-hub] Waiting for container to start...")
+                announced_wait = True
+            await asyncio.sleep(1)
+            deadline_ticks -= 1
         if not container:
             await websocket.send_text("[spark-ai-hub] Container not running")
             await websocket.close()

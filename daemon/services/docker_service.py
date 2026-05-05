@@ -288,7 +288,13 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
             ),
         ]
         yield f"[spark-ai-hub] Prefetching weights for {', '.join(model_repos)} (no port bind)..."
-        yield f"[spark-ai-hub] Running: {' '.join(run_cmd)}"
+        # Redact the HF token before logging the command so it doesn't leak
+        # into the build log (which is exposed via /api/recipes/{slug}/build-status).
+        redacted_cmd = [
+            f"HF_TOKEN={'***' if token else ''}" if part.startswith("HF_TOKEN=") else part
+            for part in run_cmd
+        ]
+        yield f"[spark-ai-hub] Running: {' '.join(redacted_cmd)}"
         rc = None
         async for text, code in _stream_proc(run_cmd, str(recipe_dir), env=env):
             if text:
@@ -428,12 +434,12 @@ async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
 
 def _launch_env() -> dict:
     """Environment for container launches, with auto-detected HF token."""
+    from daemon.services import hf_token
     env = {**os.environ}
-    # Auto-detect HuggingFace token so gated models work out of the box
     if not env.get("HF_TOKEN"):
-        token_path = Path.home() / ".cache" / "huggingface" / "token"
-        if token_path.is_file():
-            env["HF_TOKEN"] = token_path.read_text().strip()
+        token = hf_token.read_token()
+        if token:
+            env["HF_TOKEN"] = token
     return env
 
 

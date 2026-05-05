@@ -18,6 +18,13 @@ export const useStore = create((set, get) => ({
   _ws: null,
   selectedRecipe: null,
   containerLogs: {},
+  // slug -> true when the last install attempt failed; used to keep build
+  // logs visible (instead of flashing back to "Container not running") until
+  // the user retries.
+  lastInstallFailed: {},
+  // When non-null, a global modal prompts for an HF token before the
+  // pending action (`install` or `launch`) on the given slug proceeds.
+  hfTokenRequest: null,
   _logWs: null,
   theme: getInitialTheme(),
 
@@ -83,6 +90,30 @@ export const useStore = create((set, get) => ({
     }
   },
 
+  resolveHfToken: async (token) => {
+    const req = get().hfTokenRequest
+    if (!req) return { ok: false, error: 'No pending request' }
+    try {
+      const res = await fetch('/api/system/hf-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: token.trim() }),
+      })
+      if (!res.ok) return { ok: false, error: 'Failed to save token' }
+    } catch {
+      return { ok: false, error: 'Failed to save token' }
+    }
+    set({ hfTokenRequest: null })
+    if (req.action === 'install') {
+      get().installRecipe(req.slug)
+    } else if (req.action === 'launch') {
+      get().launchRecipe(req.slug)
+    }
+    return { ok: true }
+  },
+
+  cancelHfToken: () => set({ hfTokenRequest: null }),
+
   disconnectLogs: () => {
     const ws = get()._logWs
     if (ws && ws.readyState <= 1) {
@@ -123,7 +154,29 @@ export const useStore = create((set, get) => ({
   },
 
   installRecipe: async (slug) => {
-    set({ installing: slug, buildLogs: { ...get().buildLogs, [slug]: [] } })
+    const recipe = get().recipes.find((r) => r.slug === slug)
+    if (recipe?.requires_hf_token) {
+      try {
+        const res = await fetch('/api/system/hf-token')
+        const { has_token } = await res.json()
+        if (!has_token) {
+          set({ hfTokenRequest: { slug, action: 'install' } })
+          return
+        }
+      } catch (e) {
+        console.warn('HF token check failed, proceeding anyway:', e)
+      }
+    }
+
+    set((s) => {
+      const failed = { ...s.lastInstallFailed }
+      delete failed[slug]
+      return {
+        installing: slug,
+        buildLogs: { ...s.buildLogs, [slug]: [] },
+        lastInstallFailed: failed,
+      }
+    })
 
     try {
       await fetch(`/api/recipes/${slug}/install`, { method: 'POST' })
@@ -140,10 +193,19 @@ export const useStore = create((set, get) => ({
 
     ws.onmessage = (e) => {
       if (e.data === '[done]') {
-        set({ installing: null, _ws: null })
+        const lines = get().buildLogs[slug] || []
+        const failed = lines.some((l) => /Install failed with exit code/i.test(l))
+        set((s) => ({
+          installing: null,
+          _ws: null,
+          lastInstallFailed: failed
+            ? { ...s.lastInstallFailed, [slug]: true }
+            : s.lastInstallFailed,
+        }))
         get().fetchRecipes()
-        // Auto-connect container logs after install completes
-        setTimeout(() => get().connectLogs(slug), 1000)
+        if (!failed) {
+          setTimeout(() => get().connectLogs(slug), 1000)
+        }
         return
       }
       get().addBuildLine(slug, e.data)
