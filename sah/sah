@@ -41,15 +41,18 @@ def api_base() -> str:
 
 
 def current_model() -> str | None:
+    info = current_model_info()
+    return info.get("id") if info else None
+
+
+def current_model_info() -> dict | None:
     try:
         with urllib.request.urlopen(f"{api_base()}/models", timeout=2) as r:
             data = json.loads(r.read())
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         return None
     items = data.get("data") or []
-    if not items:
-        return None
-    return items[0].get("id")
+    return items[0] if items else None
 
 
 def require_model() -> str:
@@ -112,14 +115,22 @@ def cmd_opencode(args) -> None:
 def cmd_codex(args) -> None:
     if not shutil.which("codex"):
         sys.exit("codex not found in PATH. Install: npm install -g @openai/codex")
-    model = require_model()
+    info = current_model_info()
+    if not info:
+        sys.exit(
+            f"No model is running on {hub_url()}.\n"
+            f"Launch one from the Spark AI Hub web UI first."
+        )
+    model = info["id"]
     _ensure_codex_profile()
     env = {**os.environ, "OPENAI_API_KEY": "sah"}
-    os.execvpe(
-        "codex",
-        ["codex", "--profile", "sah", "-m", model, *args.passthrough],
-        env,
-    )
+    cmd = ["codex", "--profile", "sah", "-m", model]
+    # Tell codex the model's real context window so it stops warning about
+    # "Model metadata not found" and uses the right auto-compact threshold.
+    if ctx := info.get("max_model_len"):
+        cmd += ["-c", f"model_context_window={int(ctx)}"]
+    cmd += args.passthrough
+    os.execvpe("codex", cmd, env)
 
 
 def _ensure_codex_profile() -> None:
