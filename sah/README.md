@@ -1,0 +1,43 @@
+# sah — Spark AI Hub launcher
+
+One CLI command per OpenAI-compatible client. `sah opencode` launches
+OpenCode wired to whatever LLM the Spark AI Hub is currently serving.
+Switch models in the Hub UI; clients keep working without reconfiguration.
+
+## Install (on a client laptop on the same LAN)
+
+```sh
+curl http://192.168.3.16:9000/sah/install.sh | sh
+```
+
+Override the Hub URL:
+
+```sh
+curl http://192.168.3.16:9000/sah/install.sh | sh -s -- --hub http://other-host:9000
+```
+
+## Usage
+
+```sh
+sah info                # show Hub URL and current model
+sah env                 # print OPENAI_BASE_URL / OPENAI_API_KEY exports
+sah env --anthropic     # same but ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN
+
+sah opencode            # launch OpenCode against the Hub
+sah codex               # launch Codex against the Hub
+sah claude              # launch Claude Code against the Hub  (needs Anthropic-compat endpoint, WIP)
+sah claude-desktop      # launch Claude Desktop                (WIP)
+
+sah set-hub http://1.2.3.4:9000   # change the Hub URL
+```
+
+## How it works
+
+The Hub exposes an OpenAI-compatible proxy at `http://<hub>:9000/v1` that
+forwards to whichever LLM is loaded on its upstream slot. The `model`
+field on incoming requests is rewritten to the actually-loaded model, so
+clients don't need to know or care which model is current.
+
+`sah <client>` sets the right env vars (and patches the right config
+files for clients that need a config-file approach, like Codex), then
+execs the client. Zero per-client setup beyond running `sah` once.

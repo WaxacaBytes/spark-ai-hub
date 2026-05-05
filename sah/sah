@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+"""sah — Spark AI Hub launcher.
+
+One command on each laptop. `sah opencode` launches OpenCode wired to
+whatever LLM the Hub is currently serving. `sah codex` does the same for
+Codex. `sah env` / `sah info` print connection details for any other
+OpenAI-compatible client (Zed, Cursor, Continue, Chatbox, etc.).
+
+Hub URL discovery, in order: --hub flag, $SAH_HUB, ~/.config/sah/hub,
+http://192.168.3.16:9000 (default).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+DEFAULT_HUB = "http://192.168.3.16:9000"
+CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "sah"
+CONFIG_FILE = CONFIG_DIR / "hub"
+
+
+def hub_url() -> str:
+    if v := os.environ.get("SAH_HUB"):
+        return v.rstrip("/")
+    if CONFIG_FILE.is_file():
+        v = CONFIG_FILE.read_text().strip()
+        if v:
+            return v.rstrip("/")
+    return DEFAULT_HUB
+
+
+def api_base() -> str:
+    return f"{hub_url()}/v1"
+
+
+def current_model() -> str | None:
+    try:
+        with urllib.request.urlopen(f"{api_base()}/models", timeout=2) as r:
+            data = json.loads(r.read())
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return None
+    items = data.get("data") or []
+    if not items:
+        return None
+    return items[0].get("id")
+
+
+def require_model() -> str:
+    m = current_model()
+    if not m:
+        sys.exit(
+            f"No model is running on {hub_url()}.\n"
+            f"Launch one from the Spark AI Hub web UI first."
+        )
+    return m
+
+
+# ---------- commands ----------
+
+def cmd_info(_args) -> None:
+    m = current_model()
+    print(f"Hub:           {hub_url()}")
+    print(f"OpenAI base:   {api_base()}")
+    print(f"Anthropic base:{hub_url()}")
+    print(f"API key:       sah  (any value works)")
+    print(f"Current model: {m or '(none — launch one in the Hub)'}")
+
+
+def cmd_env(args) -> None:
+    base = hub_url() if args.anthropic else api_base()
+    if args.anthropic:
+        print(f"export ANTHROPIC_BASE_URL={base}")
+        print(f"export ANTHROPIC_AUTH_TOKEN=sah")
+    else:
+        print(f"export OPENAI_BASE_URL={base}")
+        print(f"export OPENAI_API_KEY=sah")
+
+
+def cmd_set_hub(args) -> None:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_FILE.write_text(args.url.rstrip("/") + "\n")
+    print(f"Hub set to {args.url}")
+
+
+def cmd_opencode(args) -> None:
+    if not shutil.which("opencode"):
+        sys.exit("opencode not found in PATH. Install: https://opencode.ai")
+    model = require_model()
+    config = {
+        "$schema": "https://opencode.ai/config.json",
+        "provider": {
+            "sah": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "Spark AI Hub",
+                "options": {"baseURL": api_base()},
+                "models": {model: {"name": model}},
+            }
+        },
+        "model": f"sah/{model}",
+    }
+    env = {**os.environ, "OPENCODE_CONFIG_CONTENT": json.dumps(config)}
+    os.execvpe("opencode", ["opencode", *args.passthrough], env)
+
+
+def cmd_codex(args) -> None:
+    if not shutil.which("codex"):
+        sys.exit("codex not found in PATH. Install: npm install -g @openai/codex")
+    model = require_model()
+    _ensure_codex_profile()
+    env = {**os.environ, "OPENAI_API_KEY": "sah"}
+    os.execvpe(
+        "codex",
+        ["codex", "--profile", "sah", "-m", model, *args.passthrough],
+        env,
+    )
+
+
+def _ensure_codex_profile() -> None:
+    """Patch ~/.codex/config.toml with a [profiles.sah] section."""
+    codex_dir = Path.home() / ".codex"
+    codex_dir.mkdir(parents=True, exist_ok=True)
+    cfg = codex_dir / "config.toml"
+    base = api_base().rstrip("/") + "/"
+
+    sections = [
+        (
+            "[profiles.sah]",
+            [
+                f'openai_base_url = "{base}"',
+                'forced_login_method = "api"',
+                'model_provider = "sah"',
+            ],
+        ),
+        (
+            "[model_providers.sah]",
+            [
+                'name = "Spark AI Hub"',
+                f'base_url = "{base}"',
+            ],
+        ),
+    ]
+
+    text = cfg.read_text() if cfg.is_file() else ""
+    for header, lines in sections:
+        block = "\n".join([header, *lines]) + "\n"
+        idx = text.find(header)
+        if idx >= 0:
+            rest = text[idx + len(header):]
+            end = rest.find("\n[")
+            if end >= 0:
+                text = text[:idx] + block + rest[end + 1:]
+            else:
+                text = text[:idx] + block
+        else:
+            if text and not text.endswith("\n"):
+                text += "\n"
+            if text:
+                text += "\n"
+            text += block
+    cfg.write_text(text)
+
+
+def cmd_claude(args) -> None:
+    if not shutil.which("claude"):
+        sys.exit("claude not found. Install: https://claude.com/code")
+    model = require_model()
+    env = {
+        **os.environ,
+        "ANTHROPIC_BASE_URL": hub_url(),
+        "ANTHROPIC_AUTH_TOKEN": "sah",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": model,
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": model,
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
+        "CLAUDE_CODE_SUBAGENT_MODEL": model,
+    }
+    print(
+        "warning: sah claude requires the Hub's Anthropic-compat endpoint "
+        "(/v1/messages), which is not yet implemented. claude will likely "
+        "error until that lands.",
+        file=sys.stderr,
+    )
+    os.execvpe("claude", ["claude", "--model", model, *args.passthrough], env)
+
+
+def cmd_claude_desktop(_args) -> None:
+    sys.exit(
+        "sah claude-desktop is not implemented yet — needs Hub's Anthropic-compat "
+        "endpoint plus config patching for Claude Desktop's settings file."
+    )
+
+
+# ---------- entrypoint ----------
+
+def main() -> None:
+    p = argparse.ArgumentParser(prog="sah", description="Spark AI Hub launcher")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    sp = sub.add_parser("info", help="Show Hub URL and current model")
+    sp.set_defaults(func=cmd_info)
+
+    sp = sub.add_parser("env", help="Print export lines for OPENAI_* / ANTHROPIC_*")
+    sp.add_argument("--anthropic", action="store_true", help="Anthropic-shaped env vars")
+    sp.set_defaults(func=cmd_env)
+
+    sp = sub.add_parser("set-hub", help="Persist Hub URL to ~/.config/sah/hub")
+    sp.add_argument("url")
+    sp.set_defaults(func=cmd_set_hub)
+
+    sp = sub.add_parser("opencode", help="Launch OpenCode wired to the Hub")
+    sp.add_argument("passthrough", nargs=argparse.REMAINDER)
+    sp.set_defaults(func=cmd_opencode)
+
+    sp = sub.add_parser("codex", help="Launch Codex wired to the Hub")
+    sp.add_argument("passthrough", nargs=argparse.REMAINDER)
+    sp.set_defaults(func=cmd_codex)
+
+    sp = sub.add_parser("claude", help="Launch Claude Code wired to the Hub")
+    sp.add_argument("passthrough", nargs=argparse.REMAINDER)
+    sp.set_defaults(func=cmd_claude)
+
+    sp = sub.add_parser("claude-desktop", help="Launch Claude Desktop wired to the Hub")
+    sp.set_defaults(func=cmd_claude_desktop)
+
+    args = p.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

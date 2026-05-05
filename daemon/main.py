@@ -9,11 +9,12 @@ from fastapi.staticfiles import StaticFiles
 
 from daemon.config import settings
 from daemon.db import init_db
-from daemon.routers import recipes, containers, system
+from daemon.routers import recipes, containers, system, openai_proxy
 from daemon.services.registry_service import load_recipes, get_recipes
 from daemon.services.docker_service import is_recipe_running, start_health_check
 
 DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+SAH_DIR = Path(__file__).resolve().parent.parent / "sah"
 
 
 async def _check_running_readiness():
@@ -45,6 +46,11 @@ app.add_middleware(
 app.include_router(recipes.router)
 app.include_router(containers.router)
 app.include_router(system.router)
+app.include_router(openai_proxy.router)
+
+# Serve the `sah` CLI for `curl ${HUB}/sah/install.sh | sh`
+if SAH_DIR.is_dir():
+    app.mount("/sah", StaticFiles(directory=str(SAH_DIR)), name="sah")
 
 # Serve static assets (js, css, etc.) under /assets
 if DIST_DIR.is_dir():
