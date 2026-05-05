@@ -250,13 +250,17 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
 
     yield f"[spark-ai-hub] Starting install for {slug}..."
 
-    vllm_model = None if build_recipe else _parse_vllm_model_repos(recipe_dir)
+    vllm_model = _parse_vllm_model_repos(recipe_dir)
 
     if vllm_model is not None:
         service_name, model_repos = vllm_model
-        # Phase 1: pull image (no ports, no container start)
-        pull_cmd = _compose_cmd(slug, recipe_dir) + ["pull"]
-        yield f"[spark-ai-hub] Pulling image: {' '.join(pull_cmd)}"
+        # Phase 1: prepare image (build locally if build:true, else pull)
+        if build_recipe:
+            pull_cmd = _compose_cmd(slug, recipe_dir) + ["build"]
+            yield f"[spark-ai-hub] Building local image: {' '.join(pull_cmd)}"
+        else:
+            pull_cmd = _compose_cmd(slug, recipe_dir) + ["pull"]
+            yield f"[spark-ai-hub] Pulling image: {' '.join(pull_cmd)}"
         rc = None
         async for text, code in _stream_proc(pull_cmd, str(recipe_dir)):
             if text:
