@@ -259,6 +259,24 @@ def cmd_qwen(args) -> None:
     os.execvpe("qwen", cmd, env)
 
 
+_QWEN_CAPABILITIES_NOTE = """
+## Multimodal capabilities (Spark AI Hub)
+
+You are running on a Qwen 3.5/3.6 model served by Spark AI Hub. These models
+are natively multimodal: when the `read_file` tool returns image or video
+content, you can see and describe it directly. There is no separate "vision
+model" to delegate to, and you do not need ffmpeg/ffprobe to inspect a video's
+visual content.
+
+When the user asks you to read or describe an image or video file:
+- Just call `read_file` with the path. Do not refuse or claim to be text-only.
+- Do not suggest extracting frames, running ffprobe, or asking the user to
+  describe the file. Read it and answer.
+- Supported extensions include common images (png, jpg, jpeg, gif, webp, bmp)
+  and videos (mp4, mov, mkv, webm, avi).
+""".strip()
+
+
 def _qwen_modalities_for(model: str) -> dict:
     """Return modality flags for a Hub model.
 
@@ -293,17 +311,22 @@ def _prepare_qwen_home(model: str) -> Path:
     qwen_dir = home / ".qwen"
     qwen_dir.mkdir(parents=True, exist_ok=True)
 
+    # Files we materialize ourselves (must not be symlinked through to the real
+    # ~/.qwen): settings.json carries auth/modelProvider overrides, QWEN.md
+    # carries the capability addendum.
+    OWNED = {"settings.json", "QWEN.md"}
+
     real_qwen = Path.home() / ".qwen"
     if real_qwen.is_dir():
         existing = {p.name: p for p in qwen_dir.iterdir()}
-        wanted = {p.name for p in real_qwen.iterdir() if p.name != "settings.json"}
+        wanted = {p.name for p in real_qwen.iterdir() if p.name not in OWNED}
         for name, link in existing.items():
-            if name == "settings.json":
+            if name in OWNED:
                 continue
             if link.is_symlink() and name not in wanted:
                 link.unlink()
         for item in real_qwen.iterdir():
-            if item.name == "settings.json":
+            if item.name in OWNED:
                 continue
             link = qwen_dir / item.name
             target = item.resolve()
@@ -314,6 +337,21 @@ def _prepare_qwen_home(model: str) -> Path:
             elif link.exists():
                 continue  # leave non-symlink user data alone
             link.symlink_to(target)
+
+    # Synthesize ~/.qwen/QWEN.md inside the isolated home: import the user's
+    # real one (if any) so their global memory still applies, then append a
+    # brief capability note. Without this, Qwen3.5/3.6 served via OpenAI-compat
+    # don't realize they can read image/video files and refuse — `read_file`
+    # has the modality flag set, but the model's prior keeps insisting "I'm
+    # text-only" until the user argues with it.
+    qwen_md_lines = []
+    real_qwen_md = real_qwen / "QWEN.md"
+    if real_qwen_md.is_file():
+        qwen_md_lines.append(f"@{real_qwen_md}")
+        qwen_md_lines.append("")
+    qwen_md_lines.append(_QWEN_CAPABILITIES_NOTE.strip())
+    qwen_md_lines.append("")
+    (qwen_dir / "QWEN.md").write_text("\n".join(qwen_md_lines))
 
     base: dict = {}
     real_settings = real_qwen / "settings.json"
