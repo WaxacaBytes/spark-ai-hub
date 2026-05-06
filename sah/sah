@@ -15,8 +15,10 @@ import argparse
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -232,6 +234,278 @@ def cmd_hermes(args) -> None:
     if extra and extra[0] == "--":
         extra = extra[1:]
     os.execvpe("hermes", ["hermes", *extra], env)
+
+
+def cmd_qwen(args) -> None:
+    if not shutil.which("qwen"):
+        sys.exit("qwen not found in PATH. Install: npm install -g @qwen-code/qwen-code")
+    model = require_model()
+    extra = _normalize_passthrough(args.passthrough)
+    env = {
+        **os.environ,
+        "OPENAI_API_KEY": "sah",
+        "OPENAI_BASE_URL": api_base(),
+    }
+    cmd = [
+        "qwen",
+        "--auth-type", "openai",
+        "--openai-base-url", api_base(),
+        "--openai-api-key", "sah",
+        "--model", model,
+        *extra,
+    ]
+    os.execvpe("qwen", cmd, env)
+
+
+def cmd_openclaw(args) -> None:
+    bin_name = shutil.which("openclaw") or shutil.which("clawdbot")
+    if not bin_name:
+        sys.exit("openclaw not found in PATH. Install: npm install -g openclaw@latest")
+    info = current_model_info()
+    if not info:
+        sys.exit(
+            f"No model is running on {hub_url()}.\n"
+            f"Launch one from the Spark AI Hub web UI first."
+        )
+    model = info["id"]
+    _ensure_openclaw_config(model, info)
+    extra = _normalize_passthrough(args.passthrough)
+    if not extra:
+        extra = ["tui"]
+    env = _openclaw_env()
+    if extra[0] in {"tui", "terminal"} and "--local" not in extra:
+        sys.exit(_run_openclaw_with_gateway(bin_name, extra, env))
+    os.execvpe(bin_name, [bin_name, *extra], env)
+
+
+def _normalize_passthrough(args: list[str]) -> list[str]:
+    if args and args[0] == "--":
+        return args[1:]
+    return args
+
+
+def _model_context_window(info: dict, default: int = 32768) -> int:
+    try:
+        ctx = int(info.get("max_model_len") or 0)
+    except (TypeError, ValueError):
+        ctx = 0
+    return ctx if ctx > 0 else default
+
+
+def _openclaw_config_paths() -> tuple[Path, Path]:
+    return (
+        Path.home() / ".openclaw" / "openclaw.json",
+        Path.home() / ".clawdbot" / "clawdbot.json",
+    )
+
+
+def _ensure_openclaw_config(model: str, info: dict) -> None:
+    config_path, legacy_path = _openclaw_config_paths()
+    if not config_path.is_file() and not legacy_path.is_file():
+        _openclaw_onboard(model)
+
+    source = config_path if config_path.is_file() else legacy_path
+    config = _read_json(source)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+
+    models_section = config.setdefault("models", {})
+    if not isinstance(models_section, dict):
+        models_section = {}
+        config["models"] = models_section
+    models_section.setdefault("mode", "merge")
+    providers = models_section.setdefault("providers", {})
+    if not isinstance(providers, dict):
+        providers = {}
+        models_section["providers"] = providers
+
+    provider = providers.setdefault("sah", {})
+    if not isinstance(provider, dict):
+        provider = {}
+        providers["sah"] = provider
+    provider["baseUrl"] = api_base()
+    provider["apiKey"] = "sah"
+    provider["api"] = "openai-completions"
+
+    model_entry = {
+        "id": model,
+        "name": model,
+        "api": "openai-completions",
+        "input": ["text"],
+        "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+        "contextWindow": _model_context_window(info),
+        "maxTokens": min(8192, _model_context_window(info)),
+        "compat": {
+            "supportsDeveloperRole": False,
+            "supportsUsageInStreaming": True,
+            "supportsStrictMode": False,
+        },
+    }
+    existing = provider.get("models") if isinstance(provider.get("models"), list) else []
+    provider["models"] = [
+        *(m for m in existing if not (isinstance(m, dict) and m.get("id") == model)),
+        model_entry,
+    ]
+
+    agents = config.setdefault("agents", {})
+    if not isinstance(agents, dict):
+        agents = {}
+        config["agents"] = agents
+    defaults = agents.setdefault("defaults", {})
+    if not isinstance(defaults, dict):
+        defaults = {}
+        agents["defaults"] = defaults
+    model_config = defaults.setdefault("model", {})
+    if not isinstance(model_config, dict):
+        model_config = {}
+        defaults["model"] = model_config
+    model_config["primary"] = f"sah/{model}"
+
+    cfg_models = defaults.setdefault("models", {})
+    if isinstance(cfg_models, dict):
+        cfg_models[f"sah/{model}"] = cfg_models.get(f"sah/{model}", {})
+
+    config_path.write_text(json.dumps(config, indent=2) + "\n")
+    _clear_openclaw_session_model_override(model)
+
+
+def _openclaw_onboard(model: str) -> None:
+    bin_name = shutil.which("openclaw") or shutil.which("clawdbot")
+    cmd = [
+        bin_name,
+        "onboard",
+        "--non-interactive",
+        "--accept-risk",
+        "--auth-choice", "custom-api-key",
+        "--custom-provider-id", "sah",
+        "--custom-base-url", api_base(),
+        "--custom-api-key", "sah",
+        "--custom-model-id", model,
+        "--custom-compatibility", "openai",
+        "--skip-health",
+        "--skip-channels",
+        "--skip-skills",
+        "--skip-ui",
+        "--no-install-daemon",
+    ]
+    result = subprocess.run(cmd, env=_openclaw_env())
+    if result.returncode != 0:
+        sys.exit("openclaw onboarding failed. Try running: openclaw onboard")
+
+
+def _clear_openclaw_session_model_override(model: str) -> None:
+    path = Path.home() / ".openclaw" / "agents" / "main" / "sessions" / "sessions.json"
+    if not path.is_file():
+        return
+    try:
+        sessions = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return
+    if not isinstance(sessions, dict):
+        return
+    changed = False
+    for session in sessions.values():
+        if not isinstance(session, dict):
+            continue
+        if session.get("modelOverride") and session.get("modelOverride") != model:
+            session.pop("modelOverride", None)
+            session.pop("providerOverride", None)
+            changed = True
+        if session.get("model") and session.get("model") != model:
+            session["model"] = model
+            changed = True
+    if changed:
+        path.write_text(json.dumps(sessions, indent=2) + "\n")
+
+
+def _openclaw_gateway_info() -> tuple[str, int]:
+    token = ""
+    port = 18789
+    for path in _openclaw_config_paths():
+        cfg = _read_json(path)
+        gateway = cfg.get("gateway") if isinstance(cfg, dict) else None
+        if not isinstance(gateway, dict):
+            continue
+        try:
+            port = int(gateway.get("port") or port)
+        except (TypeError, ValueError):
+            pass
+        auth = gateway.get("auth")
+        if isinstance(auth, dict) and isinstance(auth.get("token"), str):
+            token = auth["token"]
+        return token, port
+    return token, port
+
+
+def _port_open(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.5)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _wait_port(port: int, timeout: float) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _port_open(port):
+            return True
+        time.sleep(0.25)
+    return False
+
+
+def _run_openclaw_with_gateway(bin_name: str, extra: list[str], env: dict) -> int:
+    token, port = _openclaw_gateway_info()
+    gateway = None
+    if not _port_open(port):
+        gateway = subprocess.Popen(
+            [bin_name, "gateway", "run", "--force"],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        if not _wait_port(port, 30):
+            gateway.terminate()
+            try:
+                gateway.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                gateway.kill()
+            print(f"openclaw gateway did not start on 127.0.0.1:{port}", file=sys.stderr)
+            return 1
+
+    cmd = [bin_name, *extra]
+    if token and "--token" not in extra and not any(a.startswith("--token=") for a in extra):
+        cmd += ["--token", token]
+    if "--url" not in extra and not any(a.startswith("--url=") for a in extra):
+        cmd += ["--url", f"ws://127.0.0.1:{port}"]
+
+    try:
+        return subprocess.run(cmd, env=env).returncode
+    finally:
+        if gateway is not None:
+            gateway.terminate()
+            try:
+                gateway.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                gateway.kill()
+
+
+def _openclaw_env() -> dict:
+    clear = {
+        "ANTHROPIC_API_KEY",
+        "ANTHROPIC_OAUTH_TOKEN",
+        "OPENAI_API_KEY",
+        "GEMINI_API_KEY",
+        "MISTRAL_API_KEY",
+        "GROQ_API_KEY",
+        "XAI_API_KEY",
+        "OPENROUTER_API_KEY",
+    }
+    env = {k: v for k, v in os.environ.items() if k not in clear}
+    env["OPENAI_API_KEY"] = "sah"
+    env["OPENAI_BASE_URL"] = api_base()
+    env.setdefault(
+        "OPENCLAW_PLUGIN_STAGE_DIR",
+        str(Path.home() / ".openclaw" / "plugin-runtime-deps"),
+    )
+    return env
 
 
 def cmd_claude(args) -> None:
@@ -692,6 +966,15 @@ def main() -> None:
     sp = sub.add_parser("hermes", help="Launch Hermes Agent wired to the Hub")
     sp.add_argument("passthrough", nargs=argparse.REMAINDER)
     sp.set_defaults(func=cmd_hermes)
+
+    sp = sub.add_parser("qwen", help="Launch Qwen Code wired to the Hub")
+    sp.add_argument("passthrough", nargs=argparse.REMAINDER)
+    sp.set_defaults(func=cmd_qwen)
+
+    sp = sub.add_parser("openclaw", aliases=["clawdbot", "moltbot"],
+                        help="Launch OpenClaw wired to the Hub")
+    sp.add_argument("passthrough", nargs=argparse.REMAINDER)
+    sp.set_defaults(func=cmd_openclaw)
 
     sp = sub.add_parser("claude", help="Launch Claude Code wired to the Hub")
     sp.add_argument("passthrough", nargs=argparse.REMAINDER)

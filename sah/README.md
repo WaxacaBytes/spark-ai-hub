@@ -25,6 +25,8 @@ sah env --anthropic     # same but ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN
 
 sah opencode            # launch OpenCode against the Hub
 sah codex               # launch Codex against the Hub
+sah qwen                # launch Qwen Code against the Hub
+sah openclaw            # launch OpenClaw against the Hub
 sah claude              # launch Claude Code against the Hub  (needs Anthropic-compat endpoint, WIP)
 sah claude-desktop      # launch Claude Desktop                (WIP)
 
