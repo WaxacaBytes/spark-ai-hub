@@ -240,9 +240,11 @@ def cmd_qwen(args) -> None:
     if not shutil.which("qwen"):
         sys.exit("qwen not found in PATH. Install: npm install -g @qwen-code/qwen-code")
     model = require_model()
+    qwen_home = _prepare_qwen_home(model)
     extra = _normalize_passthrough(args.passthrough)
     env = {
         **os.environ,
+        "HOME": str(qwen_home),
         "OPENAI_API_KEY": "sah",
         "OPENAI_BASE_URL": api_base(),
     }
@@ -255,6 +257,105 @@ def cmd_qwen(args) -> None:
         *extra,
     ]
     os.execvpe("qwen", cmd, env)
+
+
+def _qwen_modalities_for(model: str) -> dict:
+    """Return modality flags for a Hub model.
+
+    Qwen 3.5 / 3.6 instruct + VL families are natively multimodal (image +
+    video). qwen-code's built-in defaults only flag `qwen3.5-plus` / `qwen-vl-*`
+    as multimodal, so models served by the Hub (e.g. `Qwen/Qwen3.6-35B-A3B-FP8`)
+    fall through to the text-only `^qwen` fallback and image/video reads get
+    skipped client-side. Mark them multimodal here. Other models get an empty
+    map (text-only).
+    """
+    norm = model.lower().replace("_", "-").split("/")[-1]
+    if norm.startswith("qwen3.5") or norm.startswith("qwen3.6"):
+        return {"image": True, "video": True}
+    if "-vl-" in norm or norm.endswith("-vl") or "vision" in norm:
+        return {"image": True, "video": True}
+    return {}
+
+
+def _prepare_qwen_home(model: str) -> Path:
+    """Build an isolated HOME for `sah qwen` that shares everything with plain
+    `qwen` *except* settings.json.
+
+    qwen-code derives its config dir from `os.homedir()`. We point HOME at a
+    sah-managed dir whose `.qwen/` is a mirror of the real `~/.qwen/`: every
+    child (skills, projects, oauth_creds.json, todos, tmp, …) is symlinked to
+    the real path, so reads and writes bleed through transparently. Only
+    settings.json is materialized fresh — copied from the real one and
+    overridden with our auth/model/modelProviders bits — so we never alter the
+    user's real settings file.
+    """
+    home = CONFIG_DIR / "qwen-home"
+    qwen_dir = home / ".qwen"
+    qwen_dir.mkdir(parents=True, exist_ok=True)
+
+    real_qwen = Path.home() / ".qwen"
+    if real_qwen.is_dir():
+        existing = {p.name: p for p in qwen_dir.iterdir()}
+        wanted = {p.name for p in real_qwen.iterdir() if p.name != "settings.json"}
+        for name, link in existing.items():
+            if name == "settings.json":
+                continue
+            if link.is_symlink() and name not in wanted:
+                link.unlink()
+        for item in real_qwen.iterdir():
+            if item.name == "settings.json":
+                continue
+            link = qwen_dir / item.name
+            target = item.resolve()
+            if link.is_symlink():
+                if Path(os.readlink(link)) == target:
+                    continue
+                link.unlink()
+            elif link.exists():
+                continue  # leave non-symlink user data alone
+            link.symlink_to(target)
+
+    base: dict = {}
+    real_settings = real_qwen / "settings.json"
+    if real_settings.is_file():
+        try:
+            loaded = json.loads(real_settings.read_text())
+            if isinstance(loaded, dict):
+                base = loaded
+        except json.JSONDecodeError:
+            pass
+
+    base.setdefault("$version", 3)
+    env_block = base.get("env") if isinstance(base.get("env"), dict) else {}
+    env_block["OPENAI_API_KEY"] = "sah"
+    base["env"] = env_block
+
+    sec = base.get("security") if isinstance(base.get("security"), dict) else {}
+    auth = sec.get("auth") if isinstance(sec.get("auth"), dict) else {}
+    auth["selectedType"] = "openai"
+    sec["auth"] = auth
+    base["security"] = sec
+
+    model_block = base.get("model") if isinstance(base.get("model"), dict) else {}
+    model_block["name"] = model
+    base["model"] = model_block
+
+    providers = base.get("modelProviders") if isinstance(base.get("modelProviders"), dict) else {}
+    openai_list = providers.get("openai") if isinstance(providers.get("openai"), list) else []
+    entry = {
+        "id": model,
+        "name": f"Spark AI Hub · {model}",
+        "baseUrl": api_base(),
+        "envKey": "OPENAI_API_KEY",
+        "generationConfig": {"modalities": _qwen_modalities_for(model)},
+    }
+    openai_list = [p for p in openai_list if not (isinstance(p, dict) and p.get("id") == model)]
+    openai_list.insert(0, entry)
+    providers["openai"] = openai_list
+    base["modelProviders"] = providers
+
+    (qwen_dir / "settings.json").write_text(json.dumps(base, indent=2) + "\n")
+    return home
 
 
 def cmd_openclaw(args) -> None:
