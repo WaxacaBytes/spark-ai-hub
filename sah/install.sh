@@ -26,9 +26,56 @@ printf '%s\n' "$HUB" > "${CONFIG_DIR}/hub"
 
 echo "Installed: ${BIN_DIR}/sah"
 echo "Hub:       ${HUB}"
+
+# Ensure ${BIN_DIR} is on PATH — both for this session and future shells.
+ensure_path_line() {
+    rc_file="$1"
+    [ -n "$rc_file" ] || return 0
+    # Create the rc file if missing so the export persists.
+    [ -e "$rc_file" ] || : > "$rc_file"
+    if ! grep -Fq "# >>> sah PATH >>>" "$rc_file" 2>/dev/null; then
+        {
+            printf '\n# >>> sah PATH >>>\n'
+            printf 'case ":$PATH:" in *":%s:"*) ;; *) export PATH="%s:$PATH";; esac\n' \
+                "$BIN_DIR" "$BIN_DIR"
+            printf '# <<< sah PATH <<<\n'
+        } >> "$rc_file"
+        echo "Added ${BIN_DIR} to PATH in ${rc_file}"
+    fi
+}
+
 case ":$PATH:" in
-    *":${BIN_DIR}:"*) ;;
-    *) echo "warning: ${BIN_DIR} is not on your PATH" >&2;;
+    *":${BIN_DIR}:"*)
+        on_path=1
+        ;;
+    *)
+        on_path=0
+        # Pick rc files based on the user's login shell, falling back to common ones.
+        login_shell="$(basename "${SHELL:-}")"
+        case "$login_shell" in
+            zsh)  ensure_path_line "${ZDOTDIR:-$HOME}/.zshrc" ;;
+            bash)
+                # macOS bash reads .bash_profile for login shells; Linux uses .bashrc.
+                if [ "$(uname -s)" = "Darwin" ]; then
+                    ensure_path_line "$HOME/.bash_profile"
+                else
+                    ensure_path_line "$HOME/.bashrc"
+                fi
+                ;;
+            fish) ensure_path_line "$HOME/.config/fish/config.fish" ;;
+            *)
+                # Best-effort: touch whichever rc files exist.
+                [ -f "$HOME/.zshrc" ]        && ensure_path_line "$HOME/.zshrc"
+                [ -f "$HOME/.bashrc" ]       && ensure_path_line "$HOME/.bashrc"
+                [ -f "$HOME/.bash_profile" ] && ensure_path_line "$HOME/.bash_profile"
+                ;;
+        esac
+        ;;
 esac
+
 echo
-echo "Try: sah info"
+if [ "${on_path:-1}" -eq 1 ]; then
+    echo "Try: sah info"
+else
+    echo "Open a new terminal (or run: exec \$SHELL -l) and then: sah info"
+fi
