@@ -424,6 +424,26 @@ def _install_tunnel(hub: str) -> None:
                    check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     subprocess.run(["launchctl", "load", str(p["plist"])], check=False)
 
+    # Wait until the tunnel actually accepts a connection. Claude Desktop probes
+    # the gateway URL at startup and caches a failure if the port isn't ready;
+    # without this gate, "sah claude-desktop" relaunches Claude before launchd
+    # finishes binding the socket and the user sees ERR_CONNECTION_REFUSED.
+    import socket as _s, time as _t
+    deadline = _t.time() + 5
+    while _t.time() < deadline:
+        with _s.socket(_s.AF_INET, _s.SOCK_STREAM) as sock:
+            sock.settimeout(0.2)
+            try:
+                sock.connect(("127.0.0.1", SAH_TUNNEL_PORT))
+                return
+            except OSError:
+                _t.sleep(0.1)
+    print(
+        f"warning: tunnel on 127.0.0.1:{SAH_TUNNEL_PORT} did not come up within 5s; "
+        f"check ~/.config/sah/sah-tunnel.log",
+        file=sys.stderr,
+    )
+
 
 def _uninstall_tunnel() -> None:
     p = _cd_paths()
