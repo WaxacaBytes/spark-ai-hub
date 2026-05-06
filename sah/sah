@@ -19,6 +19,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
+import uuid
 from pathlib import Path
 
 DEFAULT_HUB = "http://192.168.3.16:9000"
@@ -250,10 +251,62 @@ def cmd_claude(args) -> None:
 
 
 def cmd_claude_desktop(_args) -> None:
-    sys.exit(
-        "sah claude-desktop is not implemented yet — needs Hub's Anthropic-compat "
-        "endpoint plus config patching for Claude Desktop's settings file."
-    )
+    """Wire Claude Desktop's Cowork 3p mode to the Hub's gateway.
+
+    Writes a profile into ~/Library/Application Support/Claude-3p/configLibrary/
+    (the directory Claude Desktop reads when running in 3p mode) and points
+    _meta.json's appliedId at it. Also sets deploymentMode="3p" in the regular
+    claude_desktop_config.json so the app boots into 3p next launch.
+    """
+    if sys.platform != "darwin":
+        sys.exit(
+            "sah claude-desktop is macOS-only. Anthropic does not ship a Linux "
+            "build of Claude Desktop; run this on the Mac that has it installed."
+        )
+
+    sah_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, "spark-ai-hub.sah"))
+    cfg_dir = Path.home() / "Library/Application Support/Claude-3p/configLibrary"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+
+    profile = {
+        "coworkEgressAllowedHosts": ["*"],
+        "disableDeploymentModeChooser": True,
+        "inferenceProvider": "gateway",
+        "inferenceGatewayBaseUrl": hub_url(),
+        "inferenceGatewayApiKey": "sah",
+    }
+    (cfg_dir / f"{sah_id}.json").write_text(json.dumps(profile, indent=2) + "\n")
+
+    meta_path = cfg_dir / "_meta.json"
+    meta: dict = {}
+    if meta_path.is_file():
+        try:
+            meta = json.loads(meta_path.read_text())
+        except json.JSONDecodeError:
+            meta = {}
+    entries = [e for e in (meta.get("entries") or []) if e.get("id") != sah_id]
+    entries.append({"id": sah_id, "name": "Spark AI Hub"})
+    meta["entries"] = entries
+    meta["appliedId"] = sah_id
+    meta_path.write_text(json.dumps(meta, indent=2) + "\n")
+
+    # Set deploymentMode=3p in the regular config (preserve everything else).
+    main_cfg = Path.home() / "Library/Application Support/Claude/claude_desktop_config.json"
+    if main_cfg.is_file():
+        try:
+            data = json.loads(main_cfg.read_text())
+        except json.JSONDecodeError:
+            data = {}
+    else:
+        main_cfg.parent.mkdir(parents=True, exist_ok=True)
+        data = {}
+    if data.get("deploymentMode") != "3p":
+        data["deploymentMode"] = "3p"
+        main_cfg.write_text(json.dumps(data, indent=2) + "\n")
+
+    print(f"Spark AI Hub profile written to {cfg_dir / f'{sah_id}.json'}")
+    print(f"Active 3p profile → {hub_url()}")
+    print("Quit and relaunch Claude Desktop to apply.")
 
 
 # ---------- entrypoint ----------
