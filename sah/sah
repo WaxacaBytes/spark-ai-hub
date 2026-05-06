@@ -336,6 +336,21 @@ def _cd_paths() -> dict:
     }
 
 
+def _claude_app_path() -> Path | None:
+    for cand in (Path("/Applications/Claude.app"), Path.home() / "Applications/Claude.app"):
+        if cand.is_dir():
+            return cand
+    return None
+
+
+def _require_claude_installed() -> None:
+    if _claude_app_path() is None:
+        sys.exit(
+            "Claude Desktop is not installed. Install it from "
+            "https://claude.ai/download, then re-run this command."
+        )
+
+
 def _read_json(path: Path) -> dict:
     if not path.is_file():
         return {}
@@ -350,12 +365,18 @@ def _write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n")
 
 
-def _claude_running() -> bool:
+def _claude_pids() -> list[int]:
     r = subprocess.run(
         ["pgrep", "-f", "Claude.app/Contents/MacOS/Claude"],
         capture_output=True, text=True,
     )
-    return r.returncode == 0 and bool(r.stdout.strip())
+    if r.returncode != 0:
+        return []
+    return [int(x) for x in r.stdout.split() if x.strip().isdigit()]
+
+
+def _claude_running() -> bool:
+    return bool(_claude_pids())
 
 
 def _quit_claude() -> None:
@@ -369,24 +390,56 @@ def _open_claude() -> None:
     subprocess.run(["open", "-a", "Claude"], check=False)
 
 
-def _restart_claude(prompt: str) -> None:
-    if not _claude_running():
-        _open_claude()
-        return
-    try:
-        ans = input(f"\n{prompt} Quit and reopen Claude Desktop now? [Y/n] ").strip().lower()
-    except EOFError:
-        ans = "n"
-    if ans and ans not in ("y", "yes"):
-        print("Quit and reopen Claude Desktop when you're ready.")
-        return
-    _quit_claude()
+def _wait_claude_exit(timeout: float) -> bool:
+    """Poll until no Claude PIDs remain. Print a single dot per second so the
+    user sees progress without 50 dots/10s. Returns True if it actually exited.
+    """
     import time as _t
-    for _ in range(50):  # up to 10s
+    deadline = _t.time() + timeout
+    last_dot = _t.time()
+    while _t.time() < deadline:
         if not _claude_running():
-            break
+            return True
+        if _t.time() - last_dot >= 1.0:
+            print(".", end="", flush=True)
+            last_dot = _t.time()
+        _t.sleep(0.1)
+    return False
+
+
+def _open_and_verify() -> None:
+    """open -a Claude, then poll until it's running. Retry once if needed."""
+    import time as _t
+    _open_claude()
+    for _ in range(20):  # up to 4s
+        if _claude_running():
+            return
         _t.sleep(0.2)
     _open_claude()
+
+
+def _restart_claude(skip: bool) -> None:
+    if skip:
+        if _claude_running():
+            print("Quit and reopen Claude Desktop for the change to take effect.")
+        else:
+            print("Open Claude Desktop when you're ready.")
+        return
+    if not _claude_running():
+        print("Opening Claude Desktop...", end="", flush=True)
+        _open_and_verify()
+        print(" done.")
+        return
+
+    print("Restarting Claude Desktop", end="", flush=True)
+    _quit_claude()
+    _wait_claude_exit(30.0)
+    # Brief settle so launch services releases the previous instance before
+    # we ask for a new one.
+    import time as _t
+    _t.sleep(0.5)
+    _open_and_verify()
+    print(" done.")
 
 
 def _install_tunnel(hub: str) -> None:
@@ -512,33 +565,87 @@ def _write_gateway_profile() -> None:
 
 
 def _restore_gateway_profile() -> None:
+    """Strip the gateway keys from the SAH profile rather than deleting it.
+
+    Mirrors Ollama. Deleting the file outright was leaving Claude Desktop in
+    a broken "applied profile is gone" state on the next launch — presenting
+    as a logged-out 3p screen even though we'd flipped deploymentMode to 1p.
+    """
     p = _cd_paths()
     profile_path = p["third_party_dir"] / f"configLibrary/{SAH_PROFILE_ID}.json"
     if not profile_path.is_file():
         return
-    # We own this UUID — safe to delete the file outright on restore.
-    profile_path.unlink()
+    cfg = _read_json(profile_path)
+    if not cfg:
+        return
+    cfg["disableDeploymentModeChooser"] = False
+    for k in ("inferenceProvider", "inferenceGatewayBaseUrl",
+              "inferenceGatewayAuthScheme", "inferenceModels"):
+        cfg.pop(k, None)
+    _write_json(profile_path, cfg)
+
+
+def _status() -> None:
+    p = _cd_paths()
+    app = _claude_app_path()
+    print(f"Claude Desktop:  {'installed at ' + str(app) if app else 'NOT installed'}")
+    if not app:
+        return
+
+    cfg = _read_json(p["third_party_dir"] / "claude_desktop_config.json")
+    mode = cfg.get("deploymentMode", "1p (default)")
+    profile = _read_json(p["third_party_dir"] / f"configLibrary/{SAH_PROFILE_ID}.json")
+    meta = _read_json(p["third_party_dir"] / "configLibrary/_meta.json")
+    applied = meta.get("appliedId") == SAH_PROFILE_ID
+    gateway_url = profile.get("inferenceGatewayBaseUrl", "—")
+    plist_loaded = p["plist"].is_file()
+
+    sah_active = (
+        mode == "3p"
+        and applied
+        and profile.get("inferenceProvider") == "gateway"
+        and plist_loaded
+    )
+    print(f"Deployment mode: {mode}")
+    print(f"SAH profile:     {'APPLIED' if sah_active else 'not applied'}")
+    print(f"Gateway URL:     {gateway_url}")
+    print(f"Tunnel agent:    {'loaded' if plist_loaded else 'not installed'} ({p['plist']})")
+    print(f"Claude running:  {'yes' if _claude_running() else 'no'}")
 
 
 def cmd_claude_desktop(args) -> None:
     """Wire Claude Desktop's Cowork 3p mode to the Hub via a loopback proxy.
 
     Install (default): drops a launchd-managed TCP forwarder on 127.0.0.1
-    pointing at the Hub, writes a 3p gateway profile, sets deploymentMode=3p.
+    pointing at the Hub, writes a 3p gateway profile, sets deploymentMode=3p,
+    and restarts Claude Desktop.
 
-    Restore (--restore): tears down the launchd agent, removes the SAH
-    profile, sets deploymentMode=1p (Anthropic-account mode). Mirrors
-    Ollama's `--restore` semantics.
+    Restore (--restore): tears down the SAH profile, flips deploymentMode=1p
+    (Anthropic-account mode), and restarts Claude Desktop. Mirrors Ollama's
+    `--restore` semantics.
+
+    Status (--status): print whether SAH is currently wired to Claude Desktop.
+
+    Use --no-restart to skip the automatic Claude Desktop restart.
     """
     _cd_paths()  # exits early on non-darwin
 
+    if args.status:
+        _status()
+        return
+
+    _require_claude_installed()
+
     if args.restore:
-        _uninstall_tunnel()
-        _restore_gateway_profile()
-        _restore_meta_entry()
+        # Order matches Ollama: flip deploymentMode first, then unwind the
+        # gateway profile + meta entry. Claude Desktop reads deploymentMode
+        # at launch and routes everything else off that.
         _set_deployment_mode("1p")
+        _restore_meta_entry()
+        _restore_gateway_profile()
+        _uninstall_tunnel()
         print("Spark AI Hub disconnected from Claude Desktop.")
-        _restart_claude("Restored to the usual Claude profile.")
+        _restart_claude(skip=args.no_restart)
         return
 
     hub = hub_url()
@@ -549,7 +656,7 @@ def cmd_claude_desktop(args) -> None:
     print("Spark AI Hub wired to Claude Desktop.")
     print(f"  Local proxy:  127.0.0.1:{SAH_TUNNEL_PORT} → {hub}")
     print(f"  Restore with: sah claude-desktop --restore")
-    _restart_claude("Spark AI Hub profile applied.")
+    _restart_claude(skip=args.no_restart)
 
 
 # ---------- entrypoint ----------
@@ -586,8 +693,13 @@ def main() -> None:
     sp.set_defaults(func=cmd_claude)
 
     sp = sub.add_parser("claude-desktop", help="Wire Claude Desktop to the Hub")
-    sp.add_argument("--restore", action="store_true",
-                    help="Restore Claude Desktop to the usual Anthropic profile")
+    g = sp.add_mutually_exclusive_group()
+    g.add_argument("--restore", action="store_true",
+                   help="Restore Claude Desktop to the usual Anthropic profile")
+    g.add_argument("--status", action="store_true",
+                   help="Show whether SAH is currently wired to Claude Desktop")
+    sp.add_argument("--no-restart", action="store_true",
+                    help="Skip the automatic Claude Desktop restart")
     sp.set_defaults(func=cmd_claude_desktop)
 
     args = p.parse_args()
