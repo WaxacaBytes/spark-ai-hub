@@ -250,63 +250,286 @@ def cmd_claude(args) -> None:
     os.execvpe("claude", ["claude", "--model", model, *args.passthrough], env)
 
 
-def cmd_claude_desktop(_args) -> None:
-    """Wire Claude Desktop's Cowork 3p mode to the Hub's gateway.
+# ---------- claude-desktop ----------
+#
+# Architecture: Claude Desktop's Cowork 3p mode requires HTTPS gateway URLs
+# (or http on 127.0.0.1). The Hub runs plain http on the LAN, so we install
+# a tiny TCP forwarder on 127.0.0.1:9009 → Hub as a launchd agent. Claude
+# Desktop sees a loopback URL and is happy.
+#
+# Schema mirrors Ollama's `ollama launch claude-desktop` (cmd/launch/claude_desktop.go):
+# we set deploymentMode="3p" (or "1p" on restore), maintain a stable profile
+# UUID, write the same gateway keys, and offer the same restore semantics.
 
-    Writes a profile into ~/Library/Application Support/Claude-3p/configLibrary/
-    (the directory Claude Desktop reads when running in 3p mode) and points
-    _meta.json's appliedId at it. Also sets deploymentMode="3p" in the regular
-    claude_desktop_config.json so the app boots into 3p next launch.
-    """
+SAH_PROFILE_ID = str(uuid.uuid5(uuid.NAMESPACE_DNS, "spark-ai-hub.sah"))
+SAH_PROFILE_NAME = "Spark AI Hub"
+SAH_TUNNEL_PORT = 9009
+SAH_LAUNCH_LABEL = "ai.waxacabytes.sah-tunnel"
+
+SAH_TUNNEL_SCRIPT = '''#!/usr/bin/env python3
+"""sah-tunnel — TCP forwarder: 127.0.0.1:<port> -> <hub host:port>.
+
+Lets Claude Desktop see a loopback URL while traffic actually goes to the
+LAN Spark AI Hub. Plain TCP forwarding works for HTTP requests and SSE.
+"""
+import asyncio, sys, urllib.parse
+
+
+async def _pipe(reader, writer):
+    try:
+        while True:
+            data = await reader.read(65536)
+            if not data:
+                break
+            writer.write(data)
+            await writer.drain()
+    except (ConnectionError, OSError):
+        pass
+    finally:
+        try:
+            writer.close()
+        except Exception:
+            pass
+
+
+async def _handle(client_r, client_w, host, port):
+    try:
+        upstream_r, upstream_w = await asyncio.open_connection(host, port)
+    except (ConnectionError, OSError):
+        client_w.close()
+        return
+    await asyncio.gather(_pipe(client_r, upstream_w), _pipe(upstream_r, client_w))
+
+
+async def _main():
+    listen_port = int(sys.argv[1])
+    hub = urllib.parse.urlparse(sys.argv[2])
+    host = hub.hostname or "127.0.0.1"
+    port = hub.port or (443 if hub.scheme == "https" else 80)
+    server = await asyncio.start_server(
+        lambda r, w: _handle(r, w, host, port), "127.0.0.1", listen_port
+    )
+    async with server:
+        await server.serve_forever()
+
+
+if __name__ == "__main__":
+    asyncio.run(_main())
+'''
+
+
+def _cd_paths() -> dict:
     if sys.platform != "darwin":
         sys.exit(
             "sah claude-desktop is macOS-only. Anthropic does not ship a Linux "
             "build of Claude Desktop; run this on the Mac that has it installed."
         )
-
-    sah_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, "spark-ai-hub.sah"))
-    cfg_dir = Path.home() / "Library/Application Support/Claude-3p/configLibrary"
-    cfg_dir.mkdir(parents=True, exist_ok=True)
-
-    profile = {
-        "coworkEgressAllowedHosts": ["*"],
-        "disableDeploymentModeChooser": True,
-        "inferenceProvider": "gateway",
-        "inferenceGatewayBaseUrl": hub_url(),
-        "inferenceGatewayApiKey": "sah",
+    home = Path.home()
+    base = home / "Library/Application Support"
+    return {
+        "normal_dir": base / "Claude",
+        "third_party_dir": base / "Claude-3p",
+        "launch_agents": home / "Library/LaunchAgents",
+        "tunnel_script": CONFIG_DIR / "sah-tunnel.py",
+        "tunnel_log": CONFIG_DIR / "sah-tunnel.log",
+        "plist": home / "Library/LaunchAgents" / f"{SAH_LAUNCH_LABEL}.plist",
     }
-    (cfg_dir / f"{sah_id}.json").write_text(json.dumps(profile, indent=2) + "\n")
 
-    meta_path = cfg_dir / "_meta.json"
-    meta: dict = {}
-    if meta_path.is_file():
-        try:
-            meta = json.loads(meta_path.read_text())
-        except json.JSONDecodeError:
-            meta = {}
-    entries = [e for e in (meta.get("entries") or []) if e.get("id") != sah_id]
-    entries.append({"id": sah_id, "name": "Spark AI Hub"})
+
+def _read_json(path: Path) -> dict:
+    if not path.is_file():
+        return {}
+    try:
+        return json.loads(path.read_text()) or {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def _write_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2) + "\n")
+
+
+def _claude_running() -> bool:
+    r = subprocess.run(
+        ["pgrep", "-f", "Claude.app/Contents/MacOS/Claude"],
+        capture_output=True, text=True,
+    )
+    return r.returncode == 0 and bool(r.stdout.strip())
+
+
+def _quit_claude() -> None:
+    subprocess.run(
+        ["osascript", "-e", 'tell application "Claude" to quit'],
+        check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+
+
+def _open_claude() -> None:
+    subprocess.run(["open", "-a", "Claude"], check=False)
+
+
+def _restart_claude(prompt: str) -> None:
+    if not _claude_running():
+        _open_claude()
+        return
+    try:
+        ans = input(f"\n{prompt} Quit and reopen Claude Desktop now? [Y/n] ").strip().lower()
+    except EOFError:
+        ans = "n"
+    if ans and ans not in ("y", "yes"):
+        print("Quit and reopen Claude Desktop when you're ready.")
+        return
+    _quit_claude()
+    import time as _t
+    for _ in range(50):  # up to 10s
+        if not _claude_running():
+            break
+        _t.sleep(0.2)
+    _open_claude()
+
+
+def _install_tunnel(hub: str) -> None:
+    p = _cd_paths()
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    p["tunnel_script"].write_text(SAH_TUNNEL_SCRIPT)
+    p["tunnel_script"].chmod(0o755)
+
+    plist = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<plist version="1.0">\n'
+        '<dict>\n'
+        f'    <key>Label</key><string>{SAH_LAUNCH_LABEL}</string>\n'
+        '    <key>ProgramArguments</key>\n'
+        '    <array>\n'
+        '        <string>/usr/bin/python3</string>\n'
+        f'        <string>{p["tunnel_script"]}</string>\n'
+        f'        <string>{SAH_TUNNEL_PORT}</string>\n'
+        f'        <string>{hub}</string>\n'
+        '    </array>\n'
+        '    <key>RunAtLoad</key><true/>\n'
+        '    <key>KeepAlive</key><true/>\n'
+        f'    <key>StandardOutPath</key><string>{p["tunnel_log"]}</string>\n'
+        f'    <key>StandardErrorPath</key><string>{p["tunnel_log"]}</string>\n'
+        '</dict>\n'
+        '</plist>\n'
+    )
+    p["plist"].parent.mkdir(parents=True, exist_ok=True)
+    p["plist"].write_text(plist)
+
+    # Reload to pick up any URL changes; ignore unload errors on first install.
+    subprocess.run(["launchctl", "unload", str(p["plist"])],
+                   check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run(["launchctl", "load", str(p["plist"])], check=False)
+
+
+def _uninstall_tunnel() -> None:
+    p = _cd_paths()
+    if p["plist"].is_file():
+        subprocess.run(["launchctl", "unload", str(p["plist"])],
+                       check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        p["plist"].unlink()
+    if p["tunnel_script"].is_file():
+        p["tunnel_script"].unlink()
+
+
+def _set_deployment_mode(mode: str) -> None:
+    p = _cd_paths()
+    for d in (p["normal_dir"], p["third_party_dir"]):
+        cfg_path = d / "claude_desktop_config.json"
+        cfg = _read_json(cfg_path)
+        if cfg.get("deploymentMode") == mode and cfg_path.is_file():
+            continue
+        cfg["deploymentMode"] = mode
+        _write_json(cfg_path, cfg)
+
+
+def _write_meta_entry() -> None:
+    p = _cd_paths()
+    meta_path = p["third_party_dir"] / "configLibrary/_meta.json"
+    meta = _read_json(meta_path)
+    entries = [e for e in (meta.get("entries") or []) if e.get("id") != SAH_PROFILE_ID]
+    entries.append({"id": SAH_PROFILE_ID, "name": SAH_PROFILE_NAME})
     meta["entries"] = entries
-    meta["appliedId"] = sah_id
-    meta_path.write_text(json.dumps(meta, indent=2) + "\n")
+    meta["appliedId"] = SAH_PROFILE_ID
+    _write_json(meta_path, meta)
 
-    # Set deploymentMode=3p in the regular config (preserve everything else).
-    main_cfg = Path.home() / "Library/Application Support/Claude/claude_desktop_config.json"
-    if main_cfg.is_file():
-        try:
-            data = json.loads(main_cfg.read_text())
-        except json.JSONDecodeError:
-            data = {}
-    else:
-        main_cfg.parent.mkdir(parents=True, exist_ok=True)
-        data = {}
-    if data.get("deploymentMode") != "3p":
-        data["deploymentMode"] = "3p"
-        main_cfg.write_text(json.dumps(data, indent=2) + "\n")
 
-    print(f"Spark AI Hub profile written to {cfg_dir / f'{sah_id}.json'}")
-    print(f"Active 3p profile → {hub_url()}")
-    print("Quit and relaunch Claude Desktop to apply.")
+def _restore_meta_entry() -> None:
+    p = _cd_paths()
+    meta_path = p["third_party_dir"] / "configLibrary/_meta.json"
+    if not meta_path.is_file():
+        return
+    meta = _read_json(meta_path)
+    if not meta:
+        return
+    changed = False
+    if meta.get("appliedId") == SAH_PROFILE_ID:
+        meta.pop("appliedId", None)
+        changed = True
+    entries = meta.get("entries") or []
+    new_entries = [e for e in entries if e.get("id") != SAH_PROFILE_ID]
+    if len(new_entries) != len(entries):
+        meta["entries"] = new_entries
+        changed = True
+    if changed:
+        _write_json(meta_path, meta)
+
+
+def _write_gateway_profile() -> None:
+    p = _cd_paths()
+    profile_path = p["third_party_dir"] / f"configLibrary/{SAH_PROFILE_ID}.json"
+    cfg = _read_json(profile_path)
+    cfg["inferenceProvider"] = "gateway"
+    cfg["inferenceGatewayBaseUrl"] = f"http://127.0.0.1:{SAH_TUNNEL_PORT}"
+    cfg["inferenceGatewayApiKey"] = "sah"
+    cfg["inferenceGatewayAuthScheme"] = "bearer"
+    cfg["disableDeploymentModeChooser"] = True
+    cfg.pop("inferenceModels", None)
+    _write_json(profile_path, cfg)
+
+
+def _restore_gateway_profile() -> None:
+    p = _cd_paths()
+    profile_path = p["third_party_dir"] / f"configLibrary/{SAH_PROFILE_ID}.json"
+    if not profile_path.is_file():
+        return
+    # We own this UUID — safe to delete the file outright on restore.
+    profile_path.unlink()
+
+
+def cmd_claude_desktop(args) -> None:
+    """Wire Claude Desktop's Cowork 3p mode to the Hub via a loopback proxy.
+
+    Install (default): drops a launchd-managed TCP forwarder on 127.0.0.1
+    pointing at the Hub, writes a 3p gateway profile, sets deploymentMode=3p.
+
+    Restore (--restore): tears down the launchd agent, removes the SAH
+    profile, sets deploymentMode=1p (Anthropic-account mode). Mirrors
+    Ollama's `--restore` semantics.
+    """
+    _cd_paths()  # exits early on non-darwin
+
+    if args.restore:
+        _uninstall_tunnel()
+        _restore_gateway_profile()
+        _restore_meta_entry()
+        _set_deployment_mode("1p")
+        print("Spark AI Hub disconnected from Claude Desktop.")
+        _restart_claude("Restored to the usual Claude profile.")
+        return
+
+    hub = hub_url()
+    _install_tunnel(hub)
+    _write_gateway_profile()
+    _write_meta_entry()
+    _set_deployment_mode("3p")
+    print("Spark AI Hub wired to Claude Desktop.")
+    print(f"  Local proxy:  127.0.0.1:{SAH_TUNNEL_PORT} → {hub}")
+    print(f"  Restore with: sah claude-desktop --restore")
+    _restart_claude("Spark AI Hub profile applied.")
 
 
 # ---------- entrypoint ----------
@@ -342,7 +565,9 @@ def main() -> None:
     sp.add_argument("passthrough", nargs=argparse.REMAINDER)
     sp.set_defaults(func=cmd_claude)
 
-    sp = sub.add_parser("claude-desktop", help="Launch Claude Desktop wired to the Hub")
+    sp = sub.add_parser("claude-desktop", help="Wire Claude Desktop to the Hub")
+    sp.add_argument("--restore", action="store_true",
+                    help="Restore Claude Desktop to the usual Anthropic profile")
     sp.set_defaults(func=cmd_claude_desktop)
 
     args = p.parse_args()
