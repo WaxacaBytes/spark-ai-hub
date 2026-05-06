@@ -1,7 +1,7 @@
 name: "Qwen3.6-27B FP8 DFlash"
 slug: vllm-qwen36-27b-fp8-dflash
 version: "1.0.0"
-description: "Qwen3.6-27B FP8 with z-lab DFlash speculative decoding (chain k=15) on vLLM. Measured ~23 tok/s avg on DGX Spark GB10 across mixed prompts (code-heavy ~30 tok/s; open-ended prose ~16 tok/s). Compose-only; runtime installs z-lab/dflash."
+description: "Qwen3.6-27B FP8 with z-lab DFlash speculative decoding (chain k=10) on vLLM. Measured ~23 tok/s avg on DGX Spark GB10 across mixed prompts (code-heavy ~30 tok/s; open-ended prose ~16 tok/s). Compose-only; runtime installs z-lab/dflash."
 author: "Alibaba Cloud + z-lab + vLLM"
 source: "community"
 website: "https://github.com/z-lab/dflash"

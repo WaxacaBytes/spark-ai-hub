@@ -1,7 +1,7 @@
 name: "Qwen3.6-35B-A3B DFlash"
 slug: vllm-qwen36-35b-a3b-bf16-dflash
 version: "1.0.0"
-description: "Qwen3.6-35B-A3B MoE BF16 with z-lab DFlash speculative decoding (chain k=15) on vLLM. dflash baked into local image at install time — launch is fully offline."
+description: "Qwen3.6-35B-A3B MoE BF16 with z-lab DFlash speculative decoding (chain k=10) on vLLM. dflash baked into local image at install time — launch is fully offline."
 author: "Alibaba Cloud + z-lab + vLLM"
 source: "community"
 website: "https://github.com/z-lab/dflash"

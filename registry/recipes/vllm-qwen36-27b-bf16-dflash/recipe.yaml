@@ -1,7 +1,7 @@
 name: "Qwen3.6-27B DFlash"
 slug: vllm-qwen36-27b-bf16-dflash
 version: "1.0.0"
-description: "Qwen3.6-27B BF16 with z-lab DFlash speculative decoding (chain k=15) on vLLM. Measured ~16 tok/s avg on DGX Spark GB10 across mixed prompts (code-heavy ~22 tok/s; open-ended prose ~10 tok/s). Compose-only; runtime installs z-lab/dflash."
+description: "Qwen3.6-27B BF16 with z-lab DFlash speculative decoding (chain k=10) on vLLM. Measured ~16 tok/s avg on DGX Spark GB10 across mixed prompts (code-heavy ~22 tok/s; open-ended prose ~10 tok/s). Compose-only; runtime installs z-lab/dflash."
 author: "Alibaba Cloud + z-lab + vLLM"
 source: "community"
 website: "https://github.com/z-lab/dflash"

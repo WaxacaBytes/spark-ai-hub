@@ -28,8 +28,14 @@ services:
       - qwen3_coder
       - --gpu-memory-utilization
       - "0.55"
+      # Bound prefill and sequence concurrency for 4-5 developer sessions so
+      # one long reasoning request does not starve active decodes.
+      - --enable-chunked-prefill
       - --max-num-batched-tokens
-      - "32768"
+      - "4096"
+      - --max-num-seqs
+      - "5"
+      - --enable-prefix-caching
       - --attention-backend
       - flash_attn
       - --mm-processor-cache-type
@@ -37,7 +43,7 @@ services:
       - --mm-encoder-tp-mode
       - data
       - --speculative-config
-      - '{"method": "dflash", "model": "z-lab/Qwen3.6-35B-A3B-DFlash", "num_speculative_tokens": 15}'
+      - '{"method": "dflash", "model": "z-lab/Qwen3.6-35B-A3B-DFlash", "num_speculative_tokens": 10}'
     deploy:
       resources:
         reservations:

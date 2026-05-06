@@ -238,16 +238,21 @@ def cmd_claude(args) -> None:
     if not shutil.which("claude"):
         sys.exit("claude not found. Install: https://claude.com/code")
     model = require_model()
+    extra = args.passthrough
+    if extra and extra[0] == "--":
+        extra = extra[1:]
     env = {
         **os.environ,
         "ANTHROPIC_BASE_URL": hub_url(),
+        "ANTHROPIC_API_KEY": "",
         "ANTHROPIC_AUTH_TOKEN": "sah",
+        "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
         "ANTHROPIC_DEFAULT_OPUS_MODEL": model,
         "ANTHROPIC_DEFAULT_SONNET_MODEL": model,
         "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
         "CLAUDE_CODE_SUBAGENT_MODEL": model,
     }
-    os.execvpe("claude", ["claude", "--model", model, *args.passthrough], env)
+    os.execvpe("claude", ["claude", "--model", model, *extra], env)
 
 
 # ---------- claude-desktop ----------
