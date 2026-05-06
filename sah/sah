@@ -202,6 +202,37 @@ def _ensure_codex_profile() -> None:
     cfg.write_text(text)
 
 
+def cmd_hermes(args) -> None:
+    if not shutil.which("hermes"):
+        sys.exit("hermes not found in PATH. Install: https://github.com/NousResearch/hermes-agent")
+    model = require_model()
+    # Hermes reads model.base_url from config.yaml (no CLI flag for it), so
+    # point it at a sah-managed HERMES_HOME with a freshly-written config that
+    # targets the Hub's OpenAI-compatible endpoint. Isolating HERMES_HOME
+    # keeps the user's main hermes profile (sessions, skills, auth) untouched.
+    hermes_home = CONFIG_DIR / "hermes-home"
+    hermes_home.mkdir(parents=True, exist_ok=True)
+    cfg = (
+        f"model:\n"
+        f"  default: {model}\n"
+        f"  provider: custom\n"
+        f"  base_url: {api_base()}\n"
+        f"toolsets:\n"
+        f"  - hermes-cli\n"
+    )
+    (hermes_home / "config.yaml").write_text(cfg)
+    env = {
+        **os.environ,
+        "HERMES_HOME": str(hermes_home),
+        "OPENAI_API_KEY": "sah",
+        "OPENAI_BASE_URL": api_base(),
+    }
+    extra = args.passthrough
+    if extra and extra[0] == "--":
+        extra = extra[1:]
+    os.execvpe("hermes", ["hermes", *extra], env)
+
+
 def cmd_claude(args) -> None:
     if not shutil.which("claude"):
         sys.exit("claude not found. Install: https://claude.com/code")
@@ -249,6 +280,10 @@ def main() -> None:
     sp = sub.add_parser("codex", help="Launch Codex wired to the Hub")
     sp.add_argument("passthrough", nargs=argparse.REMAINDER)
     sp.set_defaults(func=cmd_codex)
+
+    sp = sub.add_parser("hermes", help="Launch Hermes Agent wired to the Hub")
+    sp.add_argument("passthrough", nargs=argparse.REMAINDER)
+    sp.set_defaults(func=cmd_hermes)
 
     sp = sub.add_parser("claude", help="Launch Claude Code wired to the Hub")
     sp.add_argument("passthrough", nargs=argparse.REMAINDER)
