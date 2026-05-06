@@ -702,7 +702,11 @@ def main() -> None:
                     help="Skip the automatic Claude Desktop restart")
     sp.set_defaults(func=cmd_claude_desktop)
 
-    args = p.parse_args()
+    args, extras = p.parse_known_args()
+    if hasattr(args, "passthrough"):
+        args.passthrough = [*extras, *args.passthrough]
+    elif extras:
+        p.error(f"unrecognized arguments: {' '.join(extras)}")
     args.func(args)
 
 
