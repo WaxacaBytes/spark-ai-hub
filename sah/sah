@@ -247,6 +247,12 @@ def cmd_qwen(args) -> None:
         "HOME": str(qwen_home),
         "OPENAI_API_KEY": "sah",
         "OPENAI_BASE_URL": api_base(),
+        # qwen-code caps OpenAI-compatible providers at 8K output tokens
+        # (CAPPED_DEFAULT_MAX_TOKENS), truncating large WriteFile/Edit tool
+        # calls mid-content. Hub vLLM models serve 262K — lift the cap.
+        "QWEN_CODE_MAX_OUTPUT_TOKENS": os.environ.get(
+            "QWEN_CODE_MAX_OUTPUT_TOKENS", "65536"
+        ),
     }
     cmd = [
         "qwen",
