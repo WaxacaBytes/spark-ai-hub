@@ -85,15 +85,23 @@ def _anthropic_to_openai(body: dict, model: str) -> dict:
                         messages.append({"role": "user", "content": _user_content(user_parts, user_has_image)})
                         user_parts, user_has_image = [], False
                     tc_content = blk.get("content")
-                    if isinstance(tc_content, list):
-                        tc_content = _flatten_text(tc_content)
-                    elif not isinstance(tc_content, str):
-                        tc_content = json.dumps(tc_content) if tc_content is not None else ""
+                    tool_text, tool_images = _split_tool_result(tc_content)
                     messages.append({
                         "role": "tool",
                         "tool_call_id": blk.get("tool_use_id", ""),
-                        "content": tc_content or "",
+                        "content": tool_text,
                     })
+                    # OpenAI's tool role can't carry image parts. Claude Code's
+                    # Read tool returns images in tool_result.content, so emit a
+                    # follow-up user message for the multimodal payload.
+                    if tool_images:
+                        messages.append({
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": "[tool_result images]"},
+                                *tool_images,
+                            ],
+                        })
                 elif t == "text":
                     user_parts.append({"type": "text", "text": blk.get("text") or ""})
                 elif t == "image":
@@ -159,6 +167,33 @@ def _anthropic_to_openai(body: dict, model: str) -> dict:
             out["tool_choice"] = "none"
 
     return out
+
+
+def _split_tool_result(content: Any) -> tuple[str, list[dict]]:
+    """Split Anthropic tool_result.content into OpenAI text and image parts."""
+    if content is None:
+        return "", []
+    if isinstance(content, str):
+        return content, []
+    if not isinstance(content, list):
+        return json.dumps(content), []
+    texts: list[str] = []
+    images: list[dict] = []
+    for blk in content:
+        if not isinstance(blk, dict):
+            continue
+        t = blk.get("type")
+        if t == "text":
+            texts.append(blk.get("text") or "")
+        elif t == "image":
+            src = blk.get("source") or {}
+            if src.get("type") == "base64":
+                url = f"data:{src.get('media_type', 'image/png')};base64,{src.get('data', '')}"
+            else:
+                url = src.get("url", "")
+            if url:
+                images.append({"type": "image_url", "image_url": {"url": url}})
+    return "".join(texts), images
 
 
 def _user_content(parts: list[dict], has_image: bool) -> Any:

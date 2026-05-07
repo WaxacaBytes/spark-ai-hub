@@ -99,6 +99,11 @@ def cmd_opencode(args) -> None:
     if not shutil.which("opencode"):
         sys.exit("opencode not found in PATH. Install: https://opencode.ai")
     model = require_model()
+    model_cfg = {"name": model}
+    inputs = _opencode_input_modalities_for(model)
+    if len(inputs) > 1:
+        model_cfg["attachment"] = True
+        model_cfg["modalities"] = {"input": inputs, "output": ["text"]}
     config = {
         "$schema": "https://opencode.ai/config.json",
         "provider": {
@@ -106,13 +111,25 @@ def cmd_opencode(args) -> None:
                 "npm": "@ai-sdk/openai-compatible",
                 "name": "Spark AI Hub",
                 "options": {"baseURL": api_base()},
-                "models": {model: {"name": model}},
+                "models": {model: model_cfg},
             }
         },
         "model": f"sah/{model}",
     }
     env = {**os.environ, "OPENCODE_CONFIG_CONTENT": json.dumps(config)}
     os.execvpe("opencode", ["opencode", *args.passthrough], env)
+
+
+def _opencode_input_modalities_for(model: str) -> list[str]:
+    inputs = ["text"]
+    mods = _qwen_modalities_for(model)
+    if mods.get("image"):
+        inputs.append("image")
+    if mods.get("video"):
+        inputs.append("video")
+    if mods:
+        inputs.append("pdf")
+    return inputs
 
 
 def cmd_codex(args) -> None:

@@ -8,7 +8,11 @@ the Hub.
 """
 from __future__ import annotations
 
+import base64
 import json
+import shutil
+import subprocess
+import tempfile
 import time
 from typing import Any
 
@@ -69,6 +73,60 @@ def _filter_headers(src) -> dict[str, str]:
     return {k: v for k, v in src.items() if k.lower() not in _HOP_BY_HOP}
 
 
+def _extract_pdf_text_from_data_url(url: str) -> str | None:
+    if not url.startswith("data:application/pdf;base64,"):
+        return None
+    if not shutil.which("pdftotext"):
+        return None
+    try:
+        raw = base64.b64decode(url.split(",", 1)[1], validate=True)
+    except (IndexError, ValueError):
+        return None
+    with tempfile.NamedTemporaryFile(suffix=".pdf") as f:
+        f.write(raw)
+        f.flush()
+        proc = subprocess.run(
+            ["pdftotext", "-layout", f.name, "-"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=30,
+        )
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.strip()
+
+
+def _normalize_pdf_file_parts(body: dict) -> bool:
+    mutated = False
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return False
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for idx, part in enumerate(content):
+            if not isinstance(part, dict) or part.get("type") != "file":
+                continue
+            file_part = part.get("file")
+            if not isinstance(file_part, dict):
+                continue
+            text = _extract_pdf_text_from_data_url(file_part.get("file_data") or "")
+            if text is None:
+                continue
+            filename = file_part.get("filename") or "attachment.pdf"
+            content[idx] = {
+                "type": "text",
+                "text": f"[PDF attachment: {filename}]\n{text}",
+            }
+            mutated = True
+    return mutated
+
+
 @router.api_route(
     "/{path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -93,6 +151,8 @@ async def proxy(path: str, request: Request):
                 if not current:
                     return _no_model_running()
                 body["model"] = current
+                mutated = True
+            if _normalize_pdf_file_parts(body):
                 mutated = True
             # vLLM compat: messages with role="developer" must become "system",
             # and Responses-API "input" items with role="developer" must be
