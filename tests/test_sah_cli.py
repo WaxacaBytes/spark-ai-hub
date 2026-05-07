@@ -1,6 +1,7 @@
 import importlib.machinery
 import importlib.util
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -29,6 +30,48 @@ class SahCliTests(unittest.TestCase):
             self.sah._opencode_input_modalities_for("meta-llama/Llama-3.3-70B"),
             ["text"],
         )
+
+    def test_codex_modalities_for_qwen_multimodal_model(self):
+        self.assertEqual(
+            self.sah._codex_input_modalities_for("unsloth/Qwen3.6-27B-NVFP4"),
+            ["text", "image"],
+        )
+
+    def test_split_codex_exec_prompt_keeps_options(self):
+        exec_args, prompt = self.sah._split_codex_exec_prompt(
+            [
+                "--skip-git-repo-check",
+                "--sandbox",
+                "read-only",
+                "--image",
+                "/tmp/test.png",
+                "Read this image",
+            ]
+        )
+
+        self.assertEqual(prompt, "Read this image")
+        self.assertEqual(
+            exec_args,
+            [
+                "--skip-git-repo-check",
+                "--sandbox",
+                "read-only",
+                "--image",
+                "/tmp/test.png",
+            ],
+        )
+
+    def test_codex_pdf_prompt_augmentation(self):
+        with mock.patch.object(
+            self.sah,
+            "_pdf_attachments_for_text",
+            return_value=["[Extracted PDF text]\nPDF SECRET CODE: ORBIT-531"],
+        ):
+            out = self.sah._augment_codex_pdf_text("Read /tmp/example.pdf")
+
+        self.assertIn("Read the extracted PDF text below", out)
+        self.assertNotIn("/tmp/example.pdf", out)
+        self.assertIn("PDF SECRET CODE: ORBIT-531", out)
 
 
 if __name__ == "__main__":

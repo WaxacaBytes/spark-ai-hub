@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -145,12 +146,21 @@ def cmd_codex(args) -> None:
     _ensure_codex_profile()
     catalog_path = _write_codex_catalog(model, info)
     env = {**os.environ, "OPENAI_API_KEY": "sah"}
-    cmd = ["codex", "--profile", "sah", "-m", model]
+    extra = _normalize_passthrough(args.passthrough)
+    common = ["--profile", "sah", "-m", model]
     if catalog_path:
-        cmd += ["-c", f'model_catalog_json="{catalog_path}"']
+        common += ["-c", f'model_catalog_json="{catalog_path}"']
     elif ctx := info.get("max_model_len"):
-        cmd += ["-c", f"model_context_window={int(ctx)}"]
-    cmd += args.passthrough
+        common += ["-c", f"model_context_window={int(ctx)}"]
+    if extra and extra[0] == "exec":
+        exec_args, prompt = _split_codex_exec_prompt(extra[1:])
+        if prompt is not None:
+            prompt = _augment_codex_pdf_text(prompt)
+            cmd = ["codex", "exec", *common, *exec_args, "-"]
+            sys.exit(subprocess.run(cmd, env=env, input=prompt, text=True).returncode)
+        cmd = ["codex", "exec", *common, *exec_args]
+    else:
+        cmd = ["codex", *common, *extra]
     os.execvpe("codex", cmd, env)
 
 
@@ -168,6 +178,7 @@ def _write_codex_catalog(model: str, info: dict) -> str | None:
     entry = tpl["models"][0]
     entry["slug"] = model
     entry["display_name"] = model
+    entry["input_modalities"] = _codex_input_modalities_for(model)
     if ctx := info.get("max_model_len"):
         entry["context_window"] = int(ctx)
         entry["max_context_window"] = int(ctx)
@@ -175,6 +186,108 @@ def _write_codex_catalog(model: str, info: dict) -> str | None:
     out = CONFIG_DIR / "codex-catalog.json"
     out.write_text(json.dumps(tpl))
     return str(out)
+
+
+def _codex_input_modalities_for(model: str) -> list[str]:
+    inputs = ["text"]
+    mods = _qwen_modalities_for(model)
+    if mods.get("image"):
+        inputs.append("image")
+    return inputs
+
+
+_CODEX_EXEC_OPTIONS_WITH_VALUE = {
+    "-c", "--config",
+    "-i", "--image",
+    "-m", "--model",
+    "-p", "--profile",
+    "-s", "--sandbox",
+    "-C", "--cd",
+    "-o", "--output-last-message",
+    "--add-dir",
+    "--color",
+    "--local-provider",
+    "--output-schema",
+}
+
+
+def _split_codex_exec_prompt(args: list[str]) -> tuple[list[str], str | None]:
+    prompt_idx: int | None = None
+    skip_next = False
+    for idx, arg in enumerate(args):
+        if skip_next:
+            skip_next = False
+            continue
+        if arg in _CODEX_EXEC_OPTIONS_WITH_VALUE:
+            skip_next = True
+            continue
+        if arg.startswith("-"):
+            continue
+        prompt_idx = idx
+    if prompt_idx is None:
+        return args, None
+    out = [*args[:prompt_idx], *args[prompt_idx + 1:]]
+    return out, args[prompt_idx]
+
+
+def _augment_codex_pdf_text(text: str) -> str:
+    """Codex has --image but no generic --file flag. For `codex exec` prompts
+    that mention local PDFs, append extracted text so the model can read them
+    without relying on a tool-call turn through the Responses API.
+    """
+    if ".pdf" not in text.lower():
+        return text
+    attachments = _pdf_attachments_for_text(text)
+    if not attachments:
+        return text
+    text = _replace_pdf_paths_for_codex(text)
+    return text.rstrip() + "\n\n" + "\n\n".join(attachments)
+
+
+def _replace_pdf_paths_for_codex(text: str) -> str:
+    return re.sub(
+        r"(?<!\S)(?:'[^']+\.pdf'|\"[^\"]+\.pdf\"|\S+\.pdf)",
+        "the extracted PDF text below",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+
+def _pdf_attachments_for_text(text: str) -> list[str]:
+    attachments: list[str] = []
+    seen: set[str] = set()
+    for raw in re.findall(r"(?<!\S)(?:'([^']+\.pdf)'|\"([^\"]+\.pdf)\"|(\S+\.pdf))", text, re.IGNORECASE):
+        path_text = next((p for p in raw if p), "")
+        path = Path(path_text).expanduser()
+        if not path.is_absolute():
+            path = (Path.cwd() / path).resolve()
+        key = str(path)
+        if key in seen or not path.is_file():
+            continue
+        seen.add(key)
+        pdf_text = _extract_pdf_text(path)
+        if pdf_text:
+            attachments.append(f"[Extracted PDF text]\n{pdf_text}")
+    return attachments
+
+
+def _extract_pdf_text(path: Path) -> str:
+    if not shutil.which("pdftotext"):
+        return ""
+    try:
+        proc = subprocess.run(
+            ["pdftotext", "-layout", str(path), "-"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return ""
+    if proc.returncode != 0:
+        return ""
+    return proc.stdout.strip()
 
 
 def _ensure_codex_profile() -> None:
