@@ -32,9 +32,9 @@ sah openclaw            # launch OpenClaw against the Hub
 sah claude              # launch Claude Code against the Hub  (needs Anthropic-compat endpoint, WIP)
 sah claude-desktop --install  # wire Claude Desktop to the Hub
 
-sah <client> --install  # make the plain client use the Hub
+sah <client> --install  # make the plain client use the Hub, where supported
 sah <client> --status   # show whether the plain client is wired to the Hub
-sah <client> --restore  # restore the plain client to its previous settings
+sah <client> --restore  # restore the plain client to its previous settings, where supported
 sah <client> -- <args>  # pass args to the underlying client
 
 sah set-hub http://1.2.3.4:9000   # change the Hub URL
@@ -54,5 +54,6 @@ execs the client. Zero per-client setup beyond running `sah` once.
 `sah <client>` is non-invasive: it wires the spawned process to the Hub and
 leaves the plain client untouched. For clients with supported config files,
 `sah <client> --install` backs up the original settings and rewrites them so
-plain `opencode`, `codex`, `hermes`, `qwen`, `openclaw`, or `claude` use the
+plain `opencode`, `codex`, `qwen`, `openclaw`, or `claude` use the
 Hub until `sah <client> --restore` puts the original settings back.
+Hermes currently supports the non-invasive launcher only.

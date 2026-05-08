@@ -39,7 +39,7 @@ No terminal commands. No manual environment variables. No post-install setup wiz
 
 The same rule applies to companion tools and IDE integrations. If Spark AI Hub advertises support for a coding agent, desktop client, VS Code extension, MCP server, provider profile, or CLI wrapper, the hub-owned install or `sah` launcher must do the wiring. Users must not be asked to manually add MCP entries, hand-edit provider files, export environment variables, or launch the official client in a separate mode that bypasses the hub. External clients are only considered supported when the Hub can install, configure, select the active model for, and restore them through the same one-step experience.
 
-Future client integrations follow the same contract: `sah <client>` is the non-invasive launcher, `sah <client> --install` makes the plain client use the Hub, `sah <client> --restore` returns the client to its previous state, and `sah <client> --status` explains what is active. Persistent installs must create an exact backup before touching user configuration.
+Future client integrations follow the same contract: `sah <client>` is the non-invasive launcher, `sah <client> --install` makes the plain client use the Hub where a safe persistent config path exists, `sah <client> --restore` returns the client to its previous state, and `sah <client> --status` explains what is active. Persistent installs must create an exact backup before touching user configuration and must preserve unrelated user settings through a documented, schema-aware merge.
 
 ### 5. Full Transparency
 

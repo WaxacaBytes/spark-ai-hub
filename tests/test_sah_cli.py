@@ -90,6 +90,43 @@ class SahCliTests(unittest.TestCase):
         self.assertIn("Integration", text)
         self.assertIn("sah qwen --install", text)
         self.assertIn("sah claude-desktop --restore", text)
+        self.assertRegex(text, r"hermes\s+CLI\s+.*unsupported")
+
+    def test_hermes_persistent_install_is_explicitly_unsupported(self):
+        class Args:
+            install = True
+            restore = False
+            status = False
+            passthrough = []
+
+        with self.assertRaises(SystemExit) as ctx:
+            self.sah.cmd_hermes(Args())
+
+        self.assertIn("not supported", str(ctx.exception))
+
+    def test_toml_validation_rejects_invalid_config(self):
+        with self.assertRaises(SystemExit) as ctx:
+            self.sah._validate_toml_text('model = "ok"\n[broken\n', Path("/tmp/config.toml"))
+
+        self.assertIn("invalid TOML", str(ctx.exception))
+
+    def test_codex_profile_merge_preserves_existing_toml(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            cfg = home / ".codex" / "config.toml"
+            cfg.parent.mkdir(parents=True)
+            cfg.write_text('model = "existing"\n\n[profiles.work]\nmodel = "other"\n')
+
+            with mock.patch.object(self.sah.Path, "home", return_value=home):
+                with mock.patch.object(self.sah, "api_base", return_value="http://hub/v1"):
+                    self.sah._ensure_codex_profile()
+
+            text = cfg.read_text()
+            parsed = self.sah.tomllib.loads(text)
+            self.assertEqual(parsed["model"], "existing")
+            self.assertEqual(parsed["profiles"]["work"]["model"], "other")
+            self.assertEqual(parsed["profiles"]["sah"]["model_provider"], "sah")
+            self.assertEqual(parsed["model_providers"]["sah"]["base_url"], "http://hub/v1/")
 
     def test_codex_pdf_prompt_augmentation(self):
         with mock.patch.object(

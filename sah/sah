@@ -20,6 +20,7 @@ import socket
 import subprocess
 import sys
 import time
+import tomllib
 import urllib.error
 import urllib.request
 import uuid
@@ -95,9 +96,9 @@ INTEGRATIONS = [
         "kind": "CLI",
         "binary": "hermes",
         "launch": "sah hermes",
-        "install": "sah hermes --install",
+        "install": "unsupported",
         "status": "sah hermes --status",
-        "restore": "sah hermes --restore",
+        "restore": "unsupported",
     },
     {
         "name": "qwen",
@@ -173,6 +174,17 @@ def _print_table(rows: list[dict], columns: list[tuple[str, str]]) -> None:
         print("  ".join(str(row.get(key, "")).ljust(widths[key]) for key, _title in columns))
 
 
+def _write_text_atomic(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
+    tmp.write_text(text)
+    tmp.replace(path)
+
+
+def _write_json_atomic(path: Path, data: dict) -> None:
+    _write_text_atomic(path, json.dumps(data, indent=2) + "\n")
+
+
 def cmd_info(_args) -> None:
     m = current_model()
     print(f"Hub:           {hub_url()}")
@@ -194,7 +206,7 @@ def cmd_env(args) -> None:
 
 def cmd_set_hub(args) -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG_FILE.write_text(args.url.rstrip("/") + "\n")
+    _write_text_atomic(CONFIG_FILE, args.url.rstrip("/") + "\n")
     print(f"Hub set to {args.url}")
 
 
@@ -245,7 +257,7 @@ def _install_opencode_global(model: str) -> None:
     _backup_client_file_once("opencode", path)
     config = _read_json(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(_opencode_hub_config(model, config), indent=2) + "\n")
+    _write_json_atomic(path, _opencode_hub_config(model, config))
     print("OpenCode wired to Spark AI Hub.")
     print(f"  Config: {path}")
     print("  Plain `opencode` will use the Hub until you run: sah opencode --restore")
@@ -332,7 +344,7 @@ def _write_codex_catalog(model: str, info: dict) -> str | None:
         entry["max_context_window"] = int(ctx)
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     out = CONFIG_DIR / "codex-catalog.json"
-    out.write_text(json.dumps(tpl))
+    _write_text_atomic(out, json.dumps(tpl))
     return str(out)
 
 
@@ -364,7 +376,8 @@ def _install_codex_global(model: str, info: dict) -> None:
     elif ctx := info.get("max_model_len"):
         text = _set_toml_top_level_value(text, "model_context_window", str(int(ctx)))
     cfg.parent.mkdir(parents=True, exist_ok=True)
-    cfg.write_text(text)
+    _validate_toml_text(text, cfg)
+    _write_text_atomic(cfg, text)
     print("Codex wired to Spark AI Hub.")
     print(f"  Config: {cfg}")
     print("  Plain `codex` will use the Hub until you run: sah codex --restore")
@@ -396,6 +409,13 @@ def _set_toml_top_level_value(text: str, key: str, value: str) -> str:
     else:
         top = (top.rstrip() + "\n" + line + "\n").lstrip("\n")
     return top + rest
+
+
+def _validate_toml_text(text: str, path: Path) -> None:
+    try:
+        tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        sys.exit(f"Refusing to write invalid TOML to {path}: {exc}")
 
 
 def _codex_input_modalities_for(model: str) -> list[str]:
@@ -542,25 +562,22 @@ def _ensure_codex_profile() -> None:
             if text:
                 text += "\n"
             text += block
-    cfg.write_text(text)
+    _validate_toml_text(text, cfg)
+    _write_text_atomic(cfg, text)
 
 
 def cmd_hermes(args) -> None:
     if args.status:
         _status_hermes_global()
         return
-    if args.restore:
-        _restore_client_file("hermes", _hermes_config_path())
-        return
+    if args.install or args.restore:
+        sys.exit("Persistent Hermes wiring is not supported yet; `sah hermes` is non-invasive.")
     if not shutil.which("hermes"):
         sys.exit(
             "hermes not found in PATH. Install options: "
             "https://hermes-agent.nousresearch.com/docs/getting-started/installation/"
         )
     model = require_model()
-    if args.install:
-        _install_hermes_global(model)
-        return
     # Hermes reads model.base_url from config.yaml (no CLI flag for it), so
     # point it at a sah-managed HERMES_HOME with a freshly-written config that
     # targets the Hub's OpenAI-compatible endpoint. Isolating HERMES_HOME
@@ -575,7 +592,7 @@ def cmd_hermes(args) -> None:
         f"toolsets:\n"
         f"  - hermes-cli\n"
     )
-    (hermes_home / "config.yaml").write_text(cfg)
+    _write_text_atomic(hermes_home / "config.yaml", cfg)
     env = {
         **os.environ,
         "HERMES_HOME": str(hermes_home),
@@ -590,33 +607,12 @@ def _hermes_config_path() -> Path:
     return Path.home() / ".hermes" / "config.yaml"
 
 
-def _hermes_hub_config_text(model: str) -> str:
-    return (
-        f"model:\n"
-        f"  default: {model}\n"
-        f"  provider: custom\n"
-        f"  base_url: {api_base()}\n"
-        f"toolsets:\n"
-        f"  - hermes-cli\n"
-    )
-
-
-def _install_hermes_global(model: str) -> None:
-    path = _hermes_config_path()
-    _backup_client_file_once("hermes", path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(_hermes_hub_config_text(model))
-    print("Hermes Agent wired to Spark AI Hub.")
-    print(f"  Config: {path}")
-    print("  Plain `hermes` will use the Hub until you run: sah hermes --restore")
-
-
 def _status_hermes_global() -> None:
     path = _hermes_config_path()
     text = path.read_text() if path.is_file() else ""
     wired = f"base_url: {api_base()}" in text and "provider: custom" in text
     print(f"Hermes config:   {path}")
-    print(f"SAH backup:      {'present' if _client_backup_path('hermes').is_file() else 'not present'}")
+    print("SAH backup:      n/a")
     print(f"Plain hermes:    {'wired to Spark AI Hub' if wired else 'not wired to Spark AI Hub'}")
 
 
@@ -750,7 +746,7 @@ def _prepare_qwen_home(model: str) -> Path:
         qwen_md_lines.append("")
     qwen_md_lines.append(_QWEN_CAPABILITIES_NOTE.strip())
     qwen_md_lines.append("")
-    (qwen_dir / "QWEN.md").write_text("\n".join(qwen_md_lines))
+    _write_text_atomic(qwen_dir / "QWEN.md", "\n".join(qwen_md_lines))
 
     base: dict = {}
     real_settings = real_qwen / "settings.json"
@@ -764,7 +760,7 @@ def _prepare_qwen_home(model: str) -> Path:
 
     base = _qwen_hub_settings(base, model)
 
-    (qwen_dir / "settings.json").write_text(json.dumps(base, indent=2) + "\n")
+    _write_json_atomic(qwen_dir / "settings.json", base)
     return home
 
 
@@ -818,7 +814,7 @@ def _install_qwen_global(model: str) -> None:
             "existed": settings_path.is_file(),
             "content": settings_path.read_text() if settings_path.is_file() else "",
         }
-        backup_path.write_text(json.dumps(backup, indent=2) + "\n")
+        _write_json_atomic(backup_path, backup)
 
     base: dict = {}
     if settings_path.is_file():
@@ -830,7 +826,7 @@ def _install_qwen_global(model: str) -> None:
             base = {}
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(json.dumps(_qwen_hub_settings(base, model), indent=2) + "\n")
+    _write_json_atomic(settings_path, _qwen_hub_settings(base, model))
     print("Qwen Code wired to Spark AI Hub.")
     print(f"  Settings: {settings_path}")
     print(f"  Model:    {model}")
@@ -849,7 +845,7 @@ def _restore_qwen_global() -> None:
     settings_path = Path(backup.get("settings_path") or _qwen_settings_path())
     if backup.get("existed"):
         settings_path.parent.mkdir(parents=True, exist_ok=True)
-        settings_path.write_text(backup.get("content") or "")
+        _write_text_atomic(settings_path, backup.get("content") or "")
     elif settings_path.is_file():
         settings_path.unlink()
     backup_path.unlink()
@@ -929,7 +925,7 @@ def _backup_client_file_once(client: str, path: Path) -> None:
         "existed": path.is_file(),
         "content": path.read_text() if path.is_file() else "",
     }
-    backup_path.write_text(json.dumps(backup, indent=2) + "\n")
+    _write_json_atomic(backup_path, backup)
 
 
 def _restore_client_file(client: str, default_path: Path) -> None:
@@ -944,7 +940,7 @@ def _restore_client_file(client: str, default_path: Path) -> None:
     path = Path(backup.get("settings_path") or default_path)
     if backup.get("existed"):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(backup.get("content") or "")
+        _write_text_atomic(path, backup.get("content") or "")
     elif path.is_file():
         path.unlink()
     backup_path.unlink()
@@ -1042,7 +1038,7 @@ def _ensure_openclaw_config(model: str, info: dict, profile: str | None = None) 
     if isinstance(cfg_models, dict):
         cfg_models[f"sah/{model}"] = cfg_models.get(f"sah/{model}", {})
 
-    config_path.write_text(json.dumps(config, indent=2) + "\n")
+    _write_json_atomic(config_path, config)
     _clear_openclaw_session_model_override(model, profile=profile)
 
 
@@ -1105,7 +1101,7 @@ def _clear_openclaw_session_model_override(model: str, profile: str | None = Non
             session["model"] = model
             changed = True
     if changed:
-        path.write_text(json.dumps(sessions, indent=2) + "\n")
+        _write_json_atomic(path, sessions)
 
 
 def _openclaw_gateway_info(profile: str | None = None) -> tuple[str, int]:
@@ -1263,7 +1259,7 @@ def _install_claude_global(model: str) -> None:
     _backup_client_file_once("claude", path)
     settings = _read_json(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(_claude_hub_settings(settings, model), indent=2) + "\n")
+    _write_json_atomic(path, _claude_hub_settings(settings, model))
     print("Claude Code wired to Spark AI Hub.")
     print(f"  Settings: {path}")
     print("  Plain `claude` will use the Hub until you run: sah claude --restore")
@@ -1391,7 +1387,7 @@ def _read_json(path: Path) -> dict:
 
 def _write_json(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n")
+    _write_json_atomic(path, data)
 
 
 def _claude_pids() -> list[int]:
@@ -1474,7 +1470,7 @@ def _restart_claude(skip: bool) -> None:
 def _install_tunnel(hub: str) -> None:
     p = _cd_paths()
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    p["tunnel_script"].write_text(SAH_TUNNEL_SCRIPT)
+    _write_text_atomic(p["tunnel_script"], SAH_TUNNEL_SCRIPT)
     p["tunnel_script"].chmod(0o755)
 
     plist = (
@@ -1499,7 +1495,7 @@ def _install_tunnel(hub: str) -> None:
         '</plist>\n'
     )
     p["plist"].parent.mkdir(parents=True, exist_ok=True)
-    p["plist"].write_text(plist)
+    _write_text_atomic(p["plist"], plist)
 
     # Reload to pick up any URL changes; ignore unload errors on first install.
     subprocess.run(["launchctl", "unload", str(p["plist"])],
@@ -1701,9 +1697,9 @@ def main() -> None:
         epilog=(
             "Lifecycle:\n"
             "  sah <client>              Launch the client through Spark AI Hub without changing plain client settings\n"
-            "  sah <client> --install    Make the plain client use Spark AI Hub\n"
+            "  sah <client> --install    Make the plain client use Spark AI Hub, where supported\n"
             "  sah <client> --status     Show whether the plain client is wired to Spark AI Hub\n"
-            "  sah <client> --restore    Restore the previous plain client settings\n"
+            "  sah <client> --restore    Restore the previous plain client settings, where supported\n"
             "\n"
             "Client args:\n"
             "  sah <client> -- <args>    Pass args to the underlying client, e.g. sah qwen -- --help\n"
@@ -1754,9 +1750,9 @@ def main() -> None:
     sp = sub.add_parser("hermes", help="Launch Hermes Agent wired to the Hub")
     hg = sp.add_mutually_exclusive_group()
     hg.add_argument("--install", action="store_true",
-                    help="Persistently wire plain `hermes` to Spark AI Hub")
+                    help="Unsupported for Hermes; use non-invasive `sah hermes`")
     hg.add_argument("--restore", action="store_true",
-                    help="Restore plain `hermes` to its previous settings")
+                    help="Unsupported for Hermes; use non-invasive `sah hermes`")
     hg.add_argument("--status", action="store_true",
                     help="Show whether plain `hermes` is wired to Spark AI Hub")
     sp.add_argument("passthrough", nargs=argparse.REMAINDER)
