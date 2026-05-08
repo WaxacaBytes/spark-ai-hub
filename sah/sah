@@ -98,7 +98,7 @@ def cmd_set_hub(args) -> None:
 
 def cmd_opencode(args) -> None:
     if not shutil.which("opencode"):
-        sys.exit("opencode not found in PATH. Install: https://opencode.ai")
+        sys.exit("opencode not found in PATH. Install options: https://opencode.ai")
     model = require_model()
     model_cfg = {"name": model}
     inputs = _opencode_input_modalities_for(model)
@@ -135,7 +135,7 @@ def _opencode_input_modalities_for(model: str) -> list[str]:
 
 def cmd_codex(args) -> None:
     if not shutil.which("codex"):
-        sys.exit("codex not found in PATH. Install: npm install -g @openai/codex")
+        sys.exit("codex not found in PATH. Install options: https://github.com/openai/codex")
     info = current_model_info()
     if not info:
         sys.exit(
@@ -337,7 +337,10 @@ def _ensure_codex_profile() -> None:
 
 def cmd_hermes(args) -> None:
     if not shutil.which("hermes"):
-        sys.exit("hermes not found in PATH. Install: https://github.com/NousResearch/hermes-agent")
+        sys.exit(
+            "hermes not found in PATH. Install options: "
+            "https://hermes-agent.nousresearch.com/docs/getting-started/installation/"
+        )
     model = require_model()
     # Hermes reads model.base_url from config.yaml (no CLI flag for it), so
     # point it at a sah-managed HERMES_HOME with a freshly-written config that
@@ -368,7 +371,7 @@ def cmd_hermes(args) -> None:
 
 def cmd_qwen(args) -> None:
     if not shutil.which("qwen"):
-        sys.exit("qwen not found in PATH. Install: npm install -g @qwen-code/qwen-code")
+        sys.exit("qwen not found in PATH. Install options: https://github.com/QwenLM/qwen-code")
     model = require_model()
     qwen_home = _prepare_qwen_home(model)
     extra = _normalize_passthrough(args.passthrough)
@@ -535,7 +538,7 @@ def _prepare_qwen_home(model: str) -> Path:
 def cmd_openclaw(args) -> None:
     bin_name = shutil.which("openclaw") or shutil.which("clawdbot")
     if not bin_name:
-        sys.exit("openclaw not found in PATH. Install: npm install -g openclaw@latest")
+        sys.exit("openclaw not found in PATH. Install options: https://github.com/openclaw/openclaw")
     info = current_model_info()
     if not info:
         sys.exit(
@@ -785,7 +788,7 @@ def _openclaw_env() -> dict:
 
 def cmd_claude(args) -> None:
     if not shutil.which("claude"):
-        sys.exit("claude not found. Install: https://claude.com/code")
+        sys.exit("claude not found. Install options: https://claude.com/code")
     model = require_model()
     extra = args.passthrough
     if extra and extra[0] == "--":
