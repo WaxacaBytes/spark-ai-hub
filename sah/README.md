@@ -25,10 +25,15 @@ sah env --anthropic     # same but ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN
 
 sah opencode            # launch OpenCode against the Hub
 sah codex               # launch Codex against the Hub
+sah hermes              # launch Hermes Agent against the Hub
 sah qwen                # launch Qwen Code against the Hub
 sah openclaw            # launch OpenClaw against the Hub
 sah claude              # launch Claude Code against the Hub  (needs Anthropic-compat endpoint, WIP)
 sah claude-desktop      # launch Claude Desktop                (WIP)
+
+sah <client> --install  # make the plain client use the Hub
+sah <client> --status   # show whether the plain client is wired to the Hub
+sah <client> --restore  # restore the plain client to its previous settings
 
 sah set-hub http://1.2.3.4:9000   # change the Hub URL
 ```
@@ -43,3 +48,9 @@ clients don't need to know or care which model is current.
 `sah <client>` sets the right env vars (and patches the right config
 files for clients that need a config-file approach, like Codex), then
 execs the client. Zero per-client setup beyond running `sah` once.
+
+`sah <client>` is non-invasive: it wires the spawned process to the Hub and
+leaves the plain client untouched. For clients with supported config files,
+`sah <client> --install` backs up the original settings and rewrites them so
+plain `opencode`, `codex`, `hermes`, `qwen`, `openclaw`, or `claude` use the
+Hub until `sah <client> --restore` puts the original settings back.

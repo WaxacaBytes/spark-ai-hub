@@ -97,28 +97,66 @@ def cmd_set_hub(args) -> None:
 
 
 def cmd_opencode(args) -> None:
+    if args.status:
+        _status_opencode_global()
+        return
+    if args.restore:
+        _restore_client_file("opencode", _opencode_config_path())
+        return
     if not shutil.which("opencode"):
         sys.exit("opencode not found in PATH. Install options: https://opencode.ai")
     model = require_model()
+    config = _opencode_hub_config(model)
+    if args.install:
+        _install_opencode_global(model)
+        return
+    env = {**os.environ, "OPENCODE_CONFIG_CONTENT": json.dumps(config)}
+    os.execvpe("opencode", ["opencode", *_normalize_passthrough(args.passthrough)], env)
+
+
+def _opencode_config_path() -> Path:
+    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "opencode" / "opencode.json"
+
+
+def _opencode_hub_config(model: str, base: dict | None = None) -> dict:
+    config = base if isinstance(base, dict) else {}
+    config["$schema"] = "https://opencode.ai/config.json"
     model_cfg = {"name": model}
     inputs = _opencode_input_modalities_for(model)
     if len(inputs) > 1:
         model_cfg["attachment"] = True
         model_cfg["modalities"] = {"input": inputs, "output": ["text"]}
-    config = {
-        "$schema": "https://opencode.ai/config.json",
-        "provider": {
-            "sah": {
-                "npm": "@ai-sdk/openai-compatible",
-                "name": "Spark AI Hub",
-                "options": {"baseURL": api_base()},
-                "models": {model: model_cfg},
-            }
-        },
-        "model": f"sah/{model}",
+    providers = config.get("provider") if isinstance(config.get("provider"), dict) else {}
+    providers["sah"] = {
+        "npm": "@ai-sdk/openai-compatible",
+        "name": "Spark AI Hub",
+        "options": {"baseURL": api_base()},
+        "models": {model: model_cfg},
     }
-    env = {**os.environ, "OPENCODE_CONFIG_CONTENT": json.dumps(config)}
-    os.execvpe("opencode", ["opencode", *args.passthrough], env)
+    config["provider"] = providers
+    config["model"] = f"sah/{model}"
+    return config
+
+
+def _install_opencode_global(model: str) -> None:
+    path = _opencode_config_path()
+    _backup_client_file_once("opencode", path)
+    config = _read_json(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_opencode_hub_config(model, config), indent=2) + "\n")
+    print("OpenCode wired to Spark AI Hub.")
+    print(f"  Config: {path}")
+    print("  Plain `opencode` will use the Hub until you run: sah opencode --restore")
+
+
+def _status_opencode_global() -> None:
+    path = _opencode_config_path()
+    config = _read_json(path)
+    provider = (config.get("provider") or {}).get("sah") if isinstance(config.get("provider"), dict) else None
+    wired = config.get("model", "").startswith("sah/") and isinstance(provider, dict)
+    print(f"OpenCode config: {path}")
+    print(f"SAH backup:      {'present' if _client_backup_path('opencode').is_file() else 'not present'}")
+    print(f"Plain opencode:  {'wired to Spark AI Hub' if wired else 'not wired to Spark AI Hub'}")
 
 
 def _opencode_input_modalities_for(model: str) -> list[str]:
@@ -134,6 +172,12 @@ def _opencode_input_modalities_for(model: str) -> list[str]:
 
 
 def cmd_codex(args) -> None:
+    if args.status:
+        _status_codex_global()
+        return
+    if args.restore:
+        _restore_client_file("codex", _codex_config_path())
+        return
     if not shutil.which("codex"):
         sys.exit("codex not found in PATH. Install options: https://github.com/openai/codex")
     info = current_model_info()
@@ -141,13 +185,15 @@ def cmd_codex(args) -> None:
         sys.exit(
             f"No model is running on {hub_url()}.\n"
             f"Launch one from the Spark AI Hub web UI first."
-        )
+    )
     model = info["id"]
-    _ensure_codex_profile()
+    if args.install:
+        _install_codex_global(model, info)
+        return
     catalog_path = _write_codex_catalog(model, info)
     env = {**os.environ, "OPENAI_API_KEY": "sah"}
     extra = _normalize_passthrough(args.passthrough)
-    common = ["--profile", "sah", "-m", model]
+    common = ["-m", model, *_codex_hub_config_args()]
     if catalog_path:
         common += ["-c", f'model_catalog_json="{catalog_path}"']
     elif ctx := info.get("max_model_len"):
@@ -186,6 +232,68 @@ def _write_codex_catalog(model: str, info: dict) -> str | None:
     out = CONFIG_DIR / "codex-catalog.json"
     out.write_text(json.dumps(tpl))
     return str(out)
+
+
+def _codex_config_path() -> Path:
+    return Path.home() / ".codex" / "config.toml"
+
+
+def _codex_hub_config_args() -> list[str]:
+    base = api_base().rstrip("/") + "/"
+    return [
+        "-c", 'model_provider="sah"',
+        "-c", 'forced_login_method="api"',
+        "-c", 'model_providers.sah.name="Spark AI Hub"',
+        "-c", f'model_providers.sah.base_url="{base}"',
+    ]
+
+
+def _install_codex_global(model: str, info: dict) -> None:
+    cfg = _codex_config_path()
+    _backup_client_file_once("codex", cfg)
+    _ensure_codex_profile()
+    catalog_path = _write_codex_catalog(model, info)
+    text = cfg.read_text() if cfg.is_file() else ""
+    text = _set_toml_top_level_string(text, "model", model)
+    text = _set_toml_top_level_string(text, "model_provider", "sah")
+    text = _set_toml_top_level_string(text, "forced_login_method", "api")
+    if catalog_path:
+        text = _set_toml_top_level_string(text, "model_catalog_json", catalog_path)
+    elif ctx := info.get("max_model_len"):
+        text = _set_toml_top_level_value(text, "model_context_window", str(int(ctx)))
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    cfg.write_text(text)
+    print("Codex wired to Spark AI Hub.")
+    print(f"  Config: {cfg}")
+    print("  Plain `codex` will use the Hub until you run: sah codex --restore")
+
+
+def _status_codex_global() -> None:
+    cfg = _codex_config_path()
+    text = cfg.read_text() if cfg.is_file() else ""
+    top = text.split("\n[", 1)[0]
+    wired = 'model_provider = "sah"' in top
+    print(f"Codex config:    {cfg}")
+    print(f"SAH backup:      {'present' if _client_backup_path('codex').is_file() else 'not present'}")
+    print(f"Plain codex:     {'wired to Spark AI Hub' if wired else 'not wired to Spark AI Hub'}")
+
+
+def _set_toml_top_level_string(text: str, key: str, value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return _set_toml_top_level_value(text, key, f'"{escaped}"')
+
+
+def _set_toml_top_level_value(text: str, key: str, value: str) -> str:
+    split = text.split("\n[", 1)
+    top = split[0]
+    rest = "\n[" + split[1] if len(split) > 1 else ""
+    pattern = re.compile(rf"(?m)^{re.escape(key)}\s*=.*$")
+    line = f"{key} = {value}"
+    if pattern.search(top):
+        top = pattern.sub(line, top)
+    else:
+        top = (top.rstrip() + "\n" + line + "\n").lstrip("\n")
+    return top + rest
 
 
 def _codex_input_modalities_for(model: str) -> list[str]:
@@ -336,12 +444,21 @@ def _ensure_codex_profile() -> None:
 
 
 def cmd_hermes(args) -> None:
+    if args.status:
+        _status_hermes_global()
+        return
+    if args.restore:
+        _restore_client_file("hermes", _hermes_config_path())
+        return
     if not shutil.which("hermes"):
         sys.exit(
             "hermes not found in PATH. Install options: "
             "https://hermes-agent.nousresearch.com/docs/getting-started/installation/"
         )
     model = require_model()
+    if args.install:
+        _install_hermes_global(model)
+        return
     # Hermes reads model.base_url from config.yaml (no CLI flag for it), so
     # point it at a sah-managed HERMES_HOME with a freshly-written config that
     # targets the Hub's OpenAI-compatible endpoint. Isolating HERMES_HOME
@@ -363,16 +480,57 @@ def cmd_hermes(args) -> None:
         "OPENAI_API_KEY": "sah",
         "OPENAI_BASE_URL": api_base(),
     }
-    extra = args.passthrough
-    if extra and extra[0] == "--":
-        extra = extra[1:]
+    extra = _normalize_passthrough(args.passthrough)
     os.execvpe("hermes", ["hermes", *extra], env)
 
 
+def _hermes_config_path() -> Path:
+    return Path.home() / ".hermes" / "config.yaml"
+
+
+def _hermes_hub_config_text(model: str) -> str:
+    return (
+        f"model:\n"
+        f"  default: {model}\n"
+        f"  provider: custom\n"
+        f"  base_url: {api_base()}\n"
+        f"toolsets:\n"
+        f"  - hermes-cli\n"
+    )
+
+
+def _install_hermes_global(model: str) -> None:
+    path = _hermes_config_path()
+    _backup_client_file_once("hermes", path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_hermes_hub_config_text(model))
+    print("Hermes Agent wired to Spark AI Hub.")
+    print(f"  Config: {path}")
+    print("  Plain `hermes` will use the Hub until you run: sah hermes --restore")
+
+
+def _status_hermes_global() -> None:
+    path = _hermes_config_path()
+    text = path.read_text() if path.is_file() else ""
+    wired = f"base_url: {api_base()}" in text and "provider: custom" in text
+    print(f"Hermes config:   {path}")
+    print(f"SAH backup:      {'present' if _client_backup_path('hermes').is_file() else 'not present'}")
+    print(f"Plain hermes:    {'wired to Spark AI Hub' if wired else 'not wired to Spark AI Hub'}")
+
+
 def cmd_qwen(args) -> None:
+    if args.status:
+        _status_qwen_global()
+        return
+    if args.restore:
+        _restore_qwen_global()
+        return
     if not shutil.which("qwen"):
         sys.exit("qwen not found in PATH. Install options: https://github.com/QwenLM/qwen-code")
     model = require_model()
+    if args.install:
+        _install_qwen_global(model)
+        return
     qwen_home = _prepare_qwen_home(model)
     extra = _normalize_passthrough(args.passthrough)
     env = {
@@ -502,6 +660,21 @@ def _prepare_qwen_home(model: str) -> Path:
         except json.JSONDecodeError:
             pass
 
+    base = _qwen_hub_settings(base, model)
+
+    (qwen_dir / "settings.json").write_text(json.dumps(base, indent=2) + "\n")
+    return home
+
+
+def _qwen_settings_path() -> Path:
+    return Path.home() / ".qwen" / "settings.json"
+
+
+def _qwen_backup_path() -> Path:
+    return CONFIG_DIR / "qwen-settings.backup.json"
+
+
+def _qwen_hub_settings(base: dict, model: str) -> dict:
     base.setdefault("$version", 3)
     env_block = base.get("env") if isinstance(base.get("env"), dict) else {}
     env_block["OPENAI_API_KEY"] = "sah"
@@ -530,12 +703,83 @@ def _prepare_qwen_home(model: str) -> Path:
     openai_list.insert(0, entry)
     providers["openai"] = openai_list
     base["modelProviders"] = providers
+    return base
 
-    (qwen_dir / "settings.json").write_text(json.dumps(base, indent=2) + "\n")
-    return home
+
+def _install_qwen_global(model: str) -> None:
+    settings_path = _qwen_settings_path()
+    backup_path = _qwen_backup_path()
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    if not backup_path.is_file():
+        backup = {
+            "settings_path": str(settings_path),
+            "existed": settings_path.is_file(),
+            "content": settings_path.read_text() if settings_path.is_file() else "",
+        }
+        backup_path.write_text(json.dumps(backup, indent=2) + "\n")
+
+    base: dict = {}
+    if settings_path.is_file():
+        try:
+            loaded = json.loads(settings_path.read_text())
+            if isinstance(loaded, dict):
+                base = loaded
+        except json.JSONDecodeError:
+            base = {}
+
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps(_qwen_hub_settings(base, model), indent=2) + "\n")
+    print("Qwen Code wired to Spark AI Hub.")
+    print(f"  Settings: {settings_path}")
+    print(f"  Model:    {model}")
+    print("  Plain `qwen` will use the Hub until you run: sah qwen --restore")
+
+
+def _restore_qwen_global() -> None:
+    backup_path = _qwen_backup_path()
+    if not backup_path.is_file():
+        print("No Spark AI Hub Qwen Code backup found; nothing to restore.")
+        return
+    try:
+        backup = json.loads(backup_path.read_text())
+    except json.JSONDecodeError:
+        sys.exit(f"Qwen Code backup is unreadable: {backup_path}")
+    settings_path = Path(backup.get("settings_path") or _qwen_settings_path())
+    if backup.get("existed"):
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        settings_path.write_text(backup.get("content") or "")
+    elif settings_path.is_file():
+        settings_path.unlink()
+    backup_path.unlink()
+    print("Qwen Code restored.")
+    print(f"  Plain `qwen` no longer uses the Spark AI Hub profile.")
+
+
+def _status_qwen_global() -> None:
+    settings_path = _qwen_settings_path()
+    backup_path = _qwen_backup_path()
+    settings = _read_json(settings_path)
+    model = (settings.get("model") or {}).get("name") if isinstance(settings.get("model"), dict) else None
+    providers = settings.get("modelProviders") if isinstance(settings.get("modelProviders"), dict) else {}
+    openai_list = providers.get("openai") if isinstance(providers.get("openai"), list) else []
+    wired = any(
+        isinstance(p, dict) and p.get("id") == model and p.get("baseUrl") == api_base()
+        for p in openai_list
+    )
+    print(f"Qwen settings:   {settings_path}")
+    print(f"SAH backup:      {'present' if backup_path.is_file() else 'not present'}")
+    print(f"Plain qwen:      {'wired to Spark AI Hub' if wired else 'not wired to Spark AI Hub'}")
+    if model:
+        print(f"Configured model:{model}")
 
 
 def cmd_openclaw(args) -> None:
+    if args.status:
+        _status_openclaw_global()
+        return
+    if args.restore:
+        _restore_client_file("openclaw", _openclaw_config_paths()[0])
+        return
     bin_name = shutil.which("openclaw") or shutil.which("clawdbot")
     if not bin_name:
         sys.exit("openclaw not found in PATH. Install options: https://github.com/openclaw/openclaw")
@@ -546,20 +790,64 @@ def cmd_openclaw(args) -> None:
             f"Launch one from the Spark AI Hub web UI first."
         )
     model = info["id"]
-    _ensure_openclaw_config(model, info)
+    if args.install:
+        _ensure_openclaw_config(model, info)
+        print("OpenClaw wired to Spark AI Hub.")
+        print(f"  Config: {_openclaw_config_paths()[0]}")
+        print("  Plain `openclaw` will use the Hub until you run: sah openclaw --restore")
+        return
+    profile = "sah"
+    _ensure_openclaw_config(model, info, profile=profile)
     extra = _normalize_passthrough(args.passthrough)
     if not extra:
         extra = ["tui"]
-    env = _openclaw_env()
+    env = _openclaw_env(profile=profile)
     if extra[0] in {"tui", "terminal"} and "--local" not in extra:
-        sys.exit(_run_openclaw_with_gateway(bin_name, extra, env))
-    os.execvpe(bin_name, [bin_name, *extra], env)
+        sys.exit(_run_openclaw_with_gateway(bin_name, extra, env, profile=profile))
+    os.execvpe(bin_name, [bin_name, "--profile", profile, *extra], env)
 
 
 def _normalize_passthrough(args: list[str]) -> list[str]:
     if args and args[0] == "--":
         return args[1:]
     return args
+
+
+def _client_backup_path(client: str) -> Path:
+    return CONFIG_DIR / f"{client}-settings.backup.json"
+
+
+def _backup_client_file_once(client: str, path: Path) -> None:
+    backup_path = _client_backup_path(client)
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    if backup_path.is_file():
+        return
+    backup = {
+        "settings_path": str(path),
+        "existed": path.is_file(),
+        "content": path.read_text() if path.is_file() else "",
+    }
+    backup_path.write_text(json.dumps(backup, indent=2) + "\n")
+
+
+def _restore_client_file(client: str, default_path: Path) -> None:
+    backup_path = _client_backup_path(client)
+    if not backup_path.is_file():
+        print(f"No Spark AI Hub {client} backup found; nothing to restore.")
+        return
+    try:
+        backup = json.loads(backup_path.read_text())
+    except json.JSONDecodeError:
+        sys.exit(f"{client} backup is unreadable: {backup_path}")
+    path = Path(backup.get("settings_path") or default_path)
+    if backup.get("existed"):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(backup.get("content") or "")
+    elif path.is_file():
+        path.unlink()
+    backup_path.unlink()
+    print(f"{client} restored.")
+    print(f"  Plain `{client}` no longer uses the Spark AI Hub profile.")
 
 
 def _model_context_window(info: dict, default: int = 32768) -> int:
@@ -570,17 +858,27 @@ def _model_context_window(info: dict, default: int = 32768) -> int:
     return ctx if ctx > 0 else default
 
 
-def _openclaw_config_paths() -> tuple[Path, Path]:
+def _openclaw_state_dir(profile: str | None = None) -> Path:
+    if profile:
+        return Path.home() / f".openclaw-{profile}"
+    return Path.home() / ".openclaw"
+
+
+def _openclaw_config_paths(profile: str | None = None) -> tuple[Path, Path]:
+    state_dir = _openclaw_state_dir(profile)
     return (
-        Path.home() / ".openclaw" / "openclaw.json",
-        Path.home() / ".clawdbot" / "clawdbot.json",
+        state_dir / "openclaw.json",
+        (Path.home() / ".clawdbot" / "clawdbot.json") if profile is None else state_dir / "clawdbot.json",
     )
 
 
-def _ensure_openclaw_config(model: str, info: dict) -> None:
-    config_path, legacy_path = _openclaw_config_paths()
+def _ensure_openclaw_config(model: str, info: dict, profile: str | None = None) -> None:
+    config_path, legacy_path = _openclaw_config_paths(profile)
+    if profile is None:
+        backup_source = config_path if config_path.is_file() or not legacy_path.is_file() else legacy_path
+        _backup_client_file_once("openclaw", backup_source)
     if not config_path.is_file() and not legacy_path.is_file():
-        _openclaw_onboard(model)
+        _openclaw_onboard(model, profile=profile)
 
     source = config_path if config_path.is_file() else legacy_path
     config = _read_json(source)
@@ -643,13 +941,26 @@ def _ensure_openclaw_config(model: str, info: dict) -> None:
         cfg_models[f"sah/{model}"] = cfg_models.get(f"sah/{model}", {})
 
     config_path.write_text(json.dumps(config, indent=2) + "\n")
-    _clear_openclaw_session_model_override(model)
+    _clear_openclaw_session_model_override(model, profile=profile)
 
 
-def _openclaw_onboard(model: str) -> None:
+def _status_openclaw_global() -> None:
+    config_path, legacy_path = _openclaw_config_paths()
+    source = config_path if config_path.is_file() else legacy_path
+    config = _read_json(source)
+    primary = (((config.get("agents") or {}).get("defaults") or {}).get("model") or {}).get("primary")
+    wired = isinstance(primary, str) and primary.startswith("sah/")
+    print(f"OpenClaw config: {source}")
+    print(f"SAH backup:      {'present' if _client_backup_path('openclaw').is_file() else 'not present'}")
+    print(f"Plain openclaw:  {'wired to Spark AI Hub' if wired else 'not wired to Spark AI Hub'}")
+
+
+def _openclaw_onboard(model: str, profile: str | None = None) -> None:
     bin_name = shutil.which("openclaw") or shutil.which("clawdbot")
-    cmd = [
-        bin_name,
+    cmd = [bin_name]
+    if profile:
+        cmd += ["--profile", profile]
+    cmd += [
         "onboard",
         "--non-interactive",
         "--accept-risk",
@@ -665,13 +976,13 @@ def _openclaw_onboard(model: str) -> None:
         "--skip-ui",
         "--no-install-daemon",
     ]
-    result = subprocess.run(cmd, env=_openclaw_env())
+    result = subprocess.run(cmd, env=_openclaw_env(profile=profile))
     if result.returncode != 0:
         sys.exit("openclaw onboarding failed. Try running: openclaw onboard")
 
 
-def _clear_openclaw_session_model_override(model: str) -> None:
-    path = Path.home() / ".openclaw" / "agents" / "main" / "sessions" / "sessions.json"
+def _clear_openclaw_session_model_override(model: str, profile: str | None = None) -> None:
+    path = _openclaw_state_dir(profile) / "agents" / "main" / "sessions" / "sessions.json"
     if not path.is_file():
         return
     try:
@@ -695,10 +1006,10 @@ def _clear_openclaw_session_model_override(model: str) -> None:
         path.write_text(json.dumps(sessions, indent=2) + "\n")
 
 
-def _openclaw_gateway_info() -> tuple[str, int]:
+def _openclaw_gateway_info(profile: str | None = None) -> tuple[str, int]:
     token = ""
     port = 18789
-    for path in _openclaw_config_paths():
+    for path in _openclaw_config_paths(profile):
         cfg = _read_json(path)
         gateway = cfg.get("gateway") if isinstance(cfg, dict) else None
         if not isinstance(gateway, dict):
@@ -729,12 +1040,16 @@ def _wait_port(port: int, timeout: float) -> bool:
     return False
 
 
-def _run_openclaw_with_gateway(bin_name: str, extra: list[str], env: dict) -> int:
-    token, port = _openclaw_gateway_info()
+def _run_openclaw_with_gateway(bin_name: str, extra: list[str], env: dict, profile: str | None = None) -> int:
+    token, port = _openclaw_gateway_info(profile)
     gateway = None
     if not _port_open(port):
+        gateway_cmd = [bin_name]
+        if profile:
+            gateway_cmd += ["--profile", profile]
+        gateway_cmd += ["gateway", "run", "--force"]
         gateway = subprocess.Popen(
-            [bin_name, "gateway", "run", "--force"],
+            gateway_cmd,
             env=env,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -748,7 +1063,10 @@ def _run_openclaw_with_gateway(bin_name: str, extra: list[str], env: dict) -> in
             print(f"openclaw gateway did not start on 127.0.0.1:{port}", file=sys.stderr)
             return 1
 
-    cmd = [bin_name, *extra]
+    cmd = [bin_name]
+    if profile:
+        cmd += ["--profile", profile]
+    cmd += extra
     if token and "--token" not in extra and not any(a.startswith("--token=") for a in extra):
         cmd += ["--token", token]
     if "--url" not in extra and not any(a.startswith("--url=") for a in extra):
@@ -765,7 +1083,7 @@ def _run_openclaw_with_gateway(bin_name: str, extra: list[str], env: dict) -> in
                 gateway.kill()
 
 
-def _openclaw_env() -> dict:
+def _openclaw_env(profile: str | None = None) -> dict:
     clear = {
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_OAUTH_TOKEN",
@@ -781,18 +1099,25 @@ def _openclaw_env() -> dict:
     env["OPENAI_BASE_URL"] = api_base()
     env.setdefault(
         "OPENCLAW_PLUGIN_STAGE_DIR",
-        str(Path.home() / ".openclaw" / "plugin-runtime-deps"),
+        str(_openclaw_state_dir(profile) / "plugin-runtime-deps"),
     )
     return env
 
 
 def cmd_claude(args) -> None:
+    if args.status:
+        _status_claude_global()
+        return
+    if args.restore:
+        _restore_client_file("claude", _claude_settings_path())
+        return
     if not shutil.which("claude"):
         sys.exit("claude not found. Install options: https://claude.com/code")
     model = require_model()
-    extra = args.passthrough
-    if extra and extra[0] == "--":
-        extra = extra[1:]
+    if args.install:
+        _install_claude_global(model)
+        return
+    extra = _normalize_passthrough(args.passthrough)
     env = {
         **os.environ,
         "ANTHROPIC_BASE_URL": hub_url(),
@@ -805,6 +1130,51 @@ def cmd_claude(args) -> None:
         "CLAUDE_CODE_SUBAGENT_MODEL": model,
     }
     os.execvpe("claude", ["claude", "--model", model, *extra], env)
+
+
+def _claude_settings_path() -> Path:
+    return Path.home() / ".claude" / "settings.json"
+
+
+def _claude_hub_settings(base: dict, model: str) -> dict:
+    settings = base if isinstance(base, dict) else {}
+    env_block = settings.get("env") if isinstance(settings.get("env"), dict) else {}
+    env_block.update(
+        {
+            "ANTHROPIC_BASE_URL": hub_url(),
+            "ANTHROPIC_API_KEY": "",
+            "ANTHROPIC_AUTH_TOKEN": "sah",
+            "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": model,
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": model,
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
+            "CLAUDE_CODE_SUBAGENT_MODEL": model,
+        }
+    )
+    settings["env"] = env_block
+    settings["model"] = model
+    return settings
+
+
+def _install_claude_global(model: str) -> None:
+    path = _claude_settings_path()
+    _backup_client_file_once("claude", path)
+    settings = _read_json(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_claude_hub_settings(settings, model), indent=2) + "\n")
+    print("Claude Code wired to Spark AI Hub.")
+    print(f"  Settings: {path}")
+    print("  Plain `claude` will use the Hub until you run: sah claude --restore")
+
+
+def _status_claude_global() -> None:
+    path = _claude_settings_path()
+    settings = _read_json(path)
+    env_block = settings.get("env") if isinstance(settings.get("env"), dict) else {}
+    wired = env_block.get("ANTHROPIC_BASE_URL") == hub_url() and env_block.get("ANTHROPIC_AUTH_TOKEN") == "sah"
+    print(f"Claude settings: {path}")
+    print(f"SAH backup:      {'present' if _client_backup_path('claude').is_file() else 'not present'}")
+    print(f"Plain claude:    {'wired to Spark AI Hub' if wired else 'not wired to Spark AI Hub'}")
 
 
 # ---------- claude-desktop ----------
@@ -1234,27 +1604,69 @@ def main() -> None:
     sp.set_defaults(func=cmd_set_hub)
 
     sp = sub.add_parser("opencode", help="Launch OpenCode wired to the Hub")
+    og = sp.add_mutually_exclusive_group()
+    og.add_argument("--install", action="store_true",
+                    help="Persistently wire plain `opencode` to Spark AI Hub")
+    og.add_argument("--restore", action="store_true",
+                    help="Restore plain `opencode` to its previous settings")
+    og.add_argument("--status", action="store_true",
+                    help="Show whether plain `opencode` is wired to Spark AI Hub")
     sp.add_argument("passthrough", nargs=argparse.REMAINDER)
     sp.set_defaults(func=cmd_opencode)
 
     sp = sub.add_parser("codex", help="Launch Codex wired to the Hub")
+    cg = sp.add_mutually_exclusive_group()
+    cg.add_argument("--install", action="store_true",
+                    help="Persistently wire plain `codex` to Spark AI Hub")
+    cg.add_argument("--restore", action="store_true",
+                    help="Restore plain `codex` to its previous settings")
+    cg.add_argument("--status", action="store_true",
+                    help="Show whether plain `codex` is wired to Spark AI Hub")
     sp.add_argument("passthrough", nargs=argparse.REMAINDER)
     sp.set_defaults(func=cmd_codex)
 
     sp = sub.add_parser("hermes", help="Launch Hermes Agent wired to the Hub")
+    hg = sp.add_mutually_exclusive_group()
+    hg.add_argument("--install", action="store_true",
+                    help="Persistently wire plain `hermes` to Spark AI Hub")
+    hg.add_argument("--restore", action="store_true",
+                    help="Restore plain `hermes` to its previous settings")
+    hg.add_argument("--status", action="store_true",
+                    help="Show whether plain `hermes` is wired to Spark AI Hub")
     sp.add_argument("passthrough", nargs=argparse.REMAINDER)
     sp.set_defaults(func=cmd_hermes)
 
     sp = sub.add_parser("qwen", help="Launch Qwen Code wired to the Hub")
+    qg = sp.add_mutually_exclusive_group()
+    qg.add_argument("--install", action="store_true",
+                    help="Persistently wire plain `qwen` to Spark AI Hub")
+    qg.add_argument("--restore", action="store_true",
+                    help="Restore plain `qwen` to its previous settings")
+    qg.add_argument("--status", action="store_true",
+                    help="Show whether plain `qwen` is wired to Spark AI Hub")
     sp.add_argument("passthrough", nargs=argparse.REMAINDER)
     sp.set_defaults(func=cmd_qwen)
 
     sp = sub.add_parser("openclaw", aliases=["clawdbot", "moltbot"],
                         help="Launch OpenClaw wired to the Hub")
+    ocg = sp.add_mutually_exclusive_group()
+    ocg.add_argument("--install", action="store_true",
+                     help="Persistently wire plain `openclaw` to Spark AI Hub")
+    ocg.add_argument("--restore", action="store_true",
+                     help="Restore plain `openclaw` to its previous settings")
+    ocg.add_argument("--status", action="store_true",
+                     help="Show whether plain `openclaw` is wired to Spark AI Hub")
     sp.add_argument("passthrough", nargs=argparse.REMAINDER)
     sp.set_defaults(func=cmd_openclaw)
 
     sp = sub.add_parser("claude", help="Launch Claude Code wired to the Hub")
+    clg = sp.add_mutually_exclusive_group()
+    clg.add_argument("--install", action="store_true",
+                     help="Persistently wire plain `claude` to Spark AI Hub")
+    clg.add_argument("--restore", action="store_true",
+                     help="Restore plain `claude` to its previous settings")
+    clg.add_argument("--status", action="store_true",
+                     help="Show whether plain `claude` is wired to Spark AI Hub")
     sp.add_argument("passthrough", nargs=argparse.REMAINDER)
     sp.set_defaults(func=cmd_claude)
 
