@@ -88,9 +88,10 @@ class SahCliTests(unittest.TestCase):
 
         text = out.getvalue()
         self.assertIn("Integration", text)
+        self.assertIn("Mode", text)
         self.assertIn("sah qwen --install", text)
         self.assertIn("sah claude-desktop --restore", text)
-        self.assertRegex(text, r"hermes\s+CLI\s+.*unsupported")
+        self.assertRegex(text, r"hermes\s+CLI\s+.*launch only\s+sah hermes\s+n/a")
 
     def test_hermes_persistent_install_is_explicitly_unsupported(self):
         class Args:
@@ -102,7 +103,7 @@ class SahCliTests(unittest.TestCase):
         with self.assertRaises(SystemExit) as ctx:
             self.sah.cmd_hermes(Args())
 
-        self.assertIn("not supported", str(ctx.exception))
+        self.assertIn("launch-only", str(ctx.exception))
 
     def test_toml_validation_rejects_invalid_config(self):
         with self.assertRaises(SystemExit) as ctx:

@@ -77,6 +77,7 @@ INTEGRATIONS = [
         "name": "opencode",
         "kind": "CLI",
         "binary": "opencode",
+        "mode": "persistent",
         "launch": "sah opencode",
         "install": "sah opencode --install",
         "status": "sah opencode --status",
@@ -86,6 +87,7 @@ INTEGRATIONS = [
         "name": "codex",
         "kind": "CLI",
         "binary": "codex",
+        "mode": "persistent",
         "launch": "sah codex",
         "install": "sah codex --install",
         "status": "sah codex --status",
@@ -95,15 +97,17 @@ INTEGRATIONS = [
         "name": "hermes",
         "kind": "CLI",
         "binary": "hermes",
+        "mode": "launch only",
         "launch": "sah hermes",
-        "install": "unsupported",
+        "install": "n/a",
         "status": "sah hermes --status",
-        "restore": "unsupported",
+        "restore": "n/a",
     },
     {
         "name": "qwen",
         "kind": "CLI",
         "binary": "qwen",
+        "mode": "persistent",
         "launch": "sah qwen",
         "install": "sah qwen --install",
         "status": "sah qwen --status",
@@ -113,6 +117,7 @@ INTEGRATIONS = [
         "name": "openclaw",
         "kind": "CLI",
         "binary": "openclaw",
+        "mode": "persistent",
         "launch": "sah openclaw",
         "install": "sah openclaw --install",
         "status": "sah openclaw --status",
@@ -122,6 +127,7 @@ INTEGRATIONS = [
         "name": "claude",
         "kind": "CLI",
         "binary": "claude",
+        "mode": "persistent",
         "launch": "sah claude",
         "install": "sah claude --install",
         "status": "sah claude --status",
@@ -131,6 +137,7 @@ INTEGRATIONS = [
         "name": "claude-desktop",
         "kind": "Desktop",
         "binary": None,
+        "mode": "persistent",
         "launch": "n/a",
         "install": "sah claude-desktop --install",
         "status": "sah claude-desktop --status",
@@ -156,6 +163,7 @@ def cmd_integrations(_args) -> None:
             ("name", "Integration"),
             ("kind", "Kind"),
             ("available", "Installed"),
+            ("mode", "Mode"),
             ("launch", "Launch"),
             ("install", "Install"),
             ("status", "Status"),
@@ -571,7 +579,7 @@ def cmd_hermes(args) -> None:
         _status_hermes_global()
         return
     if args.install or args.restore:
-        sys.exit("Persistent Hermes wiring is not supported yet; `sah hermes` is non-invasive.")
+        sys.exit("Hermes is launch-only in sah: use `sah hermes`; persistent install/restore is not supported.")
     if not shutil.which("hermes"):
         sys.exit(
             "hermes not found in PATH. Install options: "
@@ -612,8 +620,9 @@ def _status_hermes_global() -> None:
     text = path.read_text() if path.is_file() else ""
     wired = f"base_url: {api_base()}" in text and "provider: custom" in text
     print(f"Hermes config:   {path}")
-    print("SAH backup:      n/a")
-    print(f"Plain hermes:    {'wired to Spark AI Hub' if wired else 'not wired to Spark AI Hub'}")
+    print("SAH mode:        launch only")
+    print("SAH install:     not supported")
+    print(f"Plain hermes:    {'already points at Spark AI Hub' if wired else 'unchanged by sah'}")
 
 
 def cmd_qwen(args) -> None:
@@ -1689,110 +1698,108 @@ def cmd_claude_desktop(args) -> None:
 
 # ---------- entrypoint ----------
 
+def _add_client_parser(
+    sub,
+    name: str,
+    display: str,
+    func,
+    *,
+    aliases: list[str] | None = None,
+    mode: str = "persistent",
+):
+    sp = sub.add_parser(
+        name,
+        aliases=aliases or [],
+        help=f"Launch {display} through Spark AI Hub",
+        description=f"Launch {display} through Spark AI Hub.",
+    )
+    group = sp.add_mutually_exclusive_group()
+    if mode == "persistent":
+        group.add_argument(
+            "--install",
+            action="store_true",
+            help=f"Install persistent Spark AI Hub wiring for plain {display}",
+        )
+        group.add_argument(
+            "--restore",
+            action="store_true",
+            help=f"Restore previous plain {display} settings",
+        )
+        group.add_argument(
+            "--status",
+            action="store_true",
+            help=f"Show Spark AI Hub wiring status for {display}",
+        )
+    else:
+        group.add_argument(
+            "--install",
+            action="store_true",
+            help=f"Not available: {display} is launch only in sah",
+        )
+        group.add_argument(
+            "--restore",
+            action="store_true",
+            help=f"Not available: {display} is launch only in sah",
+        )
+        group.add_argument(
+            "--status",
+            action="store_true",
+            help=f"Show Spark AI Hub support status for {display}",
+        )
+    sp.add_argument(
+        "passthrough",
+        nargs=argparse.REMAINDER,
+        metavar="args",
+        help=f"Arguments passed to {display}",
+    )
+    sp.set_defaults(func=func)
+    return sp
+
+
 def main() -> None:
     p = argparse.ArgumentParser(
         prog="sah",
-        description="Spark AI Hub launcher",
+        description="Spark AI Hub client launcher",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Lifecycle:\n"
-            "  sah <client>              Launch the client through Spark AI Hub without changing plain client settings\n"
-            "  sah <client> --install    Make the plain client use Spark AI Hub, where supported\n"
-            "  sah <client> --status     Show whether the plain client is wired to Spark AI Hub\n"
-            "  sah <client> --restore    Restore the previous plain client settings, where supported\n"
+            "  sah <client>              Launch through Spark AI Hub; plain client settings are unchanged\n"
+            "  sah <client> --install    Persistent mode: make the plain client use Spark AI Hub\n"
+            "  sah <client> --status     Show Spark AI Hub wiring status for the client\n"
+            "  sah <client> --restore    Persistent mode: restore the previous plain client settings\n"
             "\n"
             "Client args:\n"
             "  sah <client> -- <args>    Pass args to the underlying client, e.g. sah qwen -- --help\n"
             "\n"
             "Discover integrations:\n"
-            "  sah integrations          List supported clients and exact lifecycle commands\n"
+            "  sah integrations          List each integration's mode and exact lifecycle commands\n"
         ),
     )
-    sub = p.add_subparsers(dest="cmd", required=True)
+    sub = p.add_subparsers(dest="cmd", required=True, title="commands", metavar="<command>")
 
     sp = sub.add_parser("info", help="Show Hub URL and current model")
     sp.set_defaults(func=cmd_info)
 
-    sp = sub.add_parser("env", help="Print export lines for OPENAI_* / ANTHROPIC_*")
+    sp = sub.add_parser("env", help="Print Hub environment variables")
     sp.add_argument("--anthropic", action="store_true", help="Anthropic-shaped env vars")
     sp.set_defaults(func=cmd_env)
 
     sp = sub.add_parser("integrations", aliases=["clients"],
-                        help="List supported clients and lifecycle commands")
+                        help="List integration modes and lifecycle commands")
     sp.set_defaults(func=cmd_integrations)
 
-    sp = sub.add_parser("set-hub", help="Persist Hub URL to ~/.config/sah/hub")
+    sp = sub.add_parser("set-hub", help="Set the Spark AI Hub URL")
     sp.add_argument("url")
     sp.set_defaults(func=cmd_set_hub)
 
-    sp = sub.add_parser("opencode", help="Launch OpenCode wired to the Hub")
-    og = sp.add_mutually_exclusive_group()
-    og.add_argument("--install", action="store_true",
-                    help="Persistently wire plain `opencode` to Spark AI Hub")
-    og.add_argument("--restore", action="store_true",
-                    help="Restore plain `opencode` to its previous settings")
-    og.add_argument("--status", action="store_true",
-                    help="Show whether plain `opencode` is wired to Spark AI Hub")
-    sp.add_argument("passthrough", nargs=argparse.REMAINDER)
-    sp.set_defaults(func=cmd_opencode)
+    _add_client_parser(sub, "opencode", "OpenCode", cmd_opencode)
+    _add_client_parser(sub, "codex", "Codex", cmd_codex)
+    _add_client_parser(sub, "hermes", "Hermes Agent", cmd_hermes, mode="launch only")
+    _add_client_parser(sub, "qwen", "Qwen Code", cmd_qwen)
+    _add_client_parser(sub, "openclaw", "OpenClaw", cmd_openclaw, aliases=["clawdbot", "moltbot"])
+    _add_client_parser(sub, "claude", "Claude Code", cmd_claude)
 
-    sp = sub.add_parser("codex", help="Launch Codex wired to the Hub")
-    cg = sp.add_mutually_exclusive_group()
-    cg.add_argument("--install", action="store_true",
-                    help="Persistently wire plain `codex` to Spark AI Hub")
-    cg.add_argument("--restore", action="store_true",
-                    help="Restore plain `codex` to its previous settings")
-    cg.add_argument("--status", action="store_true",
-                    help="Show whether plain `codex` is wired to Spark AI Hub")
-    sp.add_argument("passthrough", nargs=argparse.REMAINDER)
-    sp.set_defaults(func=cmd_codex)
-
-    sp = sub.add_parser("hermes", help="Launch Hermes Agent wired to the Hub")
-    hg = sp.add_mutually_exclusive_group()
-    hg.add_argument("--install", action="store_true",
-                    help="Unsupported for Hermes; use non-invasive `sah hermes`")
-    hg.add_argument("--restore", action="store_true",
-                    help="Unsupported for Hermes; use non-invasive `sah hermes`")
-    hg.add_argument("--status", action="store_true",
-                    help="Show whether plain `hermes` is wired to Spark AI Hub")
-    sp.add_argument("passthrough", nargs=argparse.REMAINDER)
-    sp.set_defaults(func=cmd_hermes)
-
-    sp = sub.add_parser("qwen", help="Launch Qwen Code wired to the Hub")
-    qg = sp.add_mutually_exclusive_group()
-    qg.add_argument("--install", action="store_true",
-                    help="Persistently wire plain `qwen` to Spark AI Hub")
-    qg.add_argument("--restore", action="store_true",
-                    help="Restore plain `qwen` to its previous settings")
-    qg.add_argument("--status", action="store_true",
-                    help="Show whether plain `qwen` is wired to Spark AI Hub")
-    sp.add_argument("passthrough", nargs=argparse.REMAINDER)
-    sp.set_defaults(func=cmd_qwen)
-
-    sp = sub.add_parser("openclaw", aliases=["clawdbot", "moltbot"],
-                        help="Launch OpenClaw wired to the Hub")
-    ocg = sp.add_mutually_exclusive_group()
-    ocg.add_argument("--install", action="store_true",
-                     help="Persistently wire plain `openclaw` to Spark AI Hub")
-    ocg.add_argument("--restore", action="store_true",
-                     help="Restore plain `openclaw` to its previous settings")
-    ocg.add_argument("--status", action="store_true",
-                     help="Show whether plain `openclaw` is wired to Spark AI Hub")
-    sp.add_argument("passthrough", nargs=argparse.REMAINDER)
-    sp.set_defaults(func=cmd_openclaw)
-
-    sp = sub.add_parser("claude", help="Launch Claude Code wired to the Hub")
-    clg = sp.add_mutually_exclusive_group()
-    clg.add_argument("--install", action="store_true",
-                     help="Persistently wire plain `claude` to Spark AI Hub")
-    clg.add_argument("--restore", action="store_true",
-                     help="Restore plain `claude` to its previous settings")
-    clg.add_argument("--status", action="store_true",
-                     help="Show whether plain `claude` is wired to Spark AI Hub")
-    sp.add_argument("passthrough", nargs=argparse.REMAINDER)
-    sp.set_defaults(func=cmd_claude)
-
-    sp = sub.add_parser("claude-desktop", help="Wire Claude Desktop to the Hub")
+    sp = sub.add_parser("claude-desktop", help="Manage Claude Desktop Spark AI Hub wiring")
     g = sp.add_mutually_exclusive_group()
     g.add_argument("--install", action="store_true",
                    help="Persistently wire Claude Desktop to Spark AI Hub")
