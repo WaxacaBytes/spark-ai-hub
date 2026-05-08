@@ -97,11 +97,11 @@ INTEGRATIONS = [
         "name": "hermes",
         "kind": "CLI",
         "binary": "hermes",
-        "mode": "launch only",
+        "mode": "persistent",
         "launch": "sah hermes",
-        "install": "n/a",
+        "install": "sah hermes --install",
         "status": "sah hermes --status",
-        "restore": "n/a",
+        "restore": "sah hermes --restore",
     },
     {
         "name": "qwen",
@@ -593,29 +593,19 @@ def cmd_hermes(args) -> None:
     if args.status:
         _status_hermes_global()
         return
-    if args.install or args.restore:
-        sys.exit("Hermes is launch-only in sah: use `sah hermes`; persistent install/restore is not supported.")
+    if args.restore:
+        _restore_client_file("hermes", _hermes_config_path())
+        return
     if not shutil.which("hermes"):
         sys.exit(
             "hermes not found in PATH. Install options: "
             "https://hermes-agent.nousresearch.com/docs/getting-started/installation/"
         )
     model = require_model()
-    # Hermes reads model.base_url from config.yaml (no CLI flag for it), so
-    # point it at a sah-managed HERMES_HOME with a freshly-written config that
-    # targets the Hub's OpenAI-compatible endpoint. Isolating HERMES_HOME
-    # keeps the user's main hermes profile (sessions, skills, auth) untouched.
-    hermes_home = CONFIG_DIR / "hermes-home"
-    hermes_home.mkdir(parents=True, exist_ok=True)
-    cfg = (
-        f"model:\n"
-        f"  default: {model}\n"
-        f"  provider: custom\n"
-        f"  base_url: {api_base()}\n"
-        f"toolsets:\n"
-        f"  - hermes-cli\n"
-    )
-    _write_text_atomic(hermes_home / "config.yaml", cfg)
+    if args.install:
+        _install_hermes_global(model)
+        return
+    hermes_home = _prepare_hermes_home(model)
     env = {
         **os.environ,
         "HERMES_HOME": str(hermes_home),
@@ -626,8 +616,90 @@ def cmd_hermes(args) -> None:
     os.execvpe("hermes", ["hermes", *extra], env)
 
 
+def _prepare_hermes_home(model: str) -> Path:
+    """Build an isolated HERMES_HOME for `sah hermes` that mirrors the user's
+    real ~/.hermes/ via symlinks, with config.yaml materialized fresh.
+
+    Hermes reads model.base_url from config.yaml (no CLI flag overrides it),
+    so we need a sah-owned config. But the user's real ~/.hermes/ also holds
+    skills, sessions, memories, providers, personalities, etc. — symlinking
+    every other child through means ephemeral `sah hermes` still sees all of
+    that, only the model block is overridden to point at the Hub.
+    """
+    home = CONFIG_DIR / "hermes-home"
+    home.mkdir(parents=True, exist_ok=True)
+
+    OWNED = {"config.yaml"}
+    real = Path.home() / ".hermes"
+    if real.is_dir():
+        existing = {p.name: p for p in home.iterdir()}
+        wanted = {p.name for p in real.iterdir() if p.name not in OWNED}
+        for name, link in existing.items():
+            if name in OWNED:
+                continue
+            if link.is_symlink() and name not in wanted:
+                link.unlink()
+        for item in real.iterdir():
+            if item.name in OWNED:
+                continue
+            link = home / item.name
+            target = item.resolve()
+            if link.is_symlink():
+                if Path(os.readlink(link)) == target:
+                    continue
+                link.unlink()
+            elif link.exists():
+                continue  # leave non-symlink user data alone
+            link.symlink_to(target)
+
+    real_cfg = real / "config.yaml"
+    base_text = real_cfg.read_text() if real_cfg.is_file() else ""
+    new_text = _replace_yaml_top_block(base_text, "model", _hermes_model_block(model))
+    _write_text_atomic(home / "config.yaml", new_text)
+    return home
+
+
 def _hermes_config_path() -> Path:
     return Path.home() / ".hermes" / "config.yaml"
+
+
+def _hermes_model_block(model: str) -> str:
+    return (
+        f"model:\n"
+        f"  default: {model}\n"
+        f"  provider: custom\n"
+        f"  base_url: {api_base()}\n"
+    )
+
+
+def _replace_yaml_top_block(text: str, key: str, block: str) -> str:
+    """Replace the top-level YAML mapping `key:` block (key + indented children)
+    with `block` (which must start with `key:` and end with a newline). If the
+    key isn't present, prepend the block. Other top-level keys are preserved."""
+    lines = text.splitlines()
+    head = re.compile(rf"^{re.escape(key)}\s*:\s*(?:#.*)?$")
+    start = next((i for i, ln in enumerate(lines) if head.match(ln)), None)
+    if start is None:
+        prefix = block if text.endswith("\n") or not text else block
+        return prefix + text
+    end = start + 1
+    while end < len(lines) and (lines[end] == "" or lines[end][:1] in (" ", "\t")):
+        end += 1
+    new_lines = lines[:start] + block.rstrip("\n").splitlines() + lines[end:]
+    out = "\n".join(new_lines)
+    if not out.endswith("\n"):
+        out += "\n"
+    return out
+
+
+def _install_hermes_global(model: str) -> None:
+    path = _hermes_config_path()
+    _backup_client_file_once("hermes", path)
+    existing = path.read_text() if path.is_file() else ""
+    new_text = _replace_yaml_top_block(existing, "model", _hermes_model_block(model))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_text_atomic(path, new_text)
+    _print_wired("Hermes Agent", "hermes", path, extras=(("Model", model),))
 
 
 def _status_hermes_global() -> None:
@@ -635,9 +707,8 @@ def _status_hermes_global() -> None:
     text = path.read_text() if path.is_file() else ""
     wired = f"base_url: {api_base()}" in text and "provider: custom" in text
     _kv("Hermes config", str(path))
-    _kv("SAH mode", "launch only")
-    _kv("SAH install", "not supported")
-    _kv("Plain hermes", "already points at Spark AI Hub" if wired else "unchanged by sah")
+    _kv("SAH backup", "present" if _client_backup_path("hermes").is_file() else "not present")
+    _kv("Plain hermes", "wired to Spark AI Hub" if wired else "not wired to Spark AI Hub")
 
 
 def cmd_qwen(args) -> None:
@@ -915,6 +986,7 @@ def cmd_openclaw(args) -> None:
         _print_wired("OpenClaw", "openclaw", _openclaw_config_paths()[0])
         return
     profile = "sah"
+    _mirror_openclaw_profile(profile)
     _ensure_openclaw_config(model, info, profile=profile)
     extra = _normalize_passthrough(args.passthrough)
     if not extra:
@@ -974,6 +1046,44 @@ def _model_context_window(info: dict, default: int = 32768) -> int:
     except (TypeError, ValueError):
         ctx = 0
     return ctx if ctx > 0 else default
+
+
+def _mirror_openclaw_profile(profile: str) -> None:
+    """Mirror children of the user's main ~/.openclaw/ into ~/.openclaw-<profile>/
+    via symlinks so ephemeral `sah openclaw` shares sessions, skills, identity,
+    workspace, etc. with plain openclaw. The profile owns its own openclaw.json
+    (and the .bak/.last-good siblings openclaw writes alongside it) so the Hub
+    wiring stays scoped to the sah profile.
+    """
+    real = Path.home() / ".openclaw"
+    home = _openclaw_state_dir(profile)
+    if not real.is_dir():
+        return
+    home.mkdir(parents=True, exist_ok=True)
+    OWNED_PREFIXES = ("openclaw.json",)  # config + .bak / .last-good
+
+    def is_owned(name: str) -> bool:
+        return any(name == p or name.startswith(p + ".") for p in OWNED_PREFIXES)
+
+    existing = {p.name: p for p in home.iterdir()}
+    wanted = {p.name for p in real.iterdir() if not is_owned(p.name)}
+    for name, link in existing.items():
+        if is_owned(name):
+            continue
+        if link.is_symlink() and name not in wanted:
+            link.unlink()
+    for item in real.iterdir():
+        if is_owned(item.name):
+            continue
+        link = home / item.name
+        target = item.resolve()
+        if link.is_symlink():
+            if Path(os.readlink(link)) == target:
+                continue
+            link.unlink()
+        elif link.exists():
+            continue  # leave non-symlink user data alone
+        link.symlink_to(target)
 
 
 def _openclaw_state_dir(profile: str | None = None) -> Path:
@@ -1794,7 +1904,7 @@ def main() -> None:
 
     _add_client_parser(sub, "opencode", "OpenCode", cmd_opencode)
     _add_client_parser(sub, "codex", "Codex", cmd_codex)
-    _add_client_parser(sub, "hermes", "Hermes Agent", cmd_hermes, mode="launch only")
+    _add_client_parser(sub, "hermes", "Hermes Agent", cmd_hermes)
     _add_client_parser(sub, "qwen", "Qwen Code", cmd_qwen)
     _add_client_parser(sub, "openclaw", "OpenClaw", cmd_openclaw, aliases=["clawdbot", "moltbot"])
     _add_client_parser(sub, "claude", "Claude Code", cmd_claude)
