@@ -1705,6 +1705,9 @@ def main() -> None:
             "  sah <client> --status     Show whether the plain client is wired to Spark AI Hub\n"
             "  sah <client> --restore    Restore the previous plain client settings\n"
             "\n"
+            "Client args:\n"
+            "  sah <client> -- <args>    Pass args to the underlying client, e.g. sah qwen -- --help\n"
+            "\n"
             "Discover integrations:\n"
             "  sah integrations          List supported clients and exact lifecycle commands\n"
         ),

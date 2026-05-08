@@ -35,6 +35,7 @@ sah claude-desktop --install  # wire Claude Desktop to the Hub
 sah <client> --install  # make the plain client use the Hub
 sah <client> --status   # show whether the plain client is wired to the Hub
 sah <client> --restore  # restore the plain client to its previous settings
+sah <client> -- <args>  # pass args to the underlying client
 
 sah set-hub http://1.2.3.4:9000   # change the Hub URL
 ```
