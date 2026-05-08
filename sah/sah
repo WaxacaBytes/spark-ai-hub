@@ -1694,7 +1694,21 @@ def cmd_claude_desktop(args) -> None:
 # ---------- entrypoint ----------
 
 def main() -> None:
-    p = argparse.ArgumentParser(prog="sah", description="Spark AI Hub launcher")
+    p = argparse.ArgumentParser(
+        prog="sah",
+        description="Spark AI Hub launcher",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Lifecycle:\n"
+            "  sah <client>              Launch the client through Spark AI Hub without changing plain client settings\n"
+            "  sah <client> --install    Make the plain client use Spark AI Hub\n"
+            "  sah <client> --status     Show whether the plain client is wired to Spark AI Hub\n"
+            "  sah <client> --restore    Restore the previous plain client settings\n"
+            "\n"
+            "Discover integrations:\n"
+            "  sah integrations          List supported clients and exact lifecycle commands\n"
+        ),
+    )
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sp = sub.add_parser("info", help="Show Hub URL and current model")
