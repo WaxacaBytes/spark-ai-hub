@@ -81,6 +81,16 @@ class SahCliTests(unittest.TestCase):
 
         self.assertIn("--install", str(ctx.exception))
 
+    def test_integrations_lists_lifecycle_commands(self):
+        out = io.StringIO()
+        with mock.patch("sys.stdout", new=out):
+            self.sah.cmd_integrations(None)
+
+        text = out.getvalue()
+        self.assertIn("Integration", text)
+        self.assertIn("sah qwen --install", text)
+        self.assertIn("sah claude-desktop --restore", text)
+
     def test_codex_pdf_prompt_augmentation(self):
         with mock.patch.object(
             self.sah,

@@ -20,6 +20,7 @@ curl http://192.168.3.16:9000/sah/install.sh | sh -s -- --hub http://other-host:
 
 ```sh
 sah info                # show Hub URL and current model
+sah integrations        # list supported clients and lifecycle commands
 sah env                 # print OPENAI_BASE_URL / OPENAI_API_KEY exports
 sah env --anthropic     # same but ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN
 

@@ -71,6 +71,108 @@ def require_model() -> str:
 
 # ---------- commands ----------
 
+INTEGRATIONS = [
+    {
+        "name": "opencode",
+        "kind": "CLI",
+        "binary": "opencode",
+        "launch": "sah opencode",
+        "install": "sah opencode --install",
+        "status": "sah opencode --status",
+        "restore": "sah opencode --restore",
+    },
+    {
+        "name": "codex",
+        "kind": "CLI",
+        "binary": "codex",
+        "launch": "sah codex",
+        "install": "sah codex --install",
+        "status": "sah codex --status",
+        "restore": "sah codex --restore",
+    },
+    {
+        "name": "hermes",
+        "kind": "CLI",
+        "binary": "hermes",
+        "launch": "sah hermes",
+        "install": "sah hermes --install",
+        "status": "sah hermes --status",
+        "restore": "sah hermes --restore",
+    },
+    {
+        "name": "qwen",
+        "kind": "CLI",
+        "binary": "qwen",
+        "launch": "sah qwen",
+        "install": "sah qwen --install",
+        "status": "sah qwen --status",
+        "restore": "sah qwen --restore",
+    },
+    {
+        "name": "openclaw",
+        "kind": "CLI",
+        "binary": "openclaw",
+        "launch": "sah openclaw",
+        "install": "sah openclaw --install",
+        "status": "sah openclaw --status",
+        "restore": "sah openclaw --restore",
+    },
+    {
+        "name": "claude",
+        "kind": "CLI",
+        "binary": "claude",
+        "launch": "sah claude",
+        "install": "sah claude --install",
+        "status": "sah claude --status",
+        "restore": "sah claude --restore",
+    },
+    {
+        "name": "claude-desktop",
+        "kind": "Desktop",
+        "binary": None,
+        "launch": "n/a",
+        "install": "sah claude-desktop --install",
+        "status": "sah claude-desktop --status",
+        "restore": "sah claude-desktop --restore",
+    },
+]
+
+
+def cmd_integrations(_args) -> None:
+    rows = []
+    for item in INTEGRATIONS:
+        binary = item["binary"]
+        available = "n/a" if not binary else ("yes" if shutil.which(binary) else "missing")
+        rows.append(
+            {
+                **item,
+                "available": available,
+            }
+        )
+    _print_table(
+        rows,
+        [
+            ("name", "Integration"),
+            ("kind", "Kind"),
+            ("available", "Installed"),
+            ("launch", "Launch"),
+            ("install", "Install"),
+            ("status", "Status"),
+            ("restore", "Restore"),
+        ],
+    )
+
+
+def _print_table(rows: list[dict], columns: list[tuple[str, str]]) -> None:
+    widths = {}
+    for key, title in columns:
+        widths[key] = max(len(title), *(len(str(row.get(key, ""))) for row in rows))
+    print("  ".join(title.ljust(widths[key]) for key, title in columns))
+    print("  ".join("-" * widths[key] for key, _title in columns))
+    for row in rows:
+        print("  ".join(str(row.get(key, "")).ljust(widths[key]) for key, _title in columns))
+
+
 def cmd_info(_args) -> None:
     m = current_model()
     print(f"Hub:           {hub_url()}")
@@ -1601,6 +1703,10 @@ def main() -> None:
     sp = sub.add_parser("env", help="Print export lines for OPENAI_* / ANTHROPIC_*")
     sp.add_argument("--anthropic", action="store_true", help="Anthropic-shaped env vars")
     sp.set_defaults(func=cmd_env)
+
+    sp = sub.add_parser("integrations", aliases=["clients"],
+                        help="List supported clients and lifecycle commands")
+    sp.set_defaults(func=cmd_integrations)
 
     sp = sub.add_parser("set-hub", help="Persist Hub URL to ~/.config/sah/hub")
     sp.add_argument("url")
