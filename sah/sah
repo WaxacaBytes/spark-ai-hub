@@ -172,6 +172,29 @@ def cmd_integrations(_args) -> None:
     )
 
 
+_LABEL_W = 19  # one width for every "<label>: <value>" line printed by sah
+
+
+def _kv(label: str, value: str) -> None:
+    print(f"{(label + ':').ljust(_LABEL_W)} {value}")
+
+
+def _print_wired(name: str, bin_name: str, config_path: Path, extras: tuple[tuple[str, str], ...] = ()) -> None:
+    print(f"{name} wired to Spark AI Hub.")
+    _kv("  Config", str(config_path))
+    for k, v in extras:
+        _kv(f"  {k}", v)
+    print(f"  Plain `{bin_name}` will use the Hub until you run: sah {bin_name} --restore")
+
+
+def _print_status(name: str, bin_name: str, config_path: Path, wired: bool, extras: tuple[tuple[str, str], ...] = ()) -> None:
+    _kv(f"{name} config", str(config_path))
+    _kv("SAH backup", "present" if _client_backup_path(bin_name).is_file() else "not present")
+    _kv(f"Plain {bin_name}", "wired to Spark AI Hub" if wired else "not wired to Spark AI Hub")
+    for k, v in extras:
+        _kv(k, v)
+
+
 def _print_table(rows: list[dict], columns: list[tuple[str, str]]) -> None:
     widths = {}
     for key, title in columns:
@@ -195,11 +218,11 @@ def _write_json_atomic(path: Path, data: dict) -> None:
 
 def cmd_info(_args) -> None:
     m = current_model()
-    print(f"Hub:           {hub_url()}")
-    print(f"OpenAI base:   {api_base()}")
-    print(f"Anthropic base:{hub_url()}")
-    print(f"API key:       sah  (any value works)")
-    print(f"Current model: {m or '(none — launch one in the Hub)'}")
+    _kv("Hub", hub_url())
+    _kv("OpenAI base", api_base())
+    _kv("Anthropic base", hub_url())
+    _kv("API key", "sah  (any value works)")
+    _kv("Current model", m or "(none — launch one in the Hub)")
 
 
 def cmd_env(args) -> None:
@@ -266,9 +289,7 @@ def _install_opencode_global(model: str) -> None:
     config = _read_json(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     _write_json_atomic(path, _opencode_hub_config(model, config))
-    print("OpenCode wired to Spark AI Hub.")
-    print(f"  Config: {path}")
-    print("  Plain `opencode` will use the Hub until you run: sah opencode --restore")
+    _print_wired("OpenCode", "opencode", path)
 
 
 def _status_opencode_global() -> None:
@@ -276,9 +297,7 @@ def _status_opencode_global() -> None:
     config = _read_json(path)
     provider = (config.get("provider") or {}).get("sah") if isinstance(config.get("provider"), dict) else None
     wired = config.get("model", "").startswith("sah/") and isinstance(provider, dict)
-    print(f"OpenCode config: {path}")
-    print(f"SAH backup:      {'present' if _client_backup_path('opencode').is_file() else 'not present'}")
-    print(f"Plain opencode:  {'wired to Spark AI Hub' if wired else 'not wired to Spark AI Hub'}")
+    _print_status("OpenCode", "opencode", path, wired)
 
 
 def _opencode_input_modalities_for(model: str) -> list[str]:
@@ -386,9 +405,7 @@ def _install_codex_global(model: str, info: dict) -> None:
     cfg.parent.mkdir(parents=True, exist_ok=True)
     _validate_toml_text(text, cfg)
     _write_text_atomic(cfg, text)
-    print("Codex wired to Spark AI Hub.")
-    print(f"  Config: {cfg}")
-    print("  Plain `codex` will use the Hub until you run: sah codex --restore")
+    _print_wired("Codex", "codex", cfg)
 
 
 def _status_codex_global() -> None:
@@ -396,9 +413,7 @@ def _status_codex_global() -> None:
     text = cfg.read_text() if cfg.is_file() else ""
     top = text.split("\n[", 1)[0]
     wired = 'model_provider = "sah"' in top
-    print(f"Codex config:    {cfg}")
-    print(f"SAH backup:      {'present' if _client_backup_path('codex').is_file() else 'not present'}")
-    print(f"Plain codex:     {'wired to Spark AI Hub' if wired else 'not wired to Spark AI Hub'}")
+    _print_status("Codex", "codex", cfg, wired)
 
 
 def _set_toml_top_level_string(text: str, key: str, value: str) -> str:
@@ -619,10 +634,10 @@ def _status_hermes_global() -> None:
     path = _hermes_config_path()
     text = path.read_text() if path.is_file() else ""
     wired = f"base_url: {api_base()}" in text and "provider: custom" in text
-    print(f"Hermes config:   {path}")
-    print("SAH mode:        launch only")
-    print("SAH install:     not supported")
-    print(f"Plain hermes:    {'already points at Spark AI Hub' if wired else 'unchanged by sah'}")
+    _kv("Hermes config", str(path))
+    _kv("SAH mode", "launch only")
+    _kv("SAH install", "not supported")
+    _kv("Plain hermes", "already points at Spark AI Hub" if wired else "unchanged by sah")
 
 
 def cmd_qwen(args) -> None:
@@ -836,10 +851,7 @@ def _install_qwen_global(model: str) -> None:
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     _write_json_atomic(settings_path, _qwen_hub_settings(base, model))
-    print("Qwen Code wired to Spark AI Hub.")
-    print(f"  Settings: {settings_path}")
-    print(f"  Model:    {model}")
-    print("  Plain `qwen` will use the Hub until you run: sah qwen --restore")
+    _print_wired("Qwen Code", "qwen", settings_path, extras=(("Model", model),))
 
 
 def _restore_qwen_global() -> None:
@@ -859,7 +871,7 @@ def _restore_qwen_global() -> None:
         settings_path.unlink()
     backup_path.unlink()
     print("Qwen Code restored.")
-    print(f"  Plain `qwen` no longer uses the Spark AI Hub profile.")
+    print("  Plain `qwen` no longer uses the Spark AI Hub profile.")
 
 
 def _status_qwen_global() -> None:
@@ -873,11 +885,12 @@ def _status_qwen_global() -> None:
         isinstance(p, dict) and p.get("id") == model and p.get("baseUrl") == api_base()
         for p in openai_list
     )
-    print(f"Qwen settings:   {settings_path}")
-    print(f"SAH backup:      {'present' if backup_path.is_file() else 'not present'}")
-    print(f"Plain qwen:      {'wired to Spark AI Hub' if wired else 'not wired to Spark AI Hub'}")
+    # Qwen has its own backup path, so render the status block manually.
+    _kv("Qwen Code config", str(settings_path))
+    _kv("SAH backup", "present" if backup_path.is_file() else "not present")
+    _kv("Plain qwen", "wired to Spark AI Hub" if wired else "not wired to Spark AI Hub")
     if model:
-        print(f"Configured model:{model}")
+        _kv("Configured model", model)
 
 
 def cmd_openclaw(args) -> None:
@@ -899,9 +912,7 @@ def cmd_openclaw(args) -> None:
     model = info["id"]
     if args.install:
         _ensure_openclaw_config(model, info)
-        print("OpenClaw wired to Spark AI Hub.")
-        print(f"  Config: {_openclaw_config_paths()[0]}")
-        print("  Plain `openclaw` will use the Hub until you run: sah openclaw --restore")
+        _print_wired("OpenClaw", "openclaw", _openclaw_config_paths()[0])
         return
     profile = "sah"
     _ensure_openclaw_config(model, info, profile=profile)
@@ -1057,9 +1068,7 @@ def _status_openclaw_global() -> None:
     config = _read_json(source)
     primary = (((config.get("agents") or {}).get("defaults") or {}).get("model") or {}).get("primary")
     wired = isinstance(primary, str) and primary.startswith("sah/")
-    print(f"OpenClaw config: {source}")
-    print(f"SAH backup:      {'present' if _client_backup_path('openclaw').is_file() else 'not present'}")
-    print(f"Plain openclaw:  {'wired to Spark AI Hub' if wired else 'not wired to Spark AI Hub'}")
+    _print_status("OpenClaw", "openclaw", source, wired)
 
 
 def _openclaw_onboard(model: str, profile: str | None = None) -> None:
@@ -1269,9 +1278,7 @@ def _install_claude_global(model: str) -> None:
     settings = _read_json(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     _write_json_atomic(path, _claude_hub_settings(settings, model))
-    print("Claude Code wired to Spark AI Hub.")
-    print(f"  Settings: {path}")
-    print("  Plain `claude` will use the Hub until you run: sah claude --restore")
+    _print_wired("Claude Code", "claude", path)
 
 
 def _status_claude_global() -> None:
@@ -1279,9 +1286,7 @@ def _status_claude_global() -> None:
     settings = _read_json(path)
     env_block = settings.get("env") if isinstance(settings.get("env"), dict) else {}
     wired = env_block.get("ANTHROPIC_BASE_URL") == hub_url() and env_block.get("ANTHROPIC_AUTH_TOKEN") == "sah"
-    print(f"Claude settings: {path}")
-    print(f"SAH backup:      {'present' if _client_backup_path('claude').is_file() else 'not present'}")
-    print(f"Plain claude:    {'wired to Spark AI Hub' if wired else 'not wired to Spark AI Hub'}")
+    _print_status("Claude Code", "claude", path, wired)
 
 
 # ---------- claude-desktop ----------
@@ -1394,11 +1399,6 @@ def _read_json(path: Path) -> dict:
         return {}
 
 
-def _write_json(path: Path, data: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _write_json_atomic(path, data)
-
-
 def _claude_pids() -> list[int]:
     r = subprocess.run(
         ["pgrep", "-f", "Claude.app/Contents/MacOS/Claude"],
@@ -1428,27 +1428,27 @@ def _wait_claude_exit(timeout: float) -> bool:
     """Poll until no Claude PIDs remain. Print a single dot per second so the
     user sees progress without 50 dots/10s. Returns True if it actually exited.
     """
-    import time as _t
-    deadline = _t.time() + timeout
-    last_dot = _t.time()
-    while _t.time() < deadline:
+
+    deadline = time.time() + timeout
+    last_dot = time.time()
+    while time.time() < deadline:
         if not _claude_running():
             return True
-        if _t.time() - last_dot >= 1.0:
+        if time.time() - last_dot >= 1.0:
             print(".", end="", flush=True)
-            last_dot = _t.time()
-        _t.sleep(0.1)
+            last_dot = time.time()
+        time.sleep(0.1)
     return False
 
 
 def _open_and_verify() -> None:
     """open -a Claude, then poll until it's running. Retry once if needed."""
-    import time as _t
+
     _open_claude()
     for _ in range(20):  # up to 4s
         if _claude_running():
             return
-        _t.sleep(0.2)
+        time.sleep(0.2)
     _open_claude()
 
 
@@ -1470,8 +1470,8 @@ def _restart_claude(skip: bool) -> None:
     _wait_claude_exit(30.0)
     # Brief settle so launch services releases the previous instance before
     # we ask for a new one.
-    import time as _t
-    _t.sleep(0.5)
+
+    time.sleep(0.5)
     _open_and_verify()
     print(" done.")
 
@@ -1515,16 +1515,16 @@ def _install_tunnel(hub: str) -> None:
     # the gateway URL at startup and caches a failure if the port isn't ready;
     # without this gate, "sah claude-desktop" relaunches Claude before launchd
     # finishes binding the socket and the user sees ERR_CONNECTION_REFUSED.
-    import socket as _s, time as _t
-    deadline = _t.time() + 5
-    while _t.time() < deadline:
-        with _s.socket(_s.AF_INET, _s.SOCK_STREAM) as sock:
+
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(0.2)
             try:
                 sock.connect(("127.0.0.1", SAH_TUNNEL_PORT))
                 return
             except OSError:
-                _t.sleep(0.1)
+                time.sleep(0.1)
     print(
         f"warning: tunnel on 127.0.0.1:{SAH_TUNNEL_PORT} did not come up within 5s; "
         f"check ~/.config/sah/sah-tunnel.log",
@@ -1550,7 +1550,7 @@ def _set_deployment_mode(mode: str) -> None:
         if cfg.get("deploymentMode") == mode and cfg_path.is_file():
             continue
         cfg["deploymentMode"] = mode
-        _write_json(cfg_path, cfg)
+        _write_json_atomic(cfg_path, cfg)
 
 
 def _write_meta_entry() -> None:
@@ -1561,7 +1561,7 @@ def _write_meta_entry() -> None:
     entries.append({"id": SAH_PROFILE_ID, "name": SAH_PROFILE_NAME})
     meta["entries"] = entries
     meta["appliedId"] = SAH_PROFILE_ID
-    _write_json(meta_path, meta)
+    _write_json_atomic(meta_path, meta)
 
 
 def _restore_meta_entry() -> None:
@@ -1582,7 +1582,7 @@ def _restore_meta_entry() -> None:
         meta["entries"] = new_entries
         changed = True
     if changed:
-        _write_json(meta_path, meta)
+        _write_json_atomic(meta_path, meta)
 
 
 def _write_gateway_profile() -> None:
@@ -1595,7 +1595,7 @@ def _write_gateway_profile() -> None:
     cfg["inferenceGatewayAuthScheme"] = "bearer"
     cfg["disableDeploymentModeChooser"] = True
     cfg.pop("inferenceModels", None)
-    _write_json(profile_path, cfg)
+    _write_json_atomic(profile_path, cfg)
 
 
 def _restore_gateway_profile() -> None:
@@ -1616,13 +1616,13 @@ def _restore_gateway_profile() -> None:
     for k in ("inferenceProvider", "inferenceGatewayBaseUrl",
               "inferenceGatewayAuthScheme", "inferenceModels"):
         cfg.pop(k, None)
-    _write_json(profile_path, cfg)
+    _write_json_atomic(profile_path, cfg)
 
 
 def _status() -> None:
     p = _cd_paths()
     app = _claude_app_path()
-    print(f"Claude Desktop:  {'installed at ' + str(app) if app else 'NOT installed'}")
+    _kv("Claude Desktop", f"installed at {app}" if app else "NOT installed")
     if not app:
         return
 
@@ -1640,11 +1640,11 @@ def _status() -> None:
         and profile.get("inferenceProvider") == "gateway"
         and plist_loaded
     )
-    print(f"Deployment mode: {mode}")
-    print(f"SAH profile:     {'APPLIED' if sah_active else 'not applied'}")
-    print(f"Gateway URL:     {gateway_url}")
-    print(f"Tunnel agent:    {'loaded' if plist_loaded else 'not installed'} ({p['plist']})")
-    print(f"Claude running:  {'yes' if _claude_running() else 'no'}")
+    _kv("Deployment mode", mode)
+    _kv("SAH profile", "APPLIED" if sah_active else "not applied")
+    _kv("Gateway URL", gateway_url)
+    _kv("Tunnel agent", f"{'loaded' if plist_loaded else 'not installed'} ({p['plist']})")
+    _kv("Claude running", "yes" if _claude_running() else "no")
 
 
 def cmd_claude_desktop(args) -> None:
