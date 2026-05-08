@@ -29,7 +29,7 @@ sah hermes              # launch Hermes Agent against the Hub
 sah qwen                # launch Qwen Code against the Hub
 sah openclaw            # launch OpenClaw against the Hub
 sah claude              # launch Claude Code against the Hub  (needs Anthropic-compat endpoint, WIP)
-sah claude-desktop      # launch Claude Desktop                (WIP)
+sah claude-desktop --install  # wire Claude Desktop to the Hub
 
 sah <client> --install  # make the plain client use the Hub
 sah <client> --status   # show whether the plain client is wired to the Hub

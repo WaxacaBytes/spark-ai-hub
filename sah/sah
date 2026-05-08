@@ -1543,7 +1543,7 @@ def _status() -> None:
 def cmd_claude_desktop(args) -> None:
     """Wire Claude Desktop's Cowork 3p mode to the Hub via a loopback proxy.
 
-    Install (default): drops a launchd-managed TCP forwarder on 127.0.0.1
+    Install (--install): drops a launchd-managed TCP forwarder on 127.0.0.1
     pointing at the Hub, writes a 3p gateway profile, sets deploymentMode=3p,
     and restarts Claude Desktop.
 
@@ -1560,6 +1560,9 @@ def cmd_claude_desktop(args) -> None:
     if args.status:
         _status()
         return
+
+    if not args.install and not args.restore:
+        sys.exit("Choose one: sah claude-desktop --install, --status, or --restore")
 
     _require_claude_installed()
 
@@ -1672,6 +1675,8 @@ def main() -> None:
 
     sp = sub.add_parser("claude-desktop", help="Wire Claude Desktop to the Hub")
     g = sp.add_mutually_exclusive_group()
+    g.add_argument("--install", action="store_true",
+                   help="Persistently wire Claude Desktop to Spark AI Hub")
     g.add_argument("--restore", action="store_true",
                    help="Restore Claude Desktop to the usual Anthropic profile")
     g.add_argument("--status", action="store_true",

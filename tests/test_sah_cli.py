@@ -68,6 +68,19 @@ class SahCliTests(unittest.TestCase):
         self.assertEqual(self.sah._normalize_passthrough(["--", "--help"]), ["--help"])
         self.assertEqual(self.sah._normalize_passthrough(["run", "hello"]), ["run", "hello"])
 
+    def test_claude_desktop_requires_explicit_lifecycle_action(self):
+        class Args:
+            install = False
+            restore = False
+            status = False
+            no_restart = True
+
+        with mock.patch.object(self.sah, "_cd_paths", return_value={}):
+            with self.assertRaises(SystemExit) as ctx:
+                self.sah.cmd_claude_desktop(Args())
+
+        self.assertIn("--install", str(ctx.exception))
+
     def test_codex_pdf_prompt_augmentation(self):
         with mock.patch.object(
             self.sah,
