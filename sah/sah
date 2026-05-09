@@ -724,11 +724,14 @@ def cmd_qwen(args) -> None:
     if args.install:
         _install_qwen_global(model)
         return
-    qwen_home = _prepare_qwen_home(model)
     extra = _normalize_passthrough(args.passthrough)
+    # Thin-launcher pattern (matches sah claude/codex/etc.): set Hub env vars,
+    # pass connection flags, and exec. qwen reads its own config from the
+    # user's real ~/.qwen/ — non-invasive by default. Users who want
+    # persistent settings.json overrides (e.g. multimodal generationConfig
+    # for Qwen 3.5/3.6) use `sah qwen --install`.
     env = {
         **os.environ,
-        "HOME": str(qwen_home),
         "OPENAI_API_KEY": "sah",
         "OPENAI_BASE_URL": api_base(),
         # qwen-code caps OpenAI-compatible providers at 8K output tokens
@@ -744,9 +747,16 @@ def cmd_qwen(args) -> None:
         "--openai-base-url", api_base(),
         "--openai-api-key", "sah",
         "--model", model,
-        *extra,
     ]
+    # For multimodal Hub models, qwen-code's text-only prior makes it refuse
+    # image/video reads even when the modality flag is set in settings.json.
+    # Inject a brief capability note via the upstream-supported flag instead
+    # of materializing a sandbox QWEN.md.
+    if _qwen_modalities_for(model):
+        cmd += ["--append-system-prompt", _QWEN_CAPABILITIES_NOTE]
+    cmd += extra
     os.execvpe("qwen", cmd, env)
+
 
 
 _QWEN_CAPABILITIES_NOTE = """
@@ -783,80 +793,6 @@ def _qwen_modalities_for(model: str) -> dict:
     if "-vl-" in norm or norm.endswith("-vl") or "vision" in norm:
         return {"image": True, "video": True}
     return {}
-
-
-def _prepare_qwen_home(model: str) -> Path:
-    """Build an isolated HOME for `sah qwen` that shares everything with plain
-    `qwen` *except* settings.json.
-
-    qwen-code derives its config dir from `os.homedir()`. We point HOME at a
-    sah-managed dir whose `.qwen/` is a mirror of the real `~/.qwen/`: every
-    child (skills, projects, oauth_creds.json, todos, tmp, …) is symlinked to
-    the real path, so reads and writes bleed through transparently. Only
-    settings.json is materialized fresh — copied from the real one and
-    overridden with our auth/model/modelProviders bits — so we never alter the
-    user's real settings file.
-    """
-    home = CONFIG_DIR / "qwen-home"
-    qwen_dir = home / ".qwen"
-    qwen_dir.mkdir(parents=True, exist_ok=True)
-
-    # Files we materialize ourselves (must not be symlinked through to the real
-    # ~/.qwen): settings.json carries auth/modelProvider overrides, QWEN.md
-    # carries the capability addendum.
-    OWNED = {"settings.json", "QWEN.md"}
-
-    real_qwen = Path.home() / ".qwen"
-    if real_qwen.is_dir():
-        existing = {p.name: p for p in qwen_dir.iterdir()}
-        wanted = {p.name for p in real_qwen.iterdir() if p.name not in OWNED}
-        for name, link in existing.items():
-            if name in OWNED:
-                continue
-            if link.is_symlink() and name not in wanted:
-                link.unlink()
-        for item in real_qwen.iterdir():
-            if item.name in OWNED:
-                continue
-            link = qwen_dir / item.name
-            target = item.resolve()
-            if link.is_symlink():
-                if Path(os.readlink(link)) == target:
-                    continue
-                link.unlink()
-            elif link.exists():
-                continue  # leave non-symlink user data alone
-            link.symlink_to(target)
-
-    # Synthesize ~/.qwen/QWEN.md inside the isolated home: import the user's
-    # real one (if any) so their global memory still applies, then append a
-    # brief capability note. Without this, Qwen3.5/3.6 served via OpenAI-compat
-    # don't realize they can read image/video files and refuse — `read_file`
-    # has the modality flag set, but the model's prior keeps insisting "I'm
-    # text-only" until the user argues with it.
-    qwen_md_lines = []
-    real_qwen_md = real_qwen / "QWEN.md"
-    if real_qwen_md.is_file():
-        qwen_md_lines.append(f"@{real_qwen_md}")
-        qwen_md_lines.append("")
-    qwen_md_lines.append(_QWEN_CAPABILITIES_NOTE.strip())
-    qwen_md_lines.append("")
-    _write_text_atomic(qwen_dir / "QWEN.md", "\n".join(qwen_md_lines))
-
-    base: dict = {}
-    real_settings = real_qwen / "settings.json"
-    if real_settings.is_file():
-        try:
-            loaded = json.loads(real_settings.read_text())
-            if isinstance(loaded, dict):
-                base = loaded
-        except json.JSONDecodeError:
-            pass
-
-    base = _qwen_hub_settings(base, model)
-
-    _write_json_atomic(qwen_dir / "settings.json", base)
-    return home
 
 
 def _qwen_settings_path() -> Path:
