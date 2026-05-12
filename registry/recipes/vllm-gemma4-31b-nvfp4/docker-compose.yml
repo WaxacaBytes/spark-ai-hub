@@ -1,6 +1,6 @@
 services:
   vllm:
-    image: nvcr.io/nvidia/vllm:26.03-py3
+    image: vllm/vllm-openai:gemma4-cu130
     container_name: spark-ai-hub-vllm-gemma4-31b-nvfp4
     ports:
       - "9001:8000"
@@ -11,8 +11,7 @@ services:
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
     ipc: host
     command:
-      - vllm
-      - serve
+      - --model
       - nvidia/Gemma-4-31B-IT-NVFP4
       - --quantization
       - modelopt
