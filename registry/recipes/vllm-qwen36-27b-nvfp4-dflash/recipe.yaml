@@ -31,8 +31,8 @@ ui:
   port: 9001
   path: "/v1/models"
 docker:
-  build: false
-  build_time_minutes: 0
+  build: true
+  build_time_minutes: 3
   gpu: true
 status: community-verified
 release_date: "2026-05-07"

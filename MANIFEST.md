@@ -53,6 +53,12 @@ All benchmarks, validation tests, and QA are performed through the Hub's interfa
 
 We do not test apps by SSH-ing into containers, running scripts from the host, or using developer tooling that the user never sees. If the benchmark doesn't go through the same UI flow the user experiences, it doesn't count.
 
+### 7. Offline Validation Is Mandatory
+
+Claiming an app works offline while the machine has internet access is not a valid test. Any verification of offline behavior must be performed with the network physically disabled or the container running with `--network none`.
+
+The only accepted proof that an app launches offline is a successful launch in an environment where DNS resolution fails. If it hasn't been tested offline, it hasn't been tested.
+
 ---
 
 ## What This Is Not

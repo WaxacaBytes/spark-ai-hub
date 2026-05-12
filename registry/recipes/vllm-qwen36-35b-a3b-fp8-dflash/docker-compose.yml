@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: spark-ai-hub/vllm-dflash:v0.20.0-aarch64-cu130
+    image: spark-ai-hub/vllm-qwen36-35b-a3b-fp8-dflash:v0.20.0-aarch64-cu130
     container_name: spark-ai-hub-vllm-qwen36-35b-a3b-fp8-dflash
     ports:
       - "9001:8000"
@@ -55,5 +55,3 @@ services:
 
 volumes:
   huggingface-cache:
-    name: spark-ai-hub-vllm-qwen36-35b-a3b-fp8_huggingface-cache
-    external: true

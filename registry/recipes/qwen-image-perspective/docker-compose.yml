@@ -8,6 +8,8 @@ services:
       PORT: "7860"
       OUTPUT_DIR: "/data/output"
       HF_HOME: "/root/.cache/huggingface"
+      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-1}"
+      TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-1}"
       PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
     volumes:
       - qwen-image-perspective-cache:/root/.cache/huggingface
