@@ -2,7 +2,13 @@ services:
   vllm:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile_inline: |
+        FROM vllm/vllm-openai:v0.20.0-aarch64-cu130
+        RUN apt-get update -qq \
+         && apt-get install -y --no-install-recommends git \
+         && rm -rf /var/lib/apt/lists/* \
+         && pip install --no-cache-dir git+https://github.com/z-lab/dflash.git \
+         && pip cache purge || true
     image: spark-ai-hub/vllm-qwen35-27b-dflash:v0.20.0-aarch64-cu130
     container_name: spark-ai-hub-vllm-qwen35-27b-dflash
     ports:
