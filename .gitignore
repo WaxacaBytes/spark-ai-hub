@@ -18,5 +18,9 @@ comfyui-src/
 # Generated recipe runtime env files
 registry/recipes/*/.env
 
+# Runtime files
+sparkdeck.log
+spark-ai-hub-daemon.db
+
 # OS
 .DS_Store
