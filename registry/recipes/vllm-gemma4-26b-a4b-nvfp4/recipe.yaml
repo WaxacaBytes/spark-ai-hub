@@ -1,0 +1,47 @@
+name: "Gemma 4 26B-A4B NVFP4"
+slug: vllm-gemma4-26b-a4b-nvfp4
+version: "1.0.0"
+description: "Google Gemma 4 26B-A4B (MoE, 3.8B active / 25.2B total) served from NVIDIA's NVFP4-optimized checkpoint. Multimodal text+image, reasoning-enabled, and tuned for lower-memory vLLM deployment on DGX Spark."
+author: "Google"
+source: "official"
+website: "https://ai.google.dev/gemma/docs/core"
+upstream: "https://huggingface.co/nvidia/Gemma-4-26B-A4B-NVFP4"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - moe
+  - reasoning
+  - coding
+  - tool-use
+  - vllm
+  - gemma
+  - google
+  - nvfp4
+  - nvidia-official
+logo: "/logos/google.png"
+requirements:
+  min_memory_gb: 30
+  recommended_memory_gb: 45
+  disk_gb: 35
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: false
+  build_time_minutes: 10
+  gpu: true
+status: community-verified
+release_date: "2026-05"
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-05-12"
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "nvidia/Gemma-4-26B-A4B-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Gemma-4-26B-A4B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Solve 17 x 23 step by step.\"}]}'"
+tokens_per_second: 27.9

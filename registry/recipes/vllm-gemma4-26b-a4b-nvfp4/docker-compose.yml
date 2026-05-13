@@ -1,7 +1,7 @@
 services:
   vllm:
-    image: vllm/vllm-openai:gemma4-cu130
-    container_name: spark-ai-hub-vllm-gemma4-31b-fp8
+    image: vllm/vllm-openai:gemma4-0505-arm64-cu130
+    container_name: spark-ai-hub-vllm-gemma4-26b-a4b-nvfp4
     ports:
       - "9001:8000"
     volumes:
@@ -12,13 +12,12 @@ services:
     ipc: host
     command:
       - --model
-      - google/gemma-4-31B-it
-      - --quantization
-      - fp8
+      - nvidia/Gemma-4-26B-A4B-NVFP4
       - --port
       - "8000"
       - --max-model-len
-      - "131072"
+      - "262144"
+      - --trust-remote-code
       - --enable-prefix-caching
       - --enable-auto-tool-choice
       - --tool-call-parser
@@ -29,6 +28,11 @@ services:
       - "0.60"
       - --reasoning-parser
       - gemma4
+      - --enable-chunked-prefill
+      - --max-num-batched-tokens
+      - "4096"
+      - --max-num-seqs
+      - "8"
     deploy:
       resources:
         reservations:

@@ -1,0 +1,61 @@
+services:
+  vllm:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM vllm/vllm-openai:gemma4-0505-arm64-cu130
+        RUN apt-get update -qq \
+         && apt-get install -y --no-install-recommends git \
+         && rm -rf /var/lib/apt/lists/* \
+         && pip install --no-cache-dir git+https://github.com/z-lab/dflash.git \
+         && pip cache purge || true
+    image: spark-ai-hub/vllm-gemma4-26b-a4b-nvfp4-dflash:gemma4-0505-arm64-cu130
+    container_name: spark-ai-hub-vllm-gemma4-26b-a4b-nvfp4-dflash
+    ports:
+      - "9001:8000"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    command:
+      - --model
+      - nvidia/Gemma-4-26B-A4B-NVFP4
+      - --port
+      - "8000"
+      - --max-model-len
+      - "262144"
+      - --trust-remote-code
+      - --enable-prefix-caching
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - gemma4
+      - --default-chat-template-kwargs
+      - '{"enable_thinking": true}'
+      - --gpu-memory-utilization
+      - "0.65"
+      - --kv-cache-dtype
+      - fp8_e4m3
+      - --reasoning-parser
+      - gemma4
+      - --attention-backend
+      - triton_attn
+      - --enable-chunked-prefill
+      - --max-num-batched-tokens
+      - "4096"
+      - --max-num-seqs
+      - "8"
+      - --speculative-config
+      - '{"method": "dflash", "model": "z-lab/gemma-4-26B-A4B-it-DFlash", "num_speculative_tokens": 15}'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

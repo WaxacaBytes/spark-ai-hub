@@ -1,0 +1,46 @@
+name: "Gemma 4 31B NVFP4 DFlash"
+slug: vllm-gemma4-31b-nvfp4-dflash
+version: "1.0.0"
+description: "Google Gemma 4 31B Instruct (NVIDIA NVFP4 checkpoint) with z-lab DFlash speculative decoding (2B drafter, k=15). Lower-memory NVFP4 target paired with the BF16 DFlash drafter for accelerated inference. 256K context, reasoning and tool-use enabled. Builds dflash into the gemma4-cu130 image at install time."
+author: "Google + NVIDIA + z-lab + vLLM"
+source: "community"
+website: "https://github.com/z-lab/dflash"
+upstream: "https://huggingface.co/z-lab/gemma-4-31B-it-DFlash"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - reasoning
+  - coding
+  - tool-use
+  - vllm
+  - gemma
+  - google
+  - nvfp4
+  - nvidia-official
+  - speculative-decoding
+  - dflash
+  - experimental
+logo: "/logos/google.png"
+requirements:
+  min_memory_gb: 50
+  recommended_memory_gb: 65
+  disk_gb: 50
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 3
+  gpu: true
+status: community-verified
+release_date: "2026-05"
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "nvidia/Gemma-4-31B-IT-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Gemma-4-31B-IT-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
+tokens_per_second: 20.0
