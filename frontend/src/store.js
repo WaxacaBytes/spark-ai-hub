@@ -124,18 +124,37 @@ export const useStore = create((set, get) => ({
 
   addBuildLine: (slug, line) => set((s) => {
     const prev = s.buildLogs[slug] || []
-    // Match Docker layer progress: " <hash> Downloading/Extracting/Waiting/Pull complete"
+
+    // Docker layer progress: " <hash> Downloading/Extracting/..."
     const layerMatch = line.match(/^\s*([0-9a-f]{12})\s+(Downloading|Extracting|Verifying|Waiting|Pull complete|Already exists|Download complete|Pulling fs layer)/)
     if (layerMatch) {
-      const layerId = layerMatch[1]
-      // Find and replace the last line with the same layer ID
-      const idx = prev.findLastIndex((l) => l.includes(layerId))
+      const idx = prev.findLastIndex((l) => l.includes(layerMatch[1]))
       if (idx >= 0) {
-        const updated = [...prev]
-        updated[idx] = line
+        const updated = [...prev]; updated[idx] = line
         return { buildLogs: { ...s.buildLogs, [slug]: updated } }
       }
     }
+
+    // tqdm-style progress: "Fetching N files: X%|..." — replace last line with same prefix
+    const tqdmMatch = line.match(/^(.+?:\s+)\d+%\|/)
+    if (tqdmMatch) {
+      const prefix = tqdmMatch[1]
+      const idx = prev.findLastIndex((l) => l.startsWith(prefix) && /\d+%\|/.test(l))
+      if (idx >= 0) {
+        const updated = [...prev]; updated[idx] = line
+        return { buildLogs: { ...s.buildLogs, [slug]: updated } }
+      }
+    }
+
+    // [progress] lines — replace the last one
+    if (line.startsWith('[progress]')) {
+      const idx = prev.findLastIndex((l) => l.startsWith('[progress]'))
+      if (idx >= 0) {
+        const updated = [...prev]; updated[idx] = line
+        return { buildLogs: { ...s.buildLogs, [slug]: updated } }
+      }
+    }
+
     return { buildLogs: { ...s.buildLogs, [slug]: [...prev, line] } }
   }),
 
@@ -145,6 +164,49 @@ export const useStore = create((set, get) => ({
       if (!res.ok) return
       const fresh = await res.json()
       const inFlight = get()._inFlight
+      const currentInstalling = get().installing
+
+      // Sync installing state with the server:
+      // - If server says installing but we lost frontend state (hard refresh): restore it.
+      //   Don't try to reconnect the build WebSocket — build log data is gone after a
+      //   daemon restart. The server's _pending_actions is the source of truth; we just
+      //   show the spinner and wait for the next poll to clear it.
+      // - If server says NOT installing but we still have it in the store: clear it.
+      //   This handles both successful completion and failures detected after a restore.
+      // Restore installing state after a hard refresh.
+      // If server says installing but we lost frontend state: reconnect WebSocket.
+      // If server says NOT installing but we have it in the store: clear it.
+      const installingPatch = {}
+      for (const r of fresh) {
+        if (r.installing && !currentInstalling[r.slug]) {
+          installingPatch[r.slug] = true
+          // Reconnect build WebSocket — backend now streams docker logs as fallback
+          const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+          const ws = new WebSocket(`${wsProto}//${location.host}/ws/build/${r.slug}`)
+          const slug = r.slug
+          ws.onmessage = (e) => {
+            if (e.data === '[done]') {
+              set((s) => { const { [slug]: _, ...rest } = s.installing; return { installing: rest } })
+              get().fetchRecipes()
+              return
+            }
+            get().addBuildLine(slug, e.data)
+          }
+          ws.onerror = () => { /* fetchRecipes polling will sync state */ }
+          ws.onclose = () => { /* fetchRecipes polling will sync state */ }
+        }
+      }
+      const slugesToClear = Object.keys(currentInstalling).filter(
+        slug => !fresh.find(r => r.slug === slug)?.installing
+      )
+      if (Object.keys(installingPatch).length > 0 || slugesToClear.length > 0) {
+        set((s) => {
+          const next = { ...s.installing, ...installingPatch }
+          for (const slug of slugesToClear) delete next[slug]
+          return { installing: next }
+        })
+      }
+
       // Overlay in-flight state so polling can't flash wrong states
       const merged = fresh.map(r => inFlight[r.slug] ? { ...r, ...inFlight[r.slug] } : r)
       set({ recipes: merged })

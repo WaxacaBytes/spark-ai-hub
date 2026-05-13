@@ -61,4 +61,5 @@ class Recipe(BaseModel):
     running: bool = False
     ready: bool = False
     starting: bool = False
+    installing: bool = False
     has_leftovers: bool = False

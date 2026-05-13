@@ -199,9 +199,21 @@ export default function RecipeDetail() {
               </button>
             )}
             {isBuilding && (
-              <div className="px-5 py-2.5 bg-primary/10 rounded-xl text-sm text-primary font-semibold font-label">
-                <span className="inline-block animate-spin mr-1">⟳</span>Building
-              </div>
+              <>
+                <div className="px-5 py-2.5 bg-primary/10 rounded-xl text-sm text-primary font-semibold font-label">
+                  <span className="inline-block animate-spin mr-1">⟳</span>Building
+                </div>
+                <button
+                  onClick={() => {
+                    if (window.confirm(`Cancel install for ${recipe.name}? This will stop the download.`)) {
+                      removeRecipe(recipe.slug)
+                    }
+                  }}
+                  className="px-4 py-2.5 bg-error-surface text-error border-none rounded-xl text-sm font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </>
             )}
             {isUpdating && (
               <div className="px-5 py-2.5 bg-primary/10 rounded-xl text-sm text-primary font-semibold font-label">

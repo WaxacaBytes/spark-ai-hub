@@ -2,10 +2,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import secrets
 import subprocess
 from pathlib import Path
 from typing import AsyncGenerator
+
+_ANSI_RE = re.compile(r'\x1b\[[^A-Za-z]*[A-Za-z]')
 
 import yaml
 import aiohttp
@@ -217,10 +220,23 @@ async def _stream_proc(cmd: list[str], cwd: str, env: dict | None = None) -> Asy
         cwd=cwd,
         env=env,
     )
-    async for line in proc.stdout:
-        text = line.decode(errors="replace").rstrip()
-        if "\r" in text:
-            text = text.rsplit("\r", 1)[-1]
+    buf = b""
+    while True:
+        chunk = await proc.stdout.read(4096)
+        if not chunk:
+            break
+        buf += chunk
+        # Normalize CRLF then split on both \n and \r so tqdm progress lines
+        # (which use \r without \n) are yielded immediately.
+        buf = buf.replace(b"\r\n", b"\n")
+        parts = buf.replace(b"\r", b"\n").split(b"\n")
+        buf = parts[-1]  # keep incomplete trailing fragment
+        for part in parts[:-1]:
+            text = _ANSI_RE.sub('', part.decode(errors="replace")).strip()
+            if text:
+                yield text, None
+    if buf:
+        text = _ANSI_RE.sub('', buf.decode(errors="replace")).strip()
         if text:
             yield text, None
     await proc.wait()
@@ -275,21 +291,36 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
         env = _launch_env()
         token = env.get("HF_TOKEN", "")
         repos_arg = ", ".join(repr(repo) for repo in model_repos)
+        prefetch_script = (
+            "import os, sys\n"
+            "os.environ['PYTHONUNBUFFERED'] = '1'\n"
+            # Force tqdm to write to stdout and not suppress itself when not a tty
+            "import tqdm as _tqdm\n"
+            "def _forced_tqdm_init(self, *a, **kw):\n"
+            "    kw['disable'] = False\n"
+            "    kw.setdefault('file', sys.stdout)\n"
+            "    _tqdm.tqdm.__class_orig_init__(self, *a, **kw)\n"
+            "_tqdm.tqdm.__class_orig_init__ = _tqdm.tqdm.__init__\n"
+            "_tqdm.tqdm.__init__ = _forced_tqdm_init\n"
+            "try:\n"
+            "    import tqdm.auto as _ta; _ta.tqdm.__init__ = _forced_tqdm_init\n"
+            "except Exception: pass\n"
+            "from huggingface_hub import snapshot_download\n"
+            f"repos = [{repos_arg}]\n"
+            "for repo in repos:\n"
+            "    print(f'[prefetch] downloading {repo}...', flush=True)\n"
+            "    p = snapshot_download(repo)\n"
+            "    print(f'[prefetch] {repo} ready at {p}', flush=True)\n"
+        )
         run_cmd = _compose_cmd(slug, recipe_dir) + [
             "run", "--rm", "--no-deps",
             "-e", f"HF_TOKEN={token}",
             "-e", "HF_HUB_OFFLINE=0",
             "-e", "TRANSFORMERS_OFFLINE=0",
+            "-e", "PYTHONUNBUFFERED=1",
             "--entrypoint", "python3",
             service_name,
-            "-c",
-            (
-                "import os; from huggingface_hub import snapshot_download; "
-                f"repos = [{repos_arg}]\n"
-                "for repo in repos:\n"
-                "    p = snapshot_download(repo)\n"
-                "    print(f'[prefetch] {repo} weights ready at {p}')"
-            ),
+            "-u", "-c", prefetch_script,
         ]
         yield f"[spark-ai-hub] Prefetching weights for {', '.join(model_repos)} (no port bind)..."
         # Redact the HF token before logging the command so it doesn't leak
@@ -606,6 +637,87 @@ async def get_container_name(slug: str) -> str | None:
         return names[0] if names else None
     except Exception:
         return None
+
+
+async def find_prefetch_container(slug: str) -> str | None:
+    """Return the name of a running compose-run prefetch container for this slug, if any."""
+    prefix = f"{_compose_project(slug)}-"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "ps", "--format", "{{.Names}}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        for name in stdout.decode().strip().splitlines():
+            if name.startswith(prefix) and "-run-" in name:
+                return name
+    except Exception:
+        pass
+    return None
+
+
+async def restore_installing_state(known_slugs: list[str]) -> None:
+    """On daemon startup, detect any prefetch-run containers still running and
+    restore the installing pending state so the UI reflects the correct status."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "ps", "--format", "{{.Names}}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+    except Exception:
+        return
+
+    running_names = stdout.decode().strip().splitlines()
+
+    for slug in known_slugs:
+        if get_pending(slug) == "installing":
+            continue
+        prefix = f"{_compose_project(slug)}-"
+        for name in running_names:
+            if name.startswith(prefix) and "-run-" in name:
+                set_pending(slug, "installing")
+                asyncio.create_task(_watch_prefetch_done(slug))
+                print(f"[restore] detected in-progress install for {slug} ({name})")
+                break
+
+
+async def _watch_prefetch_done(slug: str) -> None:
+    """Poll until the prefetch run-container for this slug exits, then mark installed."""
+    prefix = f"{_compose_project(slug)}-"
+    for _ in range(7200):  # up to 2 hours
+        await asyncio.sleep(5)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "ps", "--format", "{{.Names}}",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await proc.communicate()
+            names = stdout.decode().strip().splitlines()
+            still_running = any(n.startswith(prefix) and "-run-" in n for n in names)
+            if not still_running:
+                # Prefetch containers exited — write the installed record if not already there.
+                try:
+                    db = await get_db()
+                    try:
+                        await db.execute(
+                            "INSERT OR IGNORE INTO installed_recipes (slug, status, compose_project) VALUES (?, 'installed', ?)",
+                            (slug, _compose_project(slug)),
+                        )
+                        await db.commit()
+                    finally:
+                        await db.close()
+                except Exception as e:
+                    print(f"[restore] DB write failed for {slug}: {e}")
+                clear_pending(slug)
+                print(f"[restore] install complete for {slug}")
+                return
+        except Exception:
+            pass
+    clear_pending(slug)
 
 
 async def get_installed_slugs() -> set[str]:

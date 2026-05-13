@@ -20,10 +20,16 @@ export default function Running() {
       {/* Running Section */}
       <div className="flex items-center gap-3 mb-6">
         <h2 className="text-2xl font-bold tracking-tight font-display m-0">Running</h2>
-        {(running.length + building.length) > 0 && (
+        {running.length > 0 && (
           <span className="flex items-center gap-1.5 text-xs font-medium font-label text-success bg-success/10 px-2.5 py-1 rounded-full">
             <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-            {running.length + building.length} app{(running.length + building.length) > 1 ? 's' : ''} active
+            {running.length} app{running.length > 1 ? 's' : ''} active
+          </span>
+        )}
+        {building.length > 0 && (
+          <span className="flex items-center gap-1.5 text-xs font-medium font-label text-secondary bg-secondary/10 px-2.5 py-1 rounded-full">
+            <span className="inline-block animate-spin">⟳</span>
+            {building.length} installing
           </span>
         )}
       </div>
@@ -70,8 +76,7 @@ function BuildingCard({ recipe, onSelect, isUpdating }) {
   return (
     <div
       onClick={() => onSelect(recipe.slug)}
-      className="bg-surface rounded-2xl p-5 cursor-pointer border-l-4 border-l-primary card-hover"
-      style={{ boxShadow: 'var(--glow-starting)' }}
+      className="bg-surface rounded-2xl p-5 cursor-pointer border-l-4 border-l-secondary/50 card-hover opacity-80"
     >
       <div className="flex items-center gap-4">
         {logoUrl && !logoFailed ? (

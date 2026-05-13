@@ -1,6 +1,9 @@
 import asyncio
+import re
 import subprocess
 from pathlib import Path
+
+_ANSI_RE = re.compile(r'\x1b\[[^A-Za-z]*[A-Za-z]')
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
@@ -19,6 +22,8 @@ from daemon.services.docker_service import (
     start_health_check,
     set_pending,
     clear_pending,
+    get_pending,
+    find_prefetch_container,
 )
 from daemon.services.registry_service import get_recipe, get_recipe_dir
 from daemon.models.container import ContainerInfo
@@ -35,8 +40,8 @@ async def install(slug: str):
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
 
-    # If already building, return current status
-    if slug in _builds and not _builds[slug]["done"]:
+    # If already building (in-memory) or pending from a restored daemon state, no-op
+    if (slug in _builds and not _builds[slug]["done"]) or get_pending(slug) == "installing":
         return {"status": "building", "slug": slug}
 
     set_pending(slug, "installing")
@@ -219,23 +224,97 @@ async def build_log_ws(websocket: WebSocket, slug: str):
                 break
             await asyncio.sleep(0.1)
 
-        while True:
-            build = _builds.get(slug)
-            if not build:
+        if slug in _builds:
+            # Normal path: stream from in-memory build log
+            while True:
+                build = _builds.get(slug)
+                if not build:
+                    await asyncio.sleep(0.3)
+                    continue
+                lines = build["lines"]
+                while seen < len(lines):
+                    await websocket.send_text(lines[seen])
+                    seen += 1
+                if build["done"]:
+                    await websocket.send_text("[done]")
+                    await websocket.close()
+                    return
                 await asyncio.sleep(0.3)
-                continue
-
-            lines = build["lines"]
-            while seen < len(lines):
-                await websocket.send_text(lines[seen])
-                seen += 1
-
-            if build["done"]:
+        else:
+            # Fallback: _builds was wiped (daemon restart). Stream docker logs
+            # from the prefetch container if one is still running.
+            container = await find_prefetch_container(slug)
+            if not container:
                 await websocket.send_text("[done]")
                 await websocket.close()
                 return
 
-            await asyncio.sleep(0.3)
+            await websocket.send_text(f"[spark-ai-hub] Reconnected to in-progress download ({container})")
+
+            # Stream docker logs (works for new-style prefetch with PYTHONUNBUFFERED=1).
+            # For old-style containers with no output, fall back to polling the cache volume size.
+            proc = await asyncio.create_subprocess_exec(
+                "docker", "logs", "-f", "--tail", "50", container,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            assert proc.stdout is not None
+
+            lines_seen = 0
+            read_task = asyncio.create_task(proc.stdout.readline())
+
+            while True:
+                # Poll container status
+                check = await asyncio.create_subprocess_exec(
+                    "docker", "inspect", "-f", "{{.State.Running}}", container,
+                    stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                )
+                out, _ = await check.communicate()
+                still_running = out.decode().strip() == "true"
+
+                # Drain any log lines that have arrived
+                while not read_task.done():
+                    try:
+                        line = await asyncio.wait_for(asyncio.shield(read_task), timeout=0.05)
+                        read_task = asyncio.create_task(proc.stdout.readline())
+                        # tqdm uses \r to overwrite — take the last non-empty segment; strip ANSI
+                        raw = line.decode(errors="replace").rstrip("\n")
+                        text = _ANSI_RE.sub('', raw.split("\r")[-1]).strip()
+                        if text:
+                            await websocket.send_text(text)
+                            lines_seen += 1
+                    except asyncio.TimeoutError:
+                        break
+
+                if not still_running:
+                    # Drain remaining lines
+                    try:
+                        remaining = await asyncio.wait_for(proc.stdout.read(), timeout=2)
+                        for l in remaining.decode(errors="replace").split("\r"):
+                            t = _ANSI_RE.sub('', l).strip()
+                            if t:
+                                await websocket.send_text(t)
+                    except Exception:
+                        pass
+                    break
+
+                # If no log output (old-style container), emit cache size as progress
+                if lines_seen == 0:
+                    vol_proc = await asyncio.create_subprocess_exec(
+                        "docker", "exec", container,
+                        "du", "-sh", "/root/.cache/huggingface/hub",
+                        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+                    )
+                    vol_out, _ = await vol_proc.communicate()
+                    size = vol_out.decode().split("\t")[0].strip()
+                    if size:
+                        await websocket.send_text(f"[progress] downloaded so far: {size}")
+
+                await asyncio.sleep(10)
+
+            read_task.cancel()
+            await websocket.send_text("[done]")
+            await websocket.close()
     except (WebSocketDisconnect, RuntimeError):
         pass
 

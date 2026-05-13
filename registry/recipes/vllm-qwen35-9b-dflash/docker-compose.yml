@@ -16,6 +16,7 @@ services:
     volumes:
       - huggingface-cache:/root/.cache/huggingface
     environment:
+      - VLLM_NO_COMPILE=1
       - HF_TOKEN=${HF_TOKEN:-}
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}

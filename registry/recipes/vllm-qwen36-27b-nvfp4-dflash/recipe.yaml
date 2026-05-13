@@ -42,4 +42,4 @@ integration:
   model_id: "unsloth/Qwen3.6-27B-NVFP4"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"unsloth/Qwen3.6-27B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
-tokens_per_second: 37.5
+tokens_per_second: 23.8
