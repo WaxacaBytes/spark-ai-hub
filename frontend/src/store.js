@@ -10,10 +10,10 @@ export const useStore = create((set, get) => ({
   recipes: [],
   metrics: null,
   buildLogs: {},
-  installing: null,
-  updating: null,
-  removing: null,
-  purging: null,
+  installing: {},  // slug -> true
+  updating: {},    // slug -> true
+  removing: {},    // slug -> true
+  purging: {},     // slug -> true
   _inFlight: {},  // slug -> { starting, running, ready, installed } overrides during transitions
   _ws: null,
   selectedRecipe: null,
@@ -172,7 +172,7 @@ export const useStore = create((set, get) => ({
       const failed = { ...s.lastInstallFailed }
       delete failed[slug]
       return {
-        installing: slug,
+        installing: { ...s.installing, [slug]: true },
         buildLogs: { ...s.buildLogs, [slug]: [] },
         lastInstallFailed: failed,
       }
@@ -182,7 +182,7 @@ export const useStore = create((set, get) => ({
       await fetch(`/api/recipes/${slug}/install`, { method: 'POST' })
     } catch (e) {
       console.error('Install POST failed:', e)
-      set({ installing: null })
+      set((s) => { const { [slug]: _, ...rest } = s.installing; return { installing: rest } })
       return
     }
 
@@ -195,17 +195,16 @@ export const useStore = create((set, get) => ({
       if (e.data === '[done]') {
         const lines = get().buildLogs[slug] || []
         const failed = lines.some((l) => /Install failed with exit code/i.test(l))
-        set((s) => ({
-          installing: null,
-          _ws: null,
-          lastInstallFailed: failed
-            ? { ...s.lastInstallFailed, [slug]: true }
-            : s.lastInstallFailed,
-        }))
+        set((s) => {
+          const { [slug]: _, ...restInstalling } = s.installing
+          return {
+            installing: restInstalling,
+            lastInstallFailed: failed
+              ? { ...s.lastInstallFailed, [slug]: true }
+              : s.lastInstallFailed,
+          }
+        })
         get().fetchRecipes()
-        if (!failed) {
-          setTimeout(() => get().connectLogs(slug), 1000)
-        }
         return
       }
       get().addBuildLine(slug, e.data)
@@ -216,31 +215,30 @@ export const useStore = create((set, get) => ({
       get()._pollBuildStatus(slug)
     }
 
-    ws.onclose = (e) => {
-      if (get().installing === slug) {
+    ws.onclose = () => {
+      if (get().installing[slug]) {
         get()._pollBuildStatus(slug)
       }
     }
   },
 
   updateRecipe: async (slug) => {
-    set({ updating: slug, buildLogs: { ...get().buildLogs, [slug]: [] } })
+    set((s) => ({ updating: { ...s.updating, [slug]: true }, buildLogs: { ...s.buildLogs, [slug]: [] } }))
 
     try {
       await fetch(`/api/recipes/${slug}/update`, { method: 'POST' })
     } catch (e) {
       console.error('Update POST failed:', e)
-      set({ updating: null })
+      set((s) => { const { [slug]: _, ...rest } = s.updating; return { updating: rest } })
       return
     }
 
     const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const ws = new WebSocket(`${wsProto}//${location.host}/ws/build/${slug}`)
-    set({ _ws: ws })
 
     ws.onmessage = (e) => {
       if (e.data === '[done]') {
-        set({ updating: null, _ws: null })
+        set((s) => { const { [slug]: _, ...rest } = s.updating; return { updating: rest } })
         get().fetchRecipes()
         setTimeout(() => get().connectLogs(slug), 1000)
         return
@@ -254,7 +252,7 @@ export const useStore = create((set, get) => ({
     }
 
     ws.onclose = () => {
-      if (get().updating === slug) {
+      if (get().updating[slug]) {
         get()._pollBuildStatus(slug, 'updating')
       }
     }
@@ -270,7 +268,7 @@ export const useStore = create((set, get) => ({
           buildLogs: { ...s.buildLogs, [slug]: data.lines },
         }))
         if (data.status === 'done') {
-          set({ [stateKey]: null })
+          set((s) => { const { [slug]: _, ...rest } = s[stateKey]; return { [stateKey]: rest } })
           get().fetchRecipes()
         } else {
           setTimeout(poll, 1000)
@@ -316,31 +314,34 @@ export const useStore = create((set, get) => ({
 
   removeRecipe: async (slug) => {
     const override = { installed: false, running: false, ready: false, starting: false }
-    set({
-      removing: slug,
-      _inFlight: { ...get()._inFlight, [slug]: override },
-      recipes: get().recipes.map(r => r.slug === slug ? { ...r, ...override } : r),
-    })
+    set((s) => ({
+      removing: { ...s.removing, [slug]: true },
+      _inFlight: { ...s._inFlight, [slug]: override },
+      recipes: s.recipes.map(r => r.slug === slug ? { ...r, ...override } : r),
+    }))
     try {
       const res = await fetch(`/api/recipes/${slug}`, { method: 'DELETE' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
     } catch (e) {
       console.error('Remove failed:', e)
     } finally {
-      set({ removing: null, _inFlight: { ...get()._inFlight, [slug]: undefined } })
+      set((s) => {
+        const { [slug]: _, ...rest } = s.removing
+        return { removing: rest, _inFlight: { ...s._inFlight, [slug]: undefined } }
+      })
       await get().fetchRecipes()
     }
   },
 
   purgeRecipe: async (slug) => {
-    set({ purging: slug })
+    set((s) => ({ purging: { ...s.purging, [slug]: true } }))
     try {
       const res = await fetch(`/api/recipes/${slug}/purge`, { method: 'POST' })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
     } catch (e) {
       console.error('Purge failed:', e)
     } finally {
-      set({ purging: null })
+      set((s) => { const { [slug]: _, ...rest } = s.purging; return { purging: rest } })
       await get().fetchRecipes()
     }
   },

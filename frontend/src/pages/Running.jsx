@@ -8,24 +8,27 @@ export default function Running() {
   const launchRecipe = useStore((s) => s.launchRecipe)
   const stopRecipe = useStore((s) => s.stopRecipe)
   const metrics = useStore((s) => s.metrics)
+  const installing = useStore((s) => s.installing)
+  const updating = useStore((s) => s.updating)
 
+  const building = recipes.filter((r) => installing[r.slug] || updating[r.slug])
   const running = recipes.filter((r) => r.running || r.starting)
-  const installed = recipes.filter((r) => r.installed && !r.running && !r.starting)
+  const installed = recipes.filter((r) => r.installed && !r.running && !r.starting && !installing[r.slug] && !updating[r.slug])
 
   return (
     <div className="px-6 py-6 pb-12">
       {/* Running Section */}
       <div className="flex items-center gap-3 mb-6">
         <h2 className="text-2xl font-bold tracking-tight font-display m-0">Running</h2>
-        {running.length > 0 && (
+        {(running.length + building.length) > 0 && (
           <span className="flex items-center gap-1.5 text-xs font-medium font-label text-success bg-success/10 px-2.5 py-1 rounded-full">
             <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-            {running.length} app{running.length > 1 ? 's' : ''} active
+            {running.length + building.length} app{(running.length + building.length) > 1 ? 's' : ''} active
           </span>
         )}
       </div>
 
-      {running.length === 0 ? (
+      {running.length === 0 && building.length === 0 ? (
         <div className="text-center py-16 text-text-dim animate-fadeIn">
           <div className="text-4xl mb-3">💤</div>
           <div className="text-base font-semibold font-display">No apps running</div>
@@ -33,6 +36,9 @@ export default function Running() {
         </div>
       ) : (
         <div className="flex flex-col gap-3 mb-10 animate-fadeIn">
+          {building.map((r) => (
+            <BuildingCard key={r.slug} recipe={r} onSelect={selectRecipe} isUpdating={!!updating[r.slug]} />
+          ))}
           {running.map((r) => (
             <RunningCard key={r.slug} recipe={r} onSelect={selectRecipe} onStop={stopRecipe} />
           ))}
@@ -53,6 +59,37 @@ export default function Running() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function BuildingCard({ recipe, onSelect, isUpdating }) {
+  const [logoFailed, setLogoFailed] = useState(false)
+  const logoUrl = useThemedLogo(recipe.logo)
+
+  return (
+    <div
+      onClick={() => onSelect(recipe.slug)}
+      className="bg-surface rounded-2xl p-5 cursor-pointer border-l-4 border-l-primary card-hover"
+      style={{ boxShadow: 'var(--glow-starting)' }}
+    >
+      <div className="flex items-center gap-4">
+        {logoUrl && !logoFailed ? (
+          <img src={logoUrl} alt={recipe.name} className="w-14 h-14 rounded-xl object-contain bg-surface-high p-2 shrink-0" onError={() => setLogoFailed(true)} />
+        ) : (
+          <div className="w-14 h-14 rounded-xl bg-surface-high flex items-center justify-center text-2xl shrink-0">{recipe.icon || '◻'}</div>
+        )}
+
+        <div className="flex-1 min-w-0">
+          <h3 className="font-bold text-base text-text font-display m-0 truncate">{recipe.name}</h3>
+          <p className="text-xs text-text-dim m-0 mt-0.5">{recipe.author}</p>
+        </div>
+
+        <span className="flex items-center gap-1.5 text-xs font-medium font-label text-primary bg-primary/10 px-2.5 py-1 rounded-full animate-pulse shrink-0">
+          <span className="inline-block animate-spin">⟳</span>
+          {isUpdating ? 'Updating' : 'Installing'}
+        </span>
+      </div>
     </div>
   )
 }

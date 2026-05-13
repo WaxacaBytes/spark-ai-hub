@@ -10,8 +10,8 @@ export default function RecipeCard({ recipe }) {
   const [logoFailed, setLogoFailed] = useState(false)
 
   const logoUrl = useThemedLogo(recipe.logo)
-  const isBuilding = installing === recipe.slug
-  const isUpdating = updating === recipe.slug
+  const isBuilding = !!installing[recipe.slug]
+  const isUpdating = !!updating[recipe.slug]
   const isBusy = isBuilding || isUpdating
 
   const handleInstall = (e) => {

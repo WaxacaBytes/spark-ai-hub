@@ -40,8 +40,8 @@ export default function RecipeDetail() {
   const [hfSaving, setHfSaving] = useState(false)
   const [hfError, setHfError] = useState('')
 
-  const isBuilding = installing === recipe?.slug
-  const isUpdating = updating === recipe?.slug
+  const isBuilding = !!installing[recipe?.slug]
+  const isUpdating = !!updating[recipe?.slug]
   const isBusy = isBuilding || isUpdating
 
   const installFailed = !!lastInstallFailed[recipe?.slug]
@@ -86,7 +86,7 @@ export default function RecipeDetail() {
     )
   }
 
-  const isRemoving = removing === recipe.slug
+  const isRemoving = !!removing[recipe.slug]
   const logoUrl = useThemedLogo(recipe.logo)
   const isReady = recipe.ready
   const cLogs = containerLogs[recipe.slug] || []
@@ -522,11 +522,11 @@ EOF`}
               <p className="text-sm text-text-dim leading-6 m-0 mt-2">Remove leftover images or volumes from a previous uninstall. This is destructive and should only be used when you want to free all remaining app data.</p>
             </div>
             <button
-              disabled={purging === recipe.slug}
+              disabled={!!purging[recipe.slug]}
               onClick={() => { if (window.confirm(`Wipe all data for ${recipe.name}?`)) purgeRecipe(recipe.slug) }}
               className="px-4 py-2.5 bg-warning/10 text-warning border border-warning/20 rounded-xl text-sm font-semibold cursor-pointer hover:bg-warning/15 transition-all disabled:opacity-50"
             >
-              {purging === recipe.slug ? 'Wiping cached data...' : 'Wipe cached data'}
+              {purging[recipe.slug] ? 'Wiping cached data...' : 'Wipe cached data'}
             </button>
           </div>
         )}

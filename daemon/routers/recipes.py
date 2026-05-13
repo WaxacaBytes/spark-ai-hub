@@ -54,9 +54,8 @@ async def list_recipes(category: str | None = None, search: str | None = None):
         else:
             r.running = False
             r.ready = False
-            # If launching/installing, still show starting
-            r.starting = pending in ("launching", "installing")
-            if not r.starting:
+            r.starting = pending == "launching"
+            if not r.starting and pending != "installing":
                 r.has_leftovers = await has_recipe_leftovers(r.slug)
         recipe_categories = r.categories if r.categories else [r.category]
         if category and category != "all" and category not in recipe_categories:
@@ -95,7 +94,7 @@ async def get_recipe_detail(slug: str):
     else:
         recipe.running = False
         recipe.ready = False
-        recipe.starting = pending in ("launching", "installing")
-        if not recipe.starting:
+        recipe.starting = pending == "launching"
+        if not recipe.starting and pending != "installing":
             recipe.has_leftovers = await has_recipe_leftovers(slug)
     return recipe
