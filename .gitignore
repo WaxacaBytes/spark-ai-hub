@@ -20,6 +20,7 @@ registry/recipes/*/.env
 
 # Runtime files
 sparkdeck.log
+spark-ai-hub-daemon.log
 spark-ai-hub-daemon.db
 
 # OS
