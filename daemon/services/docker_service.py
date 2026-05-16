@@ -150,8 +150,18 @@ def ensure_runtime_env(recipe_dir: Path) -> tuple[Path | None, bool]:
     return env_file, True
 
 
+def _split_repo_quant(value: str) -> tuple[str, str | None]:
+    """Split `user/repo:quant` into (`user/repo`, `quant`). `quant` is the
+    llama.cpp filename hint (substring matched against repo files)."""
+    if ":" in value:
+        repo, quant = value.split(":", 1)
+        return repo, (quant or None)
+    return value, None
+
+
 def _parse_vllm_model_service(recipe_dir: Path) -> tuple[str, str] | None:
-    """If the compose file has a vllm-style service with `--model <repo>`,
+    """If the compose file has a vllm-style service with `--model <repo>`
+    (or a llama.cpp-style service with `-hf <repo>` / `--hf-repo <repo>`),
     return (service_name, model_repo). Used to detect recipes whose install
     should prefetch HF weights via a no-port sidecar instead of binding ports."""
     compose_file = recipe_dir / "docker-compose.yml"
@@ -168,10 +178,74 @@ def _parse_vllm_model_service(recipe_dir: Path) -> tuple[str, str] | None:
             continue
         tokens = cmd.split() if isinstance(cmd, str) else [str(x) for x in cmd]
         for i, t in enumerate(tokens):
-            if t == "--model" and i + 1 < len(tokens):
-                return svc_name, tokens[i + 1]
-            if t.startswith("--model="):
-                return svc_name, t.split("=", 1)[1]
+            if t in ("--model", "-hf", "-hfr", "--hf-repo") and i + 1 < len(tokens):
+                repo, _ = _split_repo_quant(tokens[i + 1])
+                return svc_name, repo
+            for prefix in ("--model=", "--hf-repo=", "-hf=", "--hf-repo-draft="):
+                if t.startswith(prefix):
+                    repo, _ = _split_repo_quant(t.split("=", 1)[1])
+                    return svc_name, repo
+    return None
+
+
+def _parse_hf_file_filter(recipe_dir: Path, service_name: str) -> list[str]:
+    """Collect filename patterns to pass to snapshot_download's allow_patterns.
+
+    Picks up both the main file (`--hf-file <name>` or the `:<quant>` suffix on
+    `-hf`/`--hf-repo`) and the draft file used for speculative decoding
+    (`-hfd <repo>:<quant>` / `--hf-repo-draft`). Returns substring patterns;
+    callers should wrap them in `*...*` for glob matching."""
+    compose_file = recipe_dir / "docker-compose.yml"
+    try:
+        with open(compose_file) as f:
+            data = yaml.safe_load(f) or {}
+    except Exception:
+        return []
+    svc = (data.get("services") or {}).get(service_name) or {}
+    cmd = svc.get("command") or []
+    tokens = cmd.split() if isinstance(cmd, str) else [str(x) for x in cmd]
+    patterns: list[str] = []
+
+    def _add(value: str | None) -> None:
+        if value and value not in patterns:
+            patterns.append(value)
+
+    for i, t in enumerate(tokens):
+        if t in ("--hf-file", "-hff") and i + 1 < len(tokens):
+            _add(tokens[i + 1])
+        elif t.startswith("--hf-file=") or t.startswith("-hff="):
+            _add(t.split("=", 1)[1])
+        elif t in ("-hf", "-hfr", "--hf-repo", "-hfd", "-hfrd", "--hf-repo-draft") and i + 1 < len(tokens):
+            _, quant = _split_repo_quant(tokens[i + 1])
+            _add(quant)
+        else:
+            for prefix in ("-hf=", "--hf-repo=", "-hfd=", "--hf-repo-draft="):
+                if t.startswith(prefix):
+                    _, quant = _split_repo_quant(t.split("=", 1)[1])
+                    _add(quant)
+                    break
+    return patterns
+
+
+def _parse_hf_draft_repo(recipe_dir: Path, service_name: str) -> str | None:
+    """If a draft repo (`-hfd <repo>` / `--hf-repo-draft <repo>`) is set
+    *and differs from the main repo*, return it so install-time prefetch
+    pulls it too."""
+    compose_file = recipe_dir / "docker-compose.yml"
+    try:
+        with open(compose_file) as f:
+            data = yaml.safe_load(f) or {}
+    except Exception:
+        return None
+    svc = (data.get("services") or {}).get(service_name) or {}
+    cmd = svc.get("command") or []
+    tokens = cmd.split() if isinstance(cmd, str) else [str(x) for x in cmd]
+    for i, t in enumerate(tokens):
+        if t in ("-hfd", "-hfrd", "--hf-repo-draft") and i + 1 < len(tokens):
+            return _split_repo_quant(tokens[i + 1])[0]
+        for prefix in ("-hfd=", "--hf-repo-draft="):
+            if t.startswith(prefix):
+                return _split_repo_quant(t.split("=", 1)[1])[0]
     return None
 
 
@@ -270,6 +344,10 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
 
     if vllm_model is not None:
         service_name, model_repos = vllm_model
+        hf_patterns = _parse_hf_file_filter(recipe_dir, service_name)
+        draft_repo = _parse_hf_draft_repo(recipe_dir, service_name)
+        if draft_repo and draft_repo not in model_repos:
+            model_repos.append(draft_repo)
         # Phase 1: prepare image (build locally if build:true, else pull)
         if build_recipe:
             pull_cmd = _compose_cmd(slug, recipe_dir) + ["build"]
@@ -307,10 +385,25 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
             "except Exception: pass\n"
             "from huggingface_hub import snapshot_download\n"
             f"repos = [{repos_arg}]\n"
+            f"hf_patterns = {hf_patterns!r}\n"
+            "globs = [p if any(c in p for c in '*?[') else f'*{p}*' for p in hf_patterns]\n"
+            "kwargs = {'allow_patterns': globs} if globs else {}\n"
             "for repo in repos:\n"
-            "    print(f'[prefetch] downloading {repo}...', flush=True)\n"
-            "    p = snapshot_download(repo)\n"
+            "    print(f'[prefetch] downloading {repo}'"
+            " + (f\" (patterns: {globs})\" if globs else \"\") + '...', flush=True)\n"
+            "    p = snapshot_download(repo, **kwargs)\n"
             "    print(f'[prefetch] {repo} ready at {p}', flush=True)\n"
+            # gpt-oss needs the openai_harmony tiktoken vocab cached for offline runtime.
+            "if any(r.startswith('openai/gpt-oss') for r in repos):\n"
+            "    import urllib.request, pathlib\n"
+            "    tk_dir = pathlib.Path('/root/.cache/huggingface/tiktoken_encodings')\n"
+            "    tk_dir.mkdir(parents=True, exist_ok=True)\n"
+            "    tk_file = tk_dir / 'o200k_base.tiktoken'\n"
+            "    if not tk_file.exists():\n"
+            "        url = 'https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken'\n"
+            "        print(f'[prefetch] downloading {url} -> {tk_file}', flush=True)\n"
+            "        urllib.request.urlretrieve(url, tk_file)\n"
+            "    print(f'[prefetch] tiktoken vocab ready at {tk_file}', flush=True)\n"
         )
         run_cmd = _compose_cmd(slug, recipe_dir) + [
             "run", "--rm", "--no-deps",

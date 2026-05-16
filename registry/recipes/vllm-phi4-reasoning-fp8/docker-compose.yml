@@ -10,9 +10,9 @@ services:
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
     ipc: host
+    entrypoint: ["vllm", "serve"]
     command:
-      - vllm
-      - serve
+      - --model
       - nvidia/Phi-4-reasoning-plus-FP8
       - --port
       - "8000"

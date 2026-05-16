@@ -1,0 +1,46 @@
+name: "Nemotron-3 Nano Omni 30B-A3B Reasoning NVFP4"
+slug: vllm-nemotron3-nano-omni-30b-a3b-nvfp4
+version: "1.0.0"
+description: "NVIDIA Nemotron-3 Nano Omni 30B-A3B (MoE, 3B active) — multimodal omni model accepting text, image, audio, and video input. Mamba2-Transformer hybrid, reasoning-on by default, NVFP4 quantized. 256K context, OpenAI-compatible API."
+author: "NVIDIA"
+source: "official"
+website: "https://build.nvidia.com/spark/vllm"
+upstream: "https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - audio
+  - video
+  - moe
+  - reasoning
+  - tool-use
+  - vllm
+  - nvfp4
+  - nvidia-official
+logo: "/logos/nvidia.png"
+requirements:
+  min_memory_gb: 30
+  recommended_memory_gb: 45
+  disk_gb: 30
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 10
+  gpu: true
+status: community-verified
+release_date: "2026-05"
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-05-15"
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+tokens_per_second: 55.1

@@ -1,0 +1,62 @@
+services:
+  vllm:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM vllm/vllm-openai:v0.20.0-aarch64-cu130
+        RUN pip install --no-cache-dir "vllm[audio]" \
+         && pip cache purge || true
+    image: spark-ai-hub/vllm-nemotron3-nano-omni-30b-a3b-nvfp4:v0.20.0-aarch64-cu130
+    container_name: spark-ai-hub-vllm-nemotron3-nano-omni-30b-a3b-nvfp4
+    ports:
+      - "9001:8000"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    command:
+      - --model
+      - nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --max-model-len
+      - "262144"
+      - --tensor-parallel-size
+      - "1"
+      - --trust-remote-code
+      - --enable-prefix-caching
+      - --reasoning-parser
+      - nemotron_v3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --video-pruning-rate
+      - "0.5"
+      - --max-num-seqs
+      - "384"
+      - --max-num-batched-tokens
+      - "8192"
+      - --allowed-local-media-path
+      - /
+      - --media-io-kwargs
+      - '{"video": {"fps": 2, "num_frames": 256}}'
+      - --kv-cache-dtype
+      - fp8
+      - --gpu-memory-utilization
+      - "0.70"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

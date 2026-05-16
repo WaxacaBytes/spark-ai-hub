@@ -1,6 +1,6 @@
 services:
   vllm:
-    image: nvcr.io/nvidia/vllm:26.02-py3
+    image: vllm/vllm-openai:v0.20.0-aarch64-cu130
     container_name: spark-ai-hub-vllm-gpt-oss-120b
     ports:
       - "9001:8000"
@@ -9,10 +9,11 @@ services:
     environment:
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - TIKTOKEN_ENCODINGS_BASE=/root/.cache/huggingface/tiktoken_encodings
     ipc: host
+    entrypoint: ["vllm", "serve"]
     command:
-      - vllm
-      - serve
+      - --model
       - openai/gpt-oss-120b
       - --port
       - "8000"

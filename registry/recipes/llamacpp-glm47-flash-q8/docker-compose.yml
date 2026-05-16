@@ -3,22 +3,16 @@ services:
     image: ghcr.io/ggml-org/llama.cpp:full-cuda13-b8953
     container_name: spark-ai-hub-llamacpp-glm47-flash-q8
     entrypoint:
-      - /bin/sh
-      - -c
-      - |
-        if [ ! -f /models/GLM-4.7-Flash-Q8_0.gguf ]; then
-          echo "[spark-ai-hub] Downloading GLM-4.7-Flash Q8_0 (~31.8 GB)..."
-          hf download unsloth/GLM-4.7-Flash-GGUF GLM-4.7-Flash-Q8_0.gguf --local-dir /models
-        fi
-        exec /app/llama-server "$$@"
-      - --
+      - /app/llama-server
     command:
-      - -m
-      - /models/GLM-4.7-Flash-Q8_0.gguf
+      - -hf
+      - unsloth/GLM-4.7-Flash-GGUF
+      - --hf-file
+      - GLM-4.7-Flash-Q8_0.gguf
       - -ngl
       - "999"
       - -c
-      - "131072"
+      - "202752"
       - --host
       - "0.0.0.0"
       - --port
@@ -51,10 +45,12 @@ services:
     ports:
       - "9001:8080"
     volumes:
-      - llamacpp-glm47-flash-models:/models
+      - huggingface-cache:/root/.cache/huggingface
     environment:
       - GGML_CUDA_ENABLE_UNIFIED_MEMORY=1
       - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
       - PYTHONUNBUFFERED=1
     deploy:
       resources:
@@ -66,4 +62,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  llamacpp-glm47-flash-models:
+  huggingface-cache:

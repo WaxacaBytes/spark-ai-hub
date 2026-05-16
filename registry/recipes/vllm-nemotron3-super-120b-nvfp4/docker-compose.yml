@@ -1,30 +1,71 @@
 services:
   vllm:
-    image: nvcr.io/nvidia/vllm:26.03-py3
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM vllm/vllm-openai:v0.20.0-aarch64-cu130
+        RUN apt-get update -qq \
+         && apt-get install -y --no-install-recommends wget ca-certificates \
+         && rm -rf /var/lib/apt/lists/* \
+         && mkdir -p /app \
+         && wget -q -O /app/super_v3_reasoning_parser.py https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4/raw/main/super_v3_reasoning_parser.py
+    image: spark-ai-hub/vllm-nemotron3-super-120b-nvfp4:v0.20.0-aarch64-cu130
     container_name: spark-ai-hub-vllm-nemotron3-super-120b-nvfp4
     ports:
       - "9001:8000"
     volumes:
       - huggingface-cache:/root/.cache/huggingface
     environment:
+      - HF_TOKEN=${HF_TOKEN:-}
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - VLLM_NVFP4_GEMM_BACKEND=marlin
+      - VLLM_FLASHINFER_ALLREDUCE_BACKEND=trtllm
+      - VLLM_USE_FLASHINFER_MOE_FP4=0
     ipc: host
     command:
-      - vllm
-      - serve
+      - --model
       - nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4
+      - --served-model-name
+      - nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4
+      - --host
+      - 0.0.0.0
       - --port
       - "8000"
-      - --max-model-len
-      - "32768"
-      - --enable-prefix-caching
-      - --trust-remote-code
+      - --async-scheduling
+      - --dtype
+      - auto
       - --kv-cache-dtype
-      - fp8_e4m3
+      - fp8
+      - --tensor-parallel-size
+      - "1"
+      - --pipeline-parallel-size
+      - "1"
+      - --data-parallel-size
+      - "1"
+      - --trust-remote-code
       - --gpu-memory-utilization
-      - "0.88"
-      - --enforce-eager
+      - "0.90"
+      - --enable-chunked-prefill
+      - --max-num-seqs
+      - "4"
+      - --max-model-len
+      - "262144"
+      - --moe-backend
+      - marlin
+      - --mamba_ssm_cache_dtype
+      - float16
+      - --quantization
+      - fp4
+      - --speculative_config
+      - '{"method":"mtp","num_speculative_tokens":3,"moe_backend":"triton"}'
+      - --reasoning-parser-plugin
+      - /app/super_v3_reasoning_parser.py
+      - --reasoning-parser
+      - super_v3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
     deploy:
       resources:
         reservations:

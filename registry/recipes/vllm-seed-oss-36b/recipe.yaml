@@ -1,7 +1,7 @@
 name: "Seed-OSS-36B Instruct"
 slug: vllm-seed-oss-36b
 version: "1.0.0"
-description: "ByteDance Seed-OSS-36B Instruct, dense 36B model with 512K context. Strong reasoning and tool calling."
+description: "ByteDance Seed-OSS-36B Instruct, dense 36B model with 200K context (capped from 512K to fit DGX Spark memory). Strong reasoning and tool calling."
 author: "ByteDance"
 source: "official"
 website: "https://huggingface.co/ByteDance-Seed/Seed-OSS-36B-Instruct"
@@ -31,9 +31,10 @@ status: community-verified
 release_date: "2025-08"
 tested_on:
   dgx_os: "7.2"
-  date: "2026-04-01"
+  date: "2026-05-15"
 integration:
   api_url: "http://<SPARK_IP>:9001/v1"
   model_id: "ByteDance-Seed/Seed-OSS-36B-Instruct"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"ByteDance-Seed/Seed-OSS-36B-Instruct\", \"messages\": [{\"role\": \"user\", \"content\": \"Solve 17 x 23 step by step.\"}]}'"
+tokens_per_second: 3.17

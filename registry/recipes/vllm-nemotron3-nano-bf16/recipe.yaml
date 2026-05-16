@@ -1,7 +1,7 @@
 name: "Nemotron-3 Nano 30B-A3B BF16"
 slug: vllm-nemotron3-nano-bf16
 version: "1.0.0"
-description: "NVIDIA Nemotron-3 Nano 30B-A3B (MoE, 3B active), BF16. High quality with minimal memory footprint."
+description: "NVIDIA Nemotron-3 Nano 30B-A3B (MoE, 3B active), BF16. 256K context, OpenAI-compatible API."
 author: "NVIDIA"
 source: "official"
 website: "https://build.nvidia.com/spark/vllm"
@@ -32,9 +32,10 @@ status: community-verified
 release_date: "2025-12"
 tested_on:
   dgx_os: "7.2"
-  date: "2026-03-31"
+  date: "2026-05-13"
 integration:
   api_url: "http://<SPARK_IP>:9001/v1"
   model_id: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+tokens_per_second: 28.97

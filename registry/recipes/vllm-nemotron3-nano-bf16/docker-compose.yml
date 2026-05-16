@@ -10,14 +10,14 @@ services:
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
     ipc: host
+    entrypoint: ["vllm", "serve"]
     command:
-      - vllm
-      - serve
+      - --model
       - nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16
       - --port
       - "8000"
       - --max-model-len
-      - "32768"
+      - "262144"
       - --enable-prefix-caching
       - --trust-remote-code
       - --kv-cache-dtype

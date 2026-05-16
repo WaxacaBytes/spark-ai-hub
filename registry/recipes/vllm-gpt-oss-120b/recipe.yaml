@@ -33,9 +33,10 @@ status: community-verified
 release_date: "2025-08"
 tested_on:
   dgx_os: "7.2"
-  date: "2026-03-31"
+  date: "2026-05-15"
 integration:
   api_url: "http://<SPARK_IP>:9001/v1"
   model_id: "openai/gpt-oss-120b"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"openai/gpt-oss-120b\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+tokens_per_second: 33.08

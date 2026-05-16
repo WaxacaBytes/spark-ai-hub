@@ -1,6 +1,6 @@
 services:
   vllm:
-    image: nvcr.io/nvidia/vllm:26.02-py3
+    image: nvcr.io/nvidia/vllm:26.03-py3
     container_name: spark-ai-hub-vllm-phi4-multimodal-fp8
     ports:
       - "9001:8000"
@@ -10,19 +10,24 @@ services:
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
     ipc: host
-    entrypoint: ["/bin/bash", "-c"]
+    entrypoint: ["vllm", "serve"]
     command:
-      - |
-        pip install -q scipy &&
-        vllm serve nvidia/Phi-4-multimodal-instruct-FP8 \
-          --port 8000 \
-          --max-model-len 131072 \
-          --enable-prefix-caching \
-          --trust-remote-code \
-          --kv-cache-dtype fp8_e4m3 \
-          --mm-processor-cache-type shm \
-          --mm-encoder-tp-mode data \
-          --gpu-memory-utilization 0.25
+      - --model
+      - nvidia/Phi-4-multimodal-instruct-FP8
+      - --port
+      - "8000"
+      - --max-model-len
+      - "131072"
+      - --enable-prefix-caching
+      - --trust-remote-code
+      - --kv-cache-dtype
+      - fp8_e4m3
+      - --mm-processor-cache-type
+      - shm
+      - --mm-encoder-tp-mode
+      - data
+      - --gpu-memory-utilization
+      - "0.25"
     deploy:
       resources:
         reservations:

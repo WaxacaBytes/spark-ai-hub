@@ -1,7 +1,7 @@
 name: "GLM-4.7 Flash (Q8_0)"
 slug: llamacpp-glm47-flash-q8
 version: "1.0.0"
-description: "Z.AI GLM-4.7-Flash 30B MoE (3B active), Q8_0 GGUF via llama.cpp. OpenAI-compatible API. 128K context."
+description: "Z.AI GLM-4.7-Flash 30B MoE (3B active), Q8_0 GGUF via llama.cpp. OpenAI-compatible API. 200K context."
 author: "Z.AI"
 source: "community"
 website: "https://huggingface.co/zai-org/GLM-4.7-Flash"
@@ -39,3 +39,4 @@ integration:
   model_id: "glm-4.7-flash"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"glm-4.7-flash\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+tokens_per_second: 36.96

@@ -10,14 +10,14 @@ services:
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
     ipc: host
+    entrypoint: ["vllm", "serve"]
     command:
-      - vllm
-      - serve
+      - --model
       - nvidia/Nemotron-Cascade-2-30B-A3B
       - --port
       - "8000"
       - --max-model-len
-      - "131072"
+      - "262144"
       - --reasoning-parser
       - deepseek_r1
       - --enable-auto-tool-choice
