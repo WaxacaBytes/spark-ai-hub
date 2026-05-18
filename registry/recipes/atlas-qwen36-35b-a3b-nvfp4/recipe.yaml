@@ -1,0 +1,87 @@
+name: "Qwen3.6-35B-A3B NVFP4 Atlas"
+slug: atlas-qwen36-35b-a3b-nvfp4
+version: "1.0.0"
+description: "Red Hat's Qwen3.6-35B-A3B NVFP4 checkpoint served with Atlas on DGX Spark. This recipe follows the Spark Arena Atlas run that reported 202.63 tok/s on ctx_tg @ d4096."
+author: "Red Hat AI + Atlas Inference"
+source: "community"
+website: "https://atlasinference.io/"
+upstream: "https://huggingface.co/RedHatAI/Qwen3.6-35B-A3B-NVFP4"
+fork: "https://github.com/Avarok-Cybersecurity/atlas"
+category: llm
+tags:
+  - llm
+  - moe
+  - reasoning
+  - coding
+  - tool-use
+  - atlas
+  - nvfp4
+  - speculative-decoding
+  - mtp
+  - spark-arena
+logo: "/logos/qwen.png"
+requirements:
+  min_memory_gb: 96
+  recommended_memory_gb: 120
+  disk_gb: 45
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: false
+  build_time_minutes: 2
+  gpu: true
+status: experimental
+release_date: "2026-05-16"
+requires_hf_token: true
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
+  api_key: "not-needed"
+  max_context: "131072"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"RedHatAI/Qwen3.6-35B-A3B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
+tokens_per_second: 116.2
+services:
+  atlas:
+    image: avarok/atlas-gb10:latest
+    container_name: spark-ai-hub-atlas-qwen36-35b-a3b-nvfp4
+    ports:
+      - "9001:8888"
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
+    ipc: host
+    command:
+      - serve
+      - RedHatAI/Qwen3.6-35B-A3B-NVFP4
+      - --bind
+      - 0.0.0.0
+      - --port
+      - "8888"
+      - --max-seq-len
+      - "131072"
+      - --kv-cache-dtype
+      - nvfp4
+      - --gpu-memory-utilization
+      - "0.88"
+      - --scheduling-policy
+      - slai
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --speculative
+      - --mtp-quantization
+      - nvfp4
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped

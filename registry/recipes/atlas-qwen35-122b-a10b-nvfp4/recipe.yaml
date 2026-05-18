@@ -1,0 +1,46 @@
+name: "Qwen3.5-122B-A10B NVFP4 Atlas"
+slug: atlas-qwen35-122b-a10b-nvfp4
+version: "1.0.0"
+description: "Red Hat's Qwen3.5-122B-A10B NVFP4 checkpoint served with Atlas on DGX Spark. Atlas needs a short 4K context and max batch 1 for this 71B-parameter MoE, but it measured 34.2 tok/s through the hub benchmark."
+author: "Red Hat AI + Atlas Inference"
+source: "community"
+website: "https://atlasinference.io/"
+upstream: "https://huggingface.co/RedHatAI/Qwen3.5-122B-A10B-NVFP4"
+fork: "https://github.com/Avarok-Cybersecurity/atlas"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - moe
+  - reasoning
+  - coding
+  - tool-use
+  - atlas
+  - qwen
+  - nvfp4
+  - experimental
+logo: "/logos/qwen.png"
+requirements:
+  min_memory_gb: 110
+  recommended_memory_gb: 120
+  disk_gb: 80
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: false
+  build_time_minutes: 2
+  gpu: true
+status: community-verified
+release_date: "2026-05-13"
+requires_hf_token: true
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "RedHatAI/Qwen3.5-122B-A10B-NVFP4"
+  api_key: "not-needed"
+  max_context: "4096"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"RedHatAI/Qwen3.5-122B-A10B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
+tokens_per_second: 34.2
