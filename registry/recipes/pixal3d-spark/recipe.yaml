@@ -1,0 +1,36 @@
+name: "Pixal3D"
+slug: pixal3d-spark
+version: "1.0.0"
+description: "Generate high-fidelity 3D assets from a single image with Pixal3D — explicitly projects pixel features into 3D space on top of the TRELLIS.2 backbone for sharper geometry and PBR-ready textures."
+author: "TencentARC"
+source: "spark-ai-hub"
+website: "https://github.com/TencentARC/Pixal3D"
+upstream: "https://github.com/WaxacaBytes/pixal3d-spark-ai-hub"
+fork: "https://github.com/TencentARC/Pixal3D"
+category: 3d-gen
+categories:
+  - 3d-gen
+tags:
+  - 3d
+  - image-to-3d
+  - mesh
+  - pbr
+  - pixal3d
+  - tencent
+logo: "/logos/pixal3d.png"
+requirements:
+  min_memory_gb: 32
+  recommended_memory_gb: 80
+  disk_gb: 45
+  cuda_compute: "12.1"
+ui:
+  type: web
+  port: 12158
+  path: "/"
+docker:
+  build: false
+  build_time_minutes: 8
+  gpu: true
+status: official
+release_date: "2026-05"
+requires_hf_token: true
