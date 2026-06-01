@@ -1,11 +1,11 @@
 name: "Qwen3.6-35B-A3B NVFP4 Atlas"
 slug: atlas-qwen36-35b-a3b-nvfp4
 version: "1.0.0"
-description: "NVIDIA's Qwen3.6-35B-A3B NVFP4 checkpoint served with Atlas on DGX Spark. This recipe follows the Spark Arena Atlas run that reported 202.63 tok/s on ctx_tg @ d4096."
-author: "NVIDIA + Atlas Inference"
+description: "Red Hat's Qwen3.6-35B-A3B NVFP4 checkpoint served with Atlas on DGX Spark. This recipe follows the Spark Arena Atlas run that reported 202.63 tok/s on ctx_tg @ d4096."
+author: "Red Hat AI + Atlas Inference"
 source: "community"
 website: "https://atlasinference.io/"
-upstream: "https://huggingface.co/nvidia/Qwen3.6-35B-A3B-NVFP4"
+upstream: "https://huggingface.co/RedHatAI/Qwen3.6-35B-A3B-NVFP4"
 fork: "https://github.com/Avarok-Cybersecurity/atlas"
 category: llm
 tags:
@@ -38,10 +38,10 @@ release_date: "2026-05-16"
 requires_hf_token: true
 integration:
   api_url: "http://<SPARK_IP>:9001/v1"
-  model_id: "nvidia/Qwen3.6-35B-A3B-NVFP4"
+  model_id: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
   api_key: "not-needed"
   max_context: "131072"
-  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Qwen3.6-35B-A3B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"RedHatAI/Qwen3.6-35B-A3B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
 tokens_per_second: 116.2
 services:
   atlas:
@@ -58,7 +58,7 @@ services:
     ipc: host
     command:
       - serve
-      - nvidia/Qwen3.6-35B-A3B-NVFP4
+      - RedHatAI/Qwen3.6-35B-A3B-NVFP4
       - --bind
       - 0.0.0.0
       - --port
