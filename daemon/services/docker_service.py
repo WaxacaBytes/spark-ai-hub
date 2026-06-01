@@ -161,7 +161,8 @@ def _split_repo_quant(value: str) -> tuple[str, str | None]:
 
 def _parse_vllm_model_service(recipe_dir: Path) -> tuple[str, str] | None:
     """If the compose file has a vllm-style service with `--model <repo>`
-    (or a llama.cpp-style service with `-hf <repo>` / `--hf-repo <repo>`),
+    (or a llama.cpp-style service with `-hf <repo>` / `--hf-repo <repo>`,
+    or an Atlas-style service with `serve <repo>`),
     return (service_name, model_repo). Used to detect recipes whose install
     should prefetch HF weights via a no-port sidecar instead of binding ports."""
     compose_file = recipe_dir / "docker-compose.yml"
@@ -177,6 +178,10 @@ def _parse_vllm_model_service(recipe_dir: Path) -> tuple[str, str] | None:
         if not cmd:
             continue
         tokens = cmd.split() if isinstance(cmd, str) else [str(x) for x in cmd]
+        image = str(svc.get("image") or "")
+        if len(tokens) >= 2 and tokens[0] == "serve" and "/" in tokens[1] and "atlas" in image.lower():
+            repo, _ = _split_repo_quant(tokens[1])
+            return svc_name, repo
         for i, t in enumerate(tokens):
             if t in ("--model", "-hf", "-hfr", "--hf-repo") and i + 1 < len(tokens):
                 repo, _ = _split_repo_quant(tokens[i + 1])
@@ -186,6 +191,22 @@ def _parse_vllm_model_service(recipe_dir: Path) -> tuple[str, str] | None:
                     repo, _ = _split_repo_quant(t.split("=", 1)[1])
                     return svc_name, repo
     return None
+
+
+def _service_needs_external_prefetch(recipe_dir: Path, service_name: str) -> bool:
+    """Atlas runtime images intentionally ship without Python/HF tooling, so
+    model prefetch has to use a separate downloader container."""
+    compose_file = recipe_dir / "docker-compose.yml"
+    try:
+        with open(compose_file) as f:
+            data = yaml.safe_load(f) or {}
+    except Exception:
+        return False
+    svc = (data.get("services") or {}).get(service_name) or {}
+    image = str(svc.get("image") or "").lower()
+    cmd = svc.get("command") or []
+    tokens = cmd.split() if isinstance(cmd, str) else [str(x) for x in cmd]
+    return bool(tokens and tokens[0] == "serve" and "atlas" in image)
 
 
 def _parse_hf_file_filter(recipe_dir: Path, service_name: str) -> list[str]:
@@ -405,16 +426,34 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
             "        urllib.request.urlretrieve(url, tk_file)\n"
             "    print(f'[prefetch] tiktoken vocab ready at {tk_file}', flush=True)\n"
         )
-        run_cmd = _compose_cmd(slug, recipe_dir) + [
-            "run", "--rm", "--no-deps",
-            "-e", f"HF_TOKEN={token}",
-            "-e", "HF_HUB_OFFLINE=0",
-            "-e", "TRANSFORMERS_OFFLINE=0",
-            "-e", "PYTHONUNBUFFERED=1",
-            "--entrypoint", "python3",
-            service_name,
-            "-u", "-c", prefetch_script,
-        ]
+        if _service_needs_external_prefetch(recipe_dir, service_name):
+            volume_name = f"{_compose_project(slug)}_huggingface-cache"
+            shell_script = (
+                "pip install --no-cache-dir 'huggingface_hub[hf_xet]' tqdm >/tmp/prefetch-pip.log "
+                "&& python3 -u -c \"$PREFETCH_SCRIPT\""
+            )
+            run_cmd = [
+                "docker", "run", "--rm",
+                "-e", f"HF_TOKEN={token}",
+                "-e", "HF_HUB_OFFLINE=0",
+                "-e", "TRANSFORMERS_OFFLINE=0",
+                "-e", "PYTHONUNBUFFERED=1",
+                "-e", f"PREFETCH_SCRIPT={prefetch_script}",
+                "-v", f"{volume_name}:/root/.cache/huggingface",
+                "python:3.13-slim",
+                "sh", "-lc", shell_script,
+            ]
+        else:
+            run_cmd = _compose_cmd(slug, recipe_dir) + [
+                "run", "--rm", "--no-deps",
+                "-e", f"HF_TOKEN={token}",
+                "-e", "HF_HUB_OFFLINE=0",
+                "-e", "TRANSFORMERS_OFFLINE=0",
+                "-e", "PYTHONUNBUFFERED=1",
+                "--entrypoint", "python3",
+                service_name,
+                "-u", "-c", prefetch_script,
+            ]
         yield f"[spark-ai-hub] Prefetching weights for {', '.join(model_repos)} (no port bind)..."
         # Redact the HF token before logging the command so it doesn't leak
         # into the build log (which is exposed via /api/recipes/{slug}/build-status).
@@ -654,6 +693,13 @@ async def remove_recipe(slug: str) -> str:
     await proc.wait()
 
     if proc.returncode == 0:
+        for volume in await _find_project_volumes(slug):
+            vol_proc = await asyncio.create_subprocess_exec(
+                "docker", "volume", "rm", "-f", volume,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await vol_proc.communicate()
         db = await get_db()
         try:
             await db.execute("DELETE FROM installed_recipes WHERE slug = ?", (slug,))
