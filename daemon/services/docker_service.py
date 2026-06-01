@@ -610,6 +610,15 @@ async def stop_recipe(slug: str) -> str:
     if not recipe_dir:
         return f"Recipe directory not found for {slug}"
 
+    prefetch = await find_prefetch_container(slug)
+    if prefetch:
+        stop_proc = await asyncio.create_subprocess_exec(
+            "docker", "stop", prefetch,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await stop_proc.wait()
+
     cmd = _compose_cmd(slug, recipe_dir) + ["down"]
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -625,6 +634,15 @@ async def remove_recipe(slug: str) -> str:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
         return f"Recipe directory not found for {slug}"
+
+    prefetch = await find_prefetch_container(slug)
+    if prefetch:
+        stop_proc = await asyncio.create_subprocess_exec(
+            "docker", "stop", prefetch,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        await stop_proc.wait()
 
     cmd = _compose_cmd(slug, recipe_dir) + ["down", "--rmi", "all", "--volumes"]
     proc = await asyncio.create_subprocess_exec(
