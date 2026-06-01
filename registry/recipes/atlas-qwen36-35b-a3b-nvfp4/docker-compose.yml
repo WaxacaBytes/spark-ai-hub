@@ -13,7 +13,7 @@ services:
     ipc: host
     command:
       - serve
-      - RedHatAI/Qwen3.6-35B-A3B-NVFP4
+      - nvidia/Qwen3.6-35B-A3B-NVFP4
       - --bind
       - 0.0.0.0
       - --port
