@@ -26,7 +26,7 @@ services:
       - --port
       - "8000"
       - --max-model-len
-      - "65536"
+      - "262144"
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
