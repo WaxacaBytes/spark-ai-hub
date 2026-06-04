@@ -740,6 +740,13 @@ def cmd_qwen(args) -> None:
         "QWEN_CODE_MAX_OUTPUT_TOKENS": os.environ.get(
             "QWEN_CODE_MAX_OUTPUT_TOKENS", "65536"
         ),
+        # Local Hub vLLM decodes slower than the hosted APIs qwen-code's
+        # default timeout assumes, so long turns abort mid-generation with
+        # "Request timeout". Lift the per-request timeout (ms) to match; the
+        # env override wins unless the user set one or a provider pins its own.
+        "QWEN_CODE_API_TIMEOUT_MS": os.environ.get(
+            "QWEN_CODE_API_TIMEOUT_MS", "1500000"
+        ),
     }
     cmd = [
         "qwen",
