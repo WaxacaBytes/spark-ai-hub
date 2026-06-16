@@ -27,7 +27,9 @@ services:
       - --kv-cache-dtype
       - fp8_e4m3
       - --kv-cache-memory-bytes
-      - "25G"
+      # 25G gave only 1.02x at 200k (dense 36B ~72GB nearly fills memory). Bump
+      # toward more headroom; verified empirically (revert if it OOMs at load).
+      - "32G"
     deploy:
       resources:
         reservations:

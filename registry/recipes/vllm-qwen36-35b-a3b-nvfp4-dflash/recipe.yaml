@@ -1,0 +1,47 @@
+name: "Qwen3.6-35B-A3B NVFP4 DFlash"
+slug: vllm-qwen36-35b-a3b-nvfp4-dflash
+version: "1.0.0"
+description: "NVIDIA's Qwen3.6-35B-A3B NVFP4 (4-bit) MoE checkpoint with z-lab DFlash speculative decoding (chain k=10) on vLLM, served with NVIDIA's official DGX Spark recipe. dflash baked into a local image at install time — launch is fully offline."
+author: "Alibaba Cloud + NVIDIA + z-lab + vLLM"
+source: "community"
+website: "https://github.com/z-lab/dflash"
+upstream: "https://huggingface.co/z-lab/Qwen3.6-35B-A3B-DFlash"
+category: llm
+tags:
+  - llm
+  - moe
+  - reasoning
+  - coding
+  - tool-use
+  - vllm
+  - qwen
+  - nvfp4
+  - speculative-decoding
+  - dflash
+  - experimental
+logo: "/logos/qwen.png"
+requirements:
+  min_memory_gb: 48
+  recommended_memory_gb: 64
+  disk_gb: 38
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 4
+  gpu: true
+status: community-verified
+release_date: "2026-06-01"
+requires_hf_token: true
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-06-01"
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "nvidia/Qwen3.6-35B-A3B-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Qwen3.6-35B-A3B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
+tokens_per_second: 101.8

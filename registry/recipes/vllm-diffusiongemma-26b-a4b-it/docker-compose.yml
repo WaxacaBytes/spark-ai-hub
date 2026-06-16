@@ -1,0 +1,62 @@
+services:
+  vllm:
+    # DiffusionGemma is a discrete *diffusion* LLM on the new Gemma 4 MoE arch.
+    # It only loads on vLLM's dedicated Gemma4 image (vllm/vllm-openai:gemma).
+    # Pinned to the arm64 (DGX Spark / aarch64) image digest so launch is
+    # reproducible and works offline once pulled at install time.
+    image: vllm/vllm-openai@sha256:e7d5835566d26faaefa2f7b0f9c365e8bda83aa340f2ebf2f9ba8e53ed5c7e55
+    container_name: spark-ai-hub-vllm-diffusiongemma-26b-a4b-it
+    ports:
+      - "9001:8000"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # Diffusion decoding path requires vLLM's V2 model runner (per model card).
+      - VLLM_USE_V2_MODEL_RUNNER=1
+      # DGX Spark (GB10 Blackwell, sm_121a).
+      - CUTE_DSL_ARCH=sm_121a
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+    ipc: host
+    # The google card only ships `vllm serve google/diffusiongemma-26B-A4B-it`;
+    # the rest of these flags mirror NVIDIA's serve recipe for the same Gemma 4
+    # diffusion arch (V2 runner, Triton attn, gemma4 parsers), with Spark-tuned
+    # context length and memory headroom.
+    command:
+      - --model
+      - google/diffusiongemma-26B-A4B-it
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --max-num-seqs
+      - "4"
+      - --attention-backend
+      - TRITON_ATTN
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - gemma4
+      - --reasoning-parser
+      - gemma4
+      - --override-generation-config
+      - '{"max_new_tokens": null}'
+      - --default-chat-template-kwargs
+      - '{"enable_thinking":true}'
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      # Right-sized for 1x full-256k session (leanest). BF16 weights (~52 GiB)
+      # dominate here, so the floor is higher than the NVFP4 twin.
+      - "0.60"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

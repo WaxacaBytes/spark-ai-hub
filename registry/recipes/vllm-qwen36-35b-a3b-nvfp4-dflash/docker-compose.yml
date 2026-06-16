@@ -1,0 +1,88 @@
+services:
+  vllm:
+    # NVIDIA's nvidia/Qwen3.6-35B-A3B-NVFP4 card requires the vLLM nightly (0.20.0
+    # can't load this checkpoint's W4A16_NVFP4 MIXED_PRECISION experts). We build a
+    # local image FROM the pinned nightly with z-lab/dflash baked in, so launch is
+    # fully offline and reproducible.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM vllm/vllm-openai:nightly-4721bb3aa43078167eb893a9ebf9e50565030c1c
+        RUN apt-get update -qq \
+         && apt-get install -y --no-install-recommends git \
+         && rm -rf /var/lib/apt/lists/* \
+         && pip install --no-cache-dir git+https://github.com/z-lab/dflash.git \
+         && pip cache purge || true
+    image: spark-ai-hub/vllm-qwen36-35b-a3b-nvfp4-dflash:nightly-4721bb3a
+    container_name: spark-ai-hub-vllm-qwen36-35b-a3b-nvfp4-dflash
+    ports:
+      - "9001:8000"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # NVIDIA's recommended DGX Spark (GB10, sm_121a) environment for this checkpoint.
+      - VLLM_USE_FLASHINFER_MOE_FP4=0
+      - VLLM_FP8_MOE_BACKEND=flashinfer_cutlass
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      - CUTE_DSL_ARCH=sm_121a
+    ipc: host
+    # NVIDIA's DGX Spark serving recipe, with z-lab DFlash speculative decoding
+    # (chain k=10) swapped in for the built-in MTP draft.
+    command:
+      - --model
+      - nvidia/Qwen3.6-35B-A3B-NVFP4
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --trust-remote-code
+      - --dtype
+      - auto
+      - --quantization
+      - modelopt
+      # DFlash's drafter uses non-causal attention, which has no valid backend
+      # with fp8 KV cache or FlashInfer. flash_attn handles it (default bf16 KV).
+      - --attention-backend
+      - flash_attn
+      - --moe-backend
+      - marlin
+      - --gpu-memory-utilization
+      # Right-sized for 1x full-256k session (leanest). Higher than the fp8 NVFP4
+      # twin because flash_attn uses bf16 KV (~2x/token) plus the DFlash drafter.
+      - "0.45"
+      - --max-model-len
+      - "262144"
+      - --max-num-seqs
+      - "5"
+      - --max-num-batched-tokens
+      - "8192"
+      - --enable-chunked-prefill
+      - --enable-prefix-caching
+      # Video: hand frame sampling back to do_sample_frames+fps (vLLM otherwise
+      # applies a default frame cap and silently ignores the requested fps), and
+      # allow multiple videos per prompt. Per the model card's DGX Spark recipe.
+      - --media-io-kwargs
+      - '{"video": {"num_frames": -1}}'
+      - --limit-mm-per-prompt
+      - '{"video": 4}'
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --speculative-config
+      - '{"method": "dflash", "model": "z-lab/Qwen3.6-35B-A3B-DFlash", "num_speculative_tokens": 10}'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

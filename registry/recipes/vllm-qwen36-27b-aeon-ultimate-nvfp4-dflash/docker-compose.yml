@@ -1,0 +1,81 @@
+services:
+  vllm:
+    # AEON-7's Ultimate Uncensored Qwen3.6-27B NVFP4 requires the author's sm_121a-tuned
+    # vLLM v3 image (vLLM v0.20.0 release commit + patched CUTLASS NVFP4 + FlashInfer 0.6.9
+    # + DFlash). The patched CUTLASS path uses native FP4 tensor cores and outperforms the
+    # Marlin fallback, so we do NOT force a marlin backend. Anonymous public GHCR pull, so
+    # launch works offline once the image is pulled at install time.
+    image: ghcr.io/aeon-7/vllm-aeon-ultimate-dflash:qwen36-v3
+    container_name: spark-ai-hub-vllm-qwen36-27b-aeon-ultimate-nvfp4-dflash
+    ports:
+      - "9001:8000"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # AEON-7's required runtime env for DGX Spark (GB10, sm_121a).
+      - TORCH_CUDA_ARCH_LIST=12.0+PTX          # sm_120 build, driver JITs to sm_121a on Spark
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - VLLM_USE_FLASHINFER_MOE_FP4=0
+    ipc: host
+    # AEON-7's v3 production serving recipe (compressed-tensors NVFP4 + z-lab DFlash spec
+    # decode k=15 + flash_attn). The image entrypoint is /opt/nvidia/nvidia_entrypoint.sh
+    # (pass-through `exec "$@"`), NOT `vllm serve`, so the command must invoke `vllm serve`
+    # explicitly. `--model` is kept so the Hub daemon prefetches both the NVFP4 weights and
+    # the (gated, auto-approve) DFlash drafter into the cache volume at install time.
+    command:
+      - vllm
+      - serve
+      - --model
+      - AEON-7/Qwen3.6-27B-AEON-Ultimate-Uncensored-NVFP4
+      - --served-model-name
+      - AEON-7/Qwen3.6-27B-AEON-Ultimate-Uncensored-NVFP4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --dtype
+      - auto
+      - --quantization
+      - compressed-tensors
+      - --max-model-len
+      - "262144"
+      - --max-num-seqs
+      - "64"
+      - --max-num-batched-tokens
+      - "32768"
+      - --gpu-memory-utilization
+      - "0.75"
+      - --enable-chunked-prefill
+      - --no-enable-prefix-caching
+      - --load-format
+      - safetensors
+      - --trust-remote-code
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --attention-backend
+      - flash_attn
+      - --mm-encoder-tp-mode
+      - data
+      - --mm-processor-cache-type
+      - shm
+      - --speculative-config
+      - '{"method":"dflash","model":"z-lab/Qwen3.6-27B-DFlash","num_speculative_tokens":15}'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

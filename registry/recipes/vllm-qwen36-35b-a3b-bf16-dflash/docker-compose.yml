@@ -33,7 +33,9 @@ services:
       - --tool-call-parser
       - qwen3_coder
       - --gpu-memory-utilization
-      - "0.80"
+      # Modest trim: BF16 weights (~70 GiB) + DFlash drafter nearly fill memory,
+      # so most of the reservation is load-bearing. 64k context needs little KV.
+      - "0.72"
       # Bound prefill and sequence concurrency for 4-5 developer sessions so
       # one long reasoning request does not starve active decodes.
       - --enable-chunked-prefill

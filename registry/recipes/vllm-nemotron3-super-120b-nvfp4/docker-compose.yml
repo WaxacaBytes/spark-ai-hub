@@ -45,7 +45,7 @@ services:
       - "1"
       - --trust-remote-code
       - --gpu-memory-utilization
-      - "0.90"
+      - "0.72"
       - --enable-chunked-prefill
       - --max-num-seqs
       - "4"

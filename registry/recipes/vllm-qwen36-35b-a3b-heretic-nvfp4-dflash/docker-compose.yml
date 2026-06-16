@@ -1,0 +1,86 @@
+services:
+  vllm:
+    # AEON-7's Qwen3.6-35B-A3B-heretic NVFP4 requires the author's custom vLLM image:
+    # vLLM HEAD source-built for cu130/sm_120 with 8 SM121 patches (FP4 kernels,
+    # cudagraph-alignment, M-RoPE fallback, Marlin MoE pin, flashinfer 0.6.8). Stock /
+    # our pinned nightly does NOT compile FP4 kernels for SM 12.x. Anonymous public GHCR
+    # pull, so launch works offline once the image is pulled at install time.
+    image: ghcr.io/aeon-7/vllm-spark-omni-q36:v1.2
+    container_name: spark-ai-hub-vllm-qwen36-35b-a3b-heretic-nvfp4-dflash
+    ports:
+      - "9001:8000"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # AEON-7's required runtime env for DGX Spark (GB10, SM121).
+      - VLLM_TEST_FORCE_FP8_MARLIN=1        # pin NVFP4 MoE backend to MARLIN (only one that accepts the 256x512 expert shape)
+      - VLLM_ALLOW_LONG_MAX_MODEL_LEN=1
+      - TORCH_MATMUL_PRECISION=high
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+      - NVIDIA_FORWARD_COMPAT=1
+    ipc: host
+    # AEON-7's production serving recipe (compressed-tensors NVFP4 + z-lab DFlash spec
+    # decode + flash_attn). Models referenced by HF repo id so the Hub prefetches both
+    # the NVFP4 weights and the DFlash drafter into the cache volume at install time.
+    command:
+      # AEON-7's image entrypoint is /opt/nvidia/nvidia_entrypoint.sh with no default CMD
+      # (it just `exec "$@"`), NOT ["vllm","serve"] like every other vLLM image in the Hub.
+      # The command must therefore invoke `vllm serve` explicitly — otherwise the entrypoint
+      # tries to exec a program literally named "--model" and the container crashes on launch.
+      # `--model` is kept (vs the model card's positional form) so the Hub daemon's prefetch
+      # parser still detects the repo and caches the NVFP4 weights at install time.
+      - vllm
+      - serve
+      - --model
+      - AEON-7/Qwen3.6-35B-A3B-heretic-NVFP4
+      - --served-model-name
+      - AEON-7/Qwen3.6-35B-A3B-heretic-NVFP4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --dtype
+      - auto
+      - --quantization
+      - compressed-tensors
+      - --max-model-len
+      - "262144"
+      - --max-num-seqs
+      - "128"
+      - --max-num-batched-tokens
+      - "65536"
+      - --gpu-memory-utilization
+      # Measured: at 0.35 vLLM had only 4.17 GiB KV but needs 13.24 GiB for one
+      # 262144-token session (large overhead: 128 seqs + 65536-token prefill +
+      # bf16 KV + DFlash drafter). 0.50 gives ~22 GiB KV (~1.6x full context).
+      - "0.50"
+      - --enable-chunked-prefill
+      - --enable-prefix-caching
+      - --load-format
+      - safetensors
+      - --trust-remote-code
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - qwen3
+      - --speculative-config
+      - '{"method":"dflash","model":"z-lab/Qwen3.6-35B-A3B-DFlash","num_speculative_tokens":15}'
+      - --attention-backend
+      - flash_attn
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

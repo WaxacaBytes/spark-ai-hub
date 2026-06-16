@@ -1,0 +1,92 @@
+name: "Gemma 4 31B NVFP4 Atlas"
+slug: atlas-gemma4-31b-nvfp4
+version: "1.0.0"
+description: "NVIDIA's Gemma-4-31B-IT NVFP4 checkpoint served with Atlas on DGX Spark, following the upstream Atlas run recipe (fp8 KV cache with auto high-precision layers, slai scheduling, MTP speculative decoding)."
+author: "NVIDIA + Atlas Inference"
+source: "community"
+website: "https://atlasinference.io/"
+upstream: "https://huggingface.co/nvidia/Gemma-4-31B-IT-NVFP4"
+fork: "https://github.com/Avarok-Cybersecurity/atlas"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - reasoning
+  - coding
+  - tool-use
+  - atlas
+  - gemma
+  - google
+  - nvfp4
+  - nvidia-official
+  - speculative-decoding
+  - mtp
+logo: "/logos/google.png"
+requirements:
+  min_memory_gb: 45
+  recommended_memory_gb: 60
+  disk_gb: 45
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: false
+  build_time_minutes: 2
+  gpu: true
+status: experimental
+release_date: "2026-05-18"
+requires_hf_token: true
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "nvidia/Gemma-4-31B-IT-NVFP4"
+  api_key: "not-needed"
+  max_context: "32768"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Gemma-4-31B-IT-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Solve 17 x 23 step by step.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
+tokens_per_second: 9.0
+services:
+  atlas:
+    image: avarok/atlas-gb10:latest
+    container_name: spark-ai-hub-atlas-gemma4-31b-nvfp4
+    ports:
+      - "9001:8888"
+    volumes:
+      - ${HOME}/.cache/huggingface:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-0}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-0}
+    ipc: host
+    command:
+      - serve
+      - nvidia/Gemma-4-31B-IT-NVFP4
+      - --bind
+      - 0.0.0.0
+      - --port
+      - "8888"
+      - --max-seq-len
+      - "32768"
+      - --kv-cache-dtype
+      - fp8
+      - --kv-high-precision-layers
+      - auto
+      - --gpu-memory-utilization
+      - "0.90"
+      - --max-batch-size
+      - "1"
+      - --scheduling-policy
+      - slai
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --speculative
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped

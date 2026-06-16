@@ -1,0 +1,46 @@
+name: "DiffusionGemma-26B-A4B NVFP4"
+slug: vllm-diffusiongemma-26b-a4b-it-nvfp4
+version: "1.0.0"
+description: "NVIDIA's NVFP4 (4-bit) build of Google's DiffusionGemma-26B-A4B — a discrete diffusion language model on the Gemma 4 MoE architecture (25.2B total / 3.8B active). Generates tokens in parallel 256-token blocks instead of left-to-right, served on vLLM's Gemma4 image with the V2 model runner, Triton attention, and gemma4 reasoning + tool parsing. ~3x smaller than BF16, 256K context."
+author: "Google + NVIDIA"
+source: "official"
+website: "https://huggingface.co/nvidia/diffusiongemma-26B-A4B-it-NVFP4"
+upstream: "https://huggingface.co/nvidia/diffusiongemma-26B-A4B-it-NVFP4"
+category: llm
+tags:
+  - llm
+  - diffusion-llm
+  - moe
+  - reasoning
+  - coding
+  - tool-use
+  - vllm
+  - gemma
+  - nvfp4
+  - nvidia-official
+logo: "/logos/google.png"
+requirements:
+  min_memory_gb: 28
+  recommended_memory_gb: 44
+  disk_gb: 25
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: false
+  build_time_minutes: 5
+  gpu: true
+status: community-verified
+release_date: "2026-06-13"
+requires_hf_token: false
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-06-13"
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "nvidia/diffusiongemma-26B-A4B-it-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/diffusiongemma-26B-A4B-it-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
+tokens_per_second: 215.7

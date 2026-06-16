@@ -1,0 +1,49 @@
+name: "Qwen3.6-35B-A3B Heretic NVFP4 DFlash"
+slug: vllm-qwen36-35b-a3b-heretic-nvfp4-dflash
+version: "1.0.0"
+description: "AEON-7's heretic (decensored) Qwen3.6-35B-A3B MoE in NVFP4 with z-lab DFlash speculative decoding, served on the author's SM121-patched vLLM image. Vision (image) + text, full 256K context, reasoning + tool calling. Purpose-built and production-validated for DGX Spark."
+author: "Alibaba Cloud + AEON-7 + z-lab"
+source: "community"
+website: "https://github.com/AEON-7/Qwen3.6-NVFP4-DFlash"
+upstream: "https://huggingface.co/AEON-7/Qwen3.6-35B-A3B-heretic-NVFP4"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - reasoning
+  - coding
+  - tool-use
+  - vllm
+  - qwen
+  - nvfp4
+  - dflash
+  - speculative-decoding
+  - heretic
+  - uncensored
+  - abliterated
+logo: "/logos/qwen.png"
+requirements:
+  min_memory_gb: 40
+  recommended_memory_gb: 64
+  disk_gb: 70
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: false
+  build_time_minutes: 0
+  gpu: true
+status: community-verified
+release_date: "2026-06"
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-06-05"
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "AEON-7/Qwen3.6-35B-A3B-heretic-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"AEON-7/Qwen3.6-35B-A3B-heretic-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"What is 17 x 23? Show your work.\"}], \"max_tokens\": 2048, \"temperature\": 0}'"
+tokens_per_second: 75.8

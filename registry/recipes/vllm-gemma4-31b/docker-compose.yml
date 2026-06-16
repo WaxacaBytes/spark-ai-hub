@@ -16,7 +16,7 @@ services:
       - --port
       - "8000"
       - --max-model-len
-      - "131072"
+      - "262144"
       - --enable-prefix-caching
       - --enable-auto-tool-choice
       - --tool-call-parser

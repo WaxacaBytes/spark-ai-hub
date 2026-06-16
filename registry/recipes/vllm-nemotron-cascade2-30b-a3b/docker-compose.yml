@@ -28,7 +28,7 @@ services:
       - --kv-cache-dtype
       - fp8_e4m3
       - --gpu-memory-utilization
-      - "0.70"
+      - "0.64"
     deploy:
       resources:
         reservations:

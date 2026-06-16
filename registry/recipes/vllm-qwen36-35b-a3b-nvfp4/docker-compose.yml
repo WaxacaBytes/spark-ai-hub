@@ -1,12 +1,11 @@
 services:
   vllm:
-    # NVIDIA's nvidia/Qwen3.5-122B-A10B-NVFP4 card targets the NGC vLLM container,
-    # but on DGX Spark (GB10, sm_121a) the hub's proven nvidia-NVFP4 base is the
-    # pinned vLLM nightly (the 0.20.0 release can't load these ModelOpt FP4 experts).
-    # Same image used by the Qwen3.6-35B-A3B-NVFP4 recipe, so launch is reproducible
-    # and works offline once pulled at install time.
+    # NVIDIA's nvidia/Qwen3.6-35B-A3B-NVFP4 card requires the vLLM nightly (the
+    # 0.20.0 release does not recognize this checkpoint's W4A16_NVFP4 MIXED_PRECISION
+    # experts). Pinned to an immutable commit-tagged nightly so launch is reproducible
+    # and works offline once the image is pulled at install time.
     image: vllm/vllm-openai:nightly-4721bb3aa43078167eb893a9ebf9e50565030c1c
-    container_name: spark-ai-hub-vllm-qwen35-122b-a10b
+    container_name: spark-ai-hub-vllm-qwen36-35b-a3b-nvfp4
     ports:
       - "9001:8000"
     volumes:
@@ -15,20 +14,16 @@ services:
       - HF_TOKEN=${HF_TOKEN:-}
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
-      # NVIDIA's recommended DGX Spark (GB10, sm_121a) environment for FP4 checkpoints.
-      # The Marlin FP4 MoE backend crashes preparing this 122B's expert scales
-      # (cudaErrorNotPermitted in prepare_nvfp4_moe_layer_for_marlin), so route the
-      # NVFP4 MoE through the FlashInfer CUTLASS path instead.
-      - VLLM_USE_FLASHINFER_MOE_FP4=1
+      # NVIDIA's recommended DGX Spark (GB10, sm_121a) environment for this checkpoint.
+      - VLLM_USE_FLASHINFER_MOE_FP4=0
       - VLLM_FP8_MOE_BACKEND=flashinfer_cutlass
       - FLASHINFER_DISABLE_VERSION_CHECK=1
       - CUTE_DSL_ARCH=sm_121a
     ipc: host
-    # Serving recipe per the nvidia/Qwen3.5-122B-A10B-NVFP4 model card
-    # (ModelOpt FP4 + fp8 KV cache + qwen3 reasoning/tool parsers).
+    # Command per NVIDIA's "NVIDIA DGX Spark" serving recipe on the model card.
     command:
       - --model
-      - nvidia/Qwen3.5-122B-A10B-NVFP4
+      - nvidia/Qwen3.6-35B-A3B-NVFP4
       - --port
       - "8000"
       - --tensor-parallel-size
@@ -37,15 +32,17 @@ services:
       - --dtype
       - auto
       - --quantization
-      - modelopt_fp4
+      - modelopt
       - --kv-cache-dtype
       - fp8
       - --attention-backend
       - flashinfer
       - --moe-backend
-      - flashinfer_cutlass
+      - marlin
       - --gpu-memory-utilization
-      - "0.83"
+      # Right-sized for 1x full-256k session (leanest). ~14 GiB NVFP4 weights +
+      # fp8 KV; 0.25 holds well over 1x 262144-token concurrency. Frees ~70 GiB.
+      - "0.33"
       - --max-model-len
       - "262144"
       - --max-num-seqs
@@ -55,16 +52,20 @@ services:
       - --enable-chunked-prefill
       - --async-scheduling
       - --enable-prefix-caching
+      # Video: hand frame sampling back to do_sample_frames+fps (vLLM otherwise
+      # applies a default frame cap and silently ignores the requested fps), and
+      # allow multiple videos per prompt. Per the model card's DGX Spark recipe.
+      - --media-io-kwargs
+      - '{"video": {"num_frames": -1}}'
+      - --limit-mm-per-prompt
+      - '{"video": 4}'
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
       - --tool-call-parser
       - qwen3_coder
-      # Native MTP speculative decoding (the checkpoint ships an MTP module:
-      # mtp_num_hidden_layers=1). Compatible with the forced fp8 KV + flashinfer,
-      # unlike DFlash. Draft MoE runs on triton.
       - --speculative-config
-      - '{"method": "mtp", "num_speculative_tokens": 3, "moe_backend": "triton"}'
+      - '{"method":"mtp","num_speculative_tokens":3,"moe_backend":"triton"}'
     deploy:
       resources:
         reservations:

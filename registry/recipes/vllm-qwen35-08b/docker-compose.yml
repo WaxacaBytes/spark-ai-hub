@@ -24,7 +24,7 @@ services:
       - qwen3_coder
       - --enable-prefix-caching
       - --gpu-memory-utilization
-      - "0.20"
+      - "0.12"
       - --mm-processor-cache-type
       - shm
       - --mm-encoder-tp-mode

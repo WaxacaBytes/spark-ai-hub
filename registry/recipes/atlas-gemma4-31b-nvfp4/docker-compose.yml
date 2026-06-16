@@ -1,0 +1,47 @@
+services:
+  atlas:
+    image: avarok/atlas-gb10:latest
+    container_name: spark-ai-hub-atlas-gemma4-31b-nvfp4
+    ports:
+      - "9001:8888"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    command:
+      - serve
+      - nvidia/Gemma-4-31B-IT-NVFP4
+      - --bind
+      - 0.0.0.0
+      - --port
+      - "8888"
+      - --max-seq-len
+      - "32768"
+      - --kv-cache-dtype
+      - fp8
+      - --kv-high-precision-layers
+      - auto
+      - --gpu-memory-utilization
+      - "0.90"
+      - --max-batch-size
+      - "1"
+      - --scheduling-policy
+      - slai
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-prefix-caching
+      - --speculative
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:
