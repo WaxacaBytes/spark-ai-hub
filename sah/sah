@@ -20,11 +20,21 @@ import socket
 import subprocess
 import sys
 import time
-import tomllib
 import urllib.error
 import urllib.request
 import uuid
 from pathlib import Path
+
+# tomllib is stdlib only on Python 3.11+. Fall back to the `tomli` backport,
+# or to None (validation becomes a no-op) so sah still runs on older Pythons
+# such as the one shipped with Synology DSM.
+try:
+    import tomllib
+except ModuleNotFoundError:  # pragma: no cover
+    try:
+        import tomli as tomllib  # type: ignore
+    except ModuleNotFoundError:
+        tomllib = None  # type: ignore
 
 DEFAULT_HUB = "http://192.168.3.16:9000"
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "sah"
@@ -102,6 +112,16 @@ INTEGRATIONS = [
         "install": "sah hermes --install",
         "status": "sah hermes --status",
         "restore": "sah hermes --restore",
+    },
+    {
+        "name": "hermes-desktop",
+        "kind": "Desktop",
+        "binary": "hermes",
+        "mode": "persistent",
+        "launch": "sah hermes-desktop",
+        "install": "sah hermes-desktop --install",
+        "status": "sah hermes-desktop --status",
+        "restore": "sah hermes-desktop --restore",
     },
     {
         "name": "qwen",
@@ -435,6 +455,8 @@ def _set_toml_top_level_value(text: str, key: str, value: str) -> str:
 
 
 def _validate_toml_text(text: str, path: Path) -> None:
+    if tomllib is None:  # no TOML parser available (Python < 3.11, no tomli)
+        return
     try:
         tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
@@ -709,6 +731,120 @@ def _status_hermes_global() -> None:
     _kv("Hermes config", str(path))
     _kv("SAH backup", "present" if _client_backup_path("hermes").is_file() else "not present")
     _kv("Plain hermes", "wired to Spark AI Hub" if wired else "not wired to Spark AI Hub")
+
+
+# ---------- hermes-desktop ----------
+#
+# Hermes Desktop is the same Hermes Agent driven through its `desktop`
+# subcommand, sharing ~/.hermes/config.yaml with `sah hermes`. So install /
+# restore / status reuse the hermes wiring untouched; only the launch
+# invocation differs: `hermes desktop`, with `--skip-build` auto-added when a
+# packaged desktop app is already installed. Mirrors Ollama's HermesDesktop
+# (cmd/launch/hermes.go), which embeds Hermes and reuses its Configure/Paths.
+
+_HERMES_DESKTOP_BUILD_FLAGS = ("--skip-build", "--source", "--build-only", "--help", "-h")
+
+
+def cmd_hermes_desktop(args) -> None:
+    if args.status:
+        _status_hermes_global()
+        return
+    if args.restore:
+        _restore_client_file("hermes", _hermes_config_path())
+        return
+    if not shutil.which("hermes"):
+        sys.exit(
+            "hermes not found in PATH. Install options: "
+            "https://hermes-agent.nousresearch.com/docs/getting-started/installation/"
+        )
+    model = require_model()
+    if args.install:
+        _install_hermes_global(model)
+        return
+    hermes_home = _prepare_hermes_home(model)
+    env = {
+        **os.environ,
+        "HERMES_HOME": str(hermes_home),
+        "OPENAI_API_KEY": "sah",
+        "OPENAI_BASE_URL": api_base(),
+    }
+    extra = _normalize_passthrough(args.passthrough)
+    launch_args = ["desktop"]
+    if _hermes_desktop_skip_build(extra):
+        launch_args.append("--skip-build")
+    os.execvpe("hermes", ["hermes", *launch_args, *extra], env)
+
+
+def _hermes_desktop_skip_build(extra: list[str]) -> bool:
+    """True when sah should pass --skip-build to `hermes desktop`: a packaged
+    desktop app already exists and the user didn't pass a build/help flag of
+    their own. Mirrors Ollama's HermesDesktop.shouldSkipDesktopBuild."""
+    for arg in extra:
+        if arg == "--":
+            break
+        if arg in _HERMES_DESKTOP_BUILD_FLAGS:
+            return False
+    return _hermes_desktop_packaged_app_exists()
+
+
+def _hermes_desktop_release_roots() -> list[str]:
+    """Install roots where Hermes packages its prebuilt desktop app, each joined
+    with apps/desktop/release. Mirrors Hermes' own install layout (see
+    hermesDesktopReleaseRoots in Ollama). Reads the real environment — call
+    before HERMES_HOME is overridden for the ephemeral launch."""
+    roots: list[str] = []
+
+    def add(path: str) -> None:
+        path = (path or "").strip()
+        if path:
+            roots.append(os.path.normpath(path))
+
+    add(os.environ.get("HERMES_INSTALL_DIR", ""))
+    if hh := os.environ.get("HERMES_HOME", "").strip():
+        add(os.path.join(hh, "hermes-agent"))
+
+    home = Path.home()
+    if sys.platform == "win32":
+        if lad := os.environ.get("LOCALAPPDATA", "").strip():
+            add(os.path.join(lad, "hermes", "hermes-agent"))
+        add(str(home / ".hermes" / "hermes-agent"))
+    else:
+        add(str(home / ".hermes" / "hermes-agent"))
+        if sys.platform.startswith("linux"):
+            add(os.path.join(os.sep, "usr", "local", "lib", "hermes-agent"))
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for root in roots:
+        rel = os.path.join(root, "apps", "desktop", "release")
+        if rel in seen:
+            continue
+        seen.add(rel)
+        out.append(rel)
+    return out
+
+
+def _hermes_desktop_packaged_executables(release_root: str) -> list[str]:
+    if sys.platform == "darwin":
+        return [str(p) for p in Path(release_root).glob("mac*/Hermes.app/Contents/MacOS/Hermes")]
+    if sys.platform == "win32":
+        return [
+            os.path.join(release_root, "win-unpacked", "Hermes.exe"),
+            os.path.join(release_root, "win-ia32-unpacked", "Hermes.exe"),
+            os.path.join(release_root, "win-arm64-unpacked", "Hermes.exe"),
+        ]
+    return [
+        os.path.join(release_root, "linux-unpacked", "hermes"),
+        os.path.join(release_root, "linux-unpacked", "Hermes"),
+    ]
+
+
+def _hermes_desktop_packaged_app_exists() -> bool:
+    for root in _hermes_desktop_release_roots():
+        for candidate in _hermes_desktop_packaged_executables(root):
+            if os.path.exists(candidate):
+                return True
+    return False
 
 
 def cmd_qwen(args) -> None:
@@ -1848,6 +1984,7 @@ def main() -> None:
     _add_client_parser(sub, "opencode", "OpenCode", cmd_opencode)
     _add_client_parser(sub, "codex", "Codex", cmd_codex)
     _add_client_parser(sub, "hermes", "Hermes Agent", cmd_hermes)
+    _add_client_parser(sub, "hermes-desktop", "Hermes Desktop", cmd_hermes_desktop)
     _add_client_parser(sub, "qwen", "Qwen Code", cmd_qwen)
     _add_client_parser(sub, "openclaw", "OpenClaw", cmd_openclaw, aliases=["clawdbot", "moltbot"])
     _add_client_parser(sub, "claude", "Claude Code", cmd_claude)
