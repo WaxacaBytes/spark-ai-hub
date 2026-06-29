@@ -1,0 +1,45 @@
+name: "Gemma 4 12B DSpark"
+slug: dspark-gemma4-12b
+version: "0.1.0"
+description: "Google Gemma 4 12B (official BF16) accelerated with DeepSeek DSpark speculative decoding (deepseek-ai/dspark_gemma4_12b_block7 drafter, semi-autoregressive Markov-head). DSpark has no vLLM/SGLang serving path yet, so this recipe builds a custom OpenAI-compatible server around DeepSeek's own DeepSpec drafter on an aarch64+CUDA13 PyTorch base (transformers, bsz=1). Standard 3-prompt benchmark on a single Spark: 24.1 tok/s avg (code 35, explainer 23, prose 19) — ~3.2x the plain BF16 model (7.6 tok/s). First DSpark serving deployment on the DGX Spark."
+author: "Google + DeepSeek (DeepSpec) + WaxacaBytes"
+source: "community"
+website: "https://github.com/deepseek-ai/DeepSpec"
+upstream: "https://huggingface.co/deepseek-ai/dspark_gemma4_12b_block7"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - reasoning
+  - coding
+  - tool-use
+  - google
+  - gemma
+  - speculative-decoding
+  - dspark
+  - deepspec
+logo: "/logos/google.png"
+requirements:
+  min_memory_gb: 38
+  recommended_memory_gb: 50
+  disk_gb: 40
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 8
+  gpu: true
+status: community-verified
+release_date: "2026-06"
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-06-29"
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "google/gemma-4-12B-it"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"google/gemma-4-12B-it\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
+tokens_per_second: 24.1

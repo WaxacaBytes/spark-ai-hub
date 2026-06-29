@@ -1,0 +1,44 @@
+services:
+  vllm:
+    # gemma-4-12B-it is the "Unified" (gemma4_unified) arch — vLLM support merged
+    # 2026-06-29; only nightly (transformers 5.12.1) registers it.
+    image: vllm/vllm-openai:nightly-aarch64
+    container_name: spark-ai-hub-vllm-gemma4-12b
+    ports:
+      - "9001:8000"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    command:
+      - --model
+      - google/gemma-4-12B-it
+      - --port
+      - "8000"
+      - --max-model-len
+      - "262144"
+      - --enable-prefix-caching
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - gemma4
+      - --default-chat-template-kwargs
+      - '{"enable_thinking": true}'
+      - --gpu-memory-utilization
+      - "0.45"
+      - --kv-cache-dtype
+      - fp8_e4m3
+      - --reasoning-parser
+      - gemma4
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

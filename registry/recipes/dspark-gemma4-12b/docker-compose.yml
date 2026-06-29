@@ -1,0 +1,63 @@
+services:
+  dspark:
+    build:
+      context: .
+      # Full build is inline here (nothing hidden in a separate Dockerfile).
+      # DSpark has no vLLM/SGLang server, so we wrap DeepSeek's own DeepSpec
+      # drafter (server.py) on an aarch64+CUDA13 PyTorch base. We do NOT run
+      # vLLM here — only its torch/CUDA stack is reused; transformers is bumped
+      # to the version DeepSpec's Gemma4 drafter modeling expects (5.10.2, which
+      # also registers the gemma4_unified arch of gemma-4-12B-it).
+      dockerfile_inline: |
+        FROM vllm/vllm-openai:gemma4-cu130
+        ENV DEBIAN_FRONTEND=noninteractive
+        RUN apt-get update -qq \
+         && apt-get install -y --no-install-recommends git \
+         && rm -rf /var/lib/apt/lists/*
+        # Pure-python deps only — keep the base's aarch64 CUDA torch build untouched.
+        RUN pip install --no-cache-dir \
+              "transformers==5.10.2" "sentencepiece==0.2.1" "safetensors>=0.7.0" \
+              "fastapi" "uvicorn[standard]" \
+         && pip cache purge || true
+        # DeepSpec is a repo, not a wheel — clone it onto PYTHONPATH.
+        RUN git clone --depth 1 --branch main \
+              https://github.com/deepseek-ai/DeepSpec.git /opt/DeepSpec
+        ENV PYTHONPATH=/opt/DeepSpec
+        COPY server.py /opt/server.py
+        ENTRYPOINT []
+    image: spark-ai-hub/dspark-gemma4-12b:gemma4-cu130
+    container_name: spark-ai-hub-dspark-gemma4-12b
+    ports:
+      - "9001:8000"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - DSPARK_DEFAULT_MAX_TOKENS=2048
+      # Drafter trained non-thinking; leave thinking off for best acceptance length.
+      - DSPARK_ENABLE_THINKING=0
+    ipc: host
+    # --model / --hf-repo-draft are read by server.py AND let the Hub installer
+    # prefetch both repos into the cache volume at install time (offline-first).
+    # Official BF16 target (no reliable quant repo exists for gemma-4-12B-it).
+    command:
+      - python3
+      - /opt/server.py
+      - --model
+      - google/gemma-4-12B-it
+      - --hf-repo-draft
+      - deepseek-ai/dspark_gemma4_12b_block7
+      - --port
+      - "8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

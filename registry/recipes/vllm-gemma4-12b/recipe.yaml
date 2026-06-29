@@ -1,0 +1,43 @@
+name: "Gemma 4 12B"
+slug: vllm-gemma4-12b
+version: "1.0.0"
+description: "Google Gemma 4 12B (11.95B, dense). Multimodal text+image+audio+video, 256K context, 140+ languages. Encoder-free unified decoder. The compact dense Gemma 4 — fast, full-context, runs comfortably on a single Spark."
+author: "Google"
+source: "official"
+website: "https://ai.google.dev/gemma/docs/core"
+upstream: "https://huggingface.co/google/gemma-4-12B-it"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - reasoning
+  - coding
+  - tool-use
+  - vllm
+  - google
+logo: "/logos/google.png"
+requirements:
+  min_memory_gb: 32
+  recommended_memory_gb: 45
+  disk_gb: 30
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: false
+  build_time_minutes: 8
+  gpu: true
+status: community-verified
+release_date: "2026-06"
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-06-29"
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "google/gemma-4-12B-it"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"google/gemma-4-12B-it\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
+tokens_per_second: 7.6
