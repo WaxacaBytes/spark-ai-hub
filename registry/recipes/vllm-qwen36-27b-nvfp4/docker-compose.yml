@@ -1,0 +1,83 @@
+services:
+  vllm:
+    # NVIDIA's nvidia/Qwen3.6-27B-NVFP4 card requires the vLLM nightly (the
+    # 0.20.0 release does not recognize this checkpoint's W4A16_NVFP4
+    # MIXED_PRECISION weights and fails to load them). Pinned to an immutable
+    # commit-tagged nightly so launch is reproducible and works offline once
+    # the image is pulled at install time.
+    image: vllm/vllm-openai:nightly-4721bb3aa43078167eb893a9ebf9e50565030c1c
+    container_name: spark-ai-hub-vllm-qwen36-27b-nvfp4
+    ports:
+      - "9001:8000"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # NVIDIA's recommended DGX Spark (GB10, sm_121a) flashinfer environment.
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      - CUTE_DSL_ARCH=sm_121a
+    ipc: host
+    # Command per NVIDIA's "NVIDIA DGX Spark" serving recipe on the model card.
+    # This 27B is a dense hybrid model (linear + full attention, dense MLP), so
+    # there are no MoE experts and no --moe-backend / MTP drafter here. The
+    # checkpoint bakes kv_cache_quant_algo=FP8, so we serve with fp8 KV on the
+    # flashinfer backend (flash_attn rejects fp8 KV on this platform).
+    command:
+      - --model
+      - nvidia/Qwen3.6-27B-NVFP4
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --trust-remote-code
+      - --dtype
+      - auto
+      - --quantization
+      - modelopt
+      - --kv-cache-dtype
+      - fp8
+      - --attention-backend
+      - flashinfer
+      - --gpu-memory-utilization
+      # ~14 GiB NVFP4 weights + fp8 KV. 0.45 holds well over 1x 262144-token
+      # session on a 128 GiB GB10 while leaving headroom for other services.
+      - "0.45"
+      - --max-model-len
+      - "262144"
+      - --max-num-seqs
+      - "4"
+      - --max-num-batched-tokens
+      - "8192"
+      - --enable-chunked-prefill
+      - --async-scheduling
+      - --enable-prefix-caching
+      # Video: hand frame sampling back to do_sample_frames+fps and allow
+      # multiple videos per prompt, per the model card's DGX Spark recipe.
+      - --media-io-kwargs
+      - '{"video": {"num_frames": -1}}'
+      - --limit-mm-per-prompt
+      - '{"video": 4}'
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      # The checkpoint ships a multi-token-prediction head (mtp_num_hidden_layers=1),
+      # so we use MTP speculative decoding to lift single-stream decode throughput.
+      # Unlike DFlash, MTP needs no flash_attn drafter, so it is compatible with the
+      # checkpoint's forced fp8 KV cache on the flashinfer backend.
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":3}'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

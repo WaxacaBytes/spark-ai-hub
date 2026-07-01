@@ -1,0 +1,44 @@
+name: "Qwen3.6-27B NVFP4"
+slug: vllm-qwen36-27b-nvfp4
+version: "1.0.0"
+description: "Qwen3.6-27B NVFP4 (NVIDIA) on vLLM with MTP speculative decoding. NVIDIA's ModelOpt mixed-precision quant (W4A16 NVFP4 MLPs + FP8 attention) with fp8 KV cache on the flashinfer backend, accelerated ~2.3x by the checkpoint's built-in multi-token-prediction head. (DFlash is not usable here: its drafter needs flash_attn, incompatible with the forced fp8 KV.)"
+author: "Alibaba Cloud + NVIDIA + vLLM"
+source: "community"
+website: "https://huggingface.co/nvidia/Qwen3.6-27B-NVFP4"
+upstream: "https://huggingface.co/nvidia/Qwen3.6-27B-NVFP4"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - reasoning
+  - coding
+  - tool-use
+  - vllm
+  - qwen
+  - nvfp4
+  - speculative-decoding
+  - mtp
+  - experimental
+logo: "/logos/qwen.png"
+requirements:
+  min_memory_gb: 45
+  recommended_memory_gb: 60
+  disk_gb: 30
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: false
+  gpu: true
+status: community-verified
+release_date: "2026-06-30"
+requires_hf_token: true
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "nvidia/Qwen3.6-27B-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Qwen3.6-27B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
+tokens_per_second: 27.0
