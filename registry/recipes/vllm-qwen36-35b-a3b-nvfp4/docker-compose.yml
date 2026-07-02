@@ -1,10 +1,11 @@
 services:
   vllm:
-    # NVIDIA's nvidia/Qwen3.6-35B-A3B-NVFP4 card requires the vLLM nightly (the
-    # 0.20.0 release does not recognize this checkpoint's W4A16_NVFP4 MIXED_PRECISION
-    # experts). Pinned to an immutable commit-tagged nightly so launch is reproducible
-    # and works offline once the image is pulled at install time.
-    image: vllm/vllm-openai:nightly-4721bb3aa43078167eb893a9ebf9e50565030c1c
+    # NVIDIA's nvidia/Qwen3.6-35B-A3B-NVFP4 card needs a vLLM that understands
+    # its W4A16_NVFP4 MIXED_PRECISION experts (0.20.0 can't load them). Pinned
+    # to the *stable release* v0.24.0 (a permanent, pullable tag) rather than a
+    # nightly SHA tag, which Docker Hub garbage-collects within ~a day and thus
+    # breaks clean from-scratch reinstalls. cu129 runs fine on the CUDA 13 host.
+    image: vllm/vllm-openai:v0.24.0-aarch64-cu129
     container_name: spark-ai-hub-vllm-qwen36-35b-a3b-nvfp4
     ports:
       - "9001:8000"

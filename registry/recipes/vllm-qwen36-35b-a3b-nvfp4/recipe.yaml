@@ -43,4 +43,4 @@ integration:
   model_id: "nvidia/Qwen3.6-35B-A3B-NVFP4"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Qwen3.6-35B-A3B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
-tokens_per_second: 99.7
+tokens_per_second: 119.2

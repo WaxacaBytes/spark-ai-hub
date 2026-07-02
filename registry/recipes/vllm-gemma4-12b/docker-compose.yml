@@ -1,8 +1,11 @@
 services:
   vllm:
-    # gemma-4-12B-it is the "Unified" (gemma4_unified) arch — vLLM support merged
-    # 2026-06-29; only nightly (transformers 5.12.1) registers it.
-    image: vllm/vllm-openai:nightly-aarch64
+    # gemma-4-12B-it is the "Unified" (gemma4_unified) arch. Pinned to vLLM's
+    # dedicated, purpose-built gemma4-unified image (cu130 = matches the host
+    # CUDA 13 driver). It's a permanent named tag (not a rolling nightly or a
+    # pruned SHA), so clean from-scratch reinstall works. Verified to serve
+    # gemma-4-12B-it on this DGX Spark.
+    image: vllm/vllm-openai:gemma4-unified-arm64-cu130
     container_name: spark-ai-hub-vllm-gemma4-12b
     ports:
       - "9001:8000"
