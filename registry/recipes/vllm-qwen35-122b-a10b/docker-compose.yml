@@ -1,11 +1,18 @@
 services:
   vllm:
-    # NVIDIA's nvidia/Qwen3.5-122B-A10B-NVFP4 card targets the NGC vLLM container,
-    # but on DGX Spark (GB10, sm_121a) the hub's proven nvidia-NVFP4 base is the
-    # pinned vLLM nightly (the 0.20.0 release can't load these ModelOpt FP4 experts).
-    # Same image used by the Qwen3.6-35B-A3B-NVFP4 recipe, so launch is reproducible
-    # and works offline once pulled at install time.
-    image: vllm/vllm-openai:nightly-4721bb3aa43078167eb893a9ebf9e50565030c1c
+    # Served on NVIDIA's NGC vLLM container (the only build with a working sm_121a
+    # GDN linear-attention kernel for the Qwen3_5 hybrid arch on DGX Spark / GB10).
+    # The thin local layer only hardens prometheus_fastapi_instrumentator, whose
+    # route lookup otherwise 500s every request under NVIDIA's serve entrypoint.
+    #
+    # This recipe uses Qwen's OFFICIAL GPTQ-Int4 checkpoint, NOT the nvidia NVFP4 one.
+    # The nvidia NVFP4 checkpoint is unusable on GB10: it forces fp8 KV with an
+    # uncalibrated q_scale=1.0, and vLLM's fp8 attention on sm_121a yields garbage
+    # ("!!!!") on every MoE backend that fits in 128 GB; the only backend that
+    # re-preps the FP4 scales (marlin) spikes past 128 GB during weight repack.
+    # GPTQ-Int4 has NO kv_cache scheme in its config -> default bf16 attention ->
+    # coherent output, and its int4 weights (~61 GB) leave ample memory headroom.
+    image: sparkforge/vllm-ngc2606-patched:local
     container_name: spark-ai-hub-vllm-qwen35-122b-a10b
     ports:
       - "9001:8000"
@@ -15,56 +22,40 @@ services:
       - HF_TOKEN=${HF_TOKEN:-}
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
-      # NVIDIA's recommended DGX Spark (GB10, sm_121a) environment for FP4 checkpoints.
-      # The Marlin FP4 MoE backend crashes preparing this 122B's expert scales
-      # (cudaErrorNotPermitted in prepare_nvfp4_moe_layer_for_marlin), so route the
-      # NVFP4 MoE through the FlashInfer CUTLASS path instead.
-      - VLLM_USE_FLASHINFER_MOE_FP4=1
-      - VLLM_FP8_MOE_BACKEND=flashinfer_cutlass
-      - FLASHINFER_DISABLE_VERSION_CHECK=1
-      - CUTE_DSL_ARCH=sm_121a
     ipc: host
-    # Serving recipe per the nvidia/Qwen3.5-122B-A10B-NVFP4 model card
-    # (ModelOpt FP4 + fp8 KV cache + qwen3 reasoning/tool parsers).
+    # Belt-and-suspenders: cap the container so any load-time spike is OOM-killed
+    # as the container (clean exit 137) rather than thrashing the whole host.
+    mem_limit: 120g
+    memswap_limit: 120g
+    # NGC entrypoint is nvidia_entrypoint.sh, so the command must include `vllm serve`.
     command:
-      - --model
-      - nvidia/Qwen3.5-122B-A10B-NVFP4
+      - vllm
+      - serve
+      - Qwen/Qwen3.5-122B-A10B-GPTQ-Int4
+      - --host
+      - 0.0.0.0
       - --port
       - "8000"
+      - --trust-remote-code
+      - --quantization
+      - gptq_marlin
       - --tensor-parallel-size
       - "1"
-      - --trust-remote-code
-      - --dtype
-      - auto
-      - --quantization
-      - modelopt_fp4
-      - --kv-cache-dtype
-      - fp8
-      - --attention-backend
-      - flashinfer
-      - --moe-backend
-      - flashinfer_cutlass
       - --gpu-memory-utilization
-      - "0.83"
+      - "0.8"
       - --max-model-len
       - "262144"
       - --max-num-seqs
       - "4"
-      - --max-num-batched-tokens
-      - "8192"
-      - --enable-chunked-prefill
-      - --async-scheduling
-      - --enable-prefix-caching
+      # CUDA graphs (torch.compile) are left ON: on this GPTQ checkpoint they
+      # capture cleanly (unlike the fp8/GDN NVFP4 path) for ~14.9 vs 14.2 tok/s.
+      # If a future NGC image fails graph capture on this hybrid-GDN arch, add
+      # `- --enforce-eager` here to fall back to eager mode (~14.2 tok/s, robust).
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice
       - --tool-call-parser
       - qwen3_coder
-      # Native MTP speculative decoding (the checkpoint ships an MTP module:
-      # mtp_num_hidden_layers=1). Compatible with the forced fp8 KV + flashinfer,
-      # unlike DFlash. Draft MoE runs on triton.
-      - --speculative-config
-      - '{"method": "mtp", "num_speculative_tokens": 3, "moe_backend": "triton"}'
     deploy:
       resources:
         reservations:
