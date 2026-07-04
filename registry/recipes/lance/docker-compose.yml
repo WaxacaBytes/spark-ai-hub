@@ -1,0 +1,32 @@
+services:
+  lance:
+    image: ghcr.io/waxacabytes/lance-spark-ai-hub:latest
+    container_name: spark-ai-hub-lance
+    command:
+      - python
+      - lance_gradio_t2v_v2t.py
+      - --server-name
+      - "0.0.0.0"
+      - --server-port
+      - "7860"
+      - --gpus
+      - "0"
+    ports:
+      - "7871:7860"
+    environment:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
+    volumes:
+      - lance-tmps:/app/Lance/tmps
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  lance-tmps:

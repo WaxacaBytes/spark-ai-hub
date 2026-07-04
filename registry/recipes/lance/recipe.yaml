@@ -1,0 +1,38 @@
+name: "Lance"
+slug: lance
+version: "1.0.0"
+description: "Generate videos from text and understand videos with Lance, ByteDance's 3B unified multimodal model. A single Gradio interface for text-to-video generation and video question-answering / captioning, rebuilt natively for the DGX Spark."
+author: "ByteDance"
+source: "spark-ai-hub"
+website: "https://huggingface.co/bytedance-research/Lance"
+upstream: "https://github.com/bytedance/Lance"
+fork: "https://huggingface.co/bytedance-research/Lance"
+category: video-gen
+categories:
+  - video-gen
+  - multi-modal
+tags:
+  - lance
+  - bytedance
+  - text-to-video
+  - video-understanding
+  - unified-multimodal
+  - gradio
+icon: "\U0001F3AC"
+logo: "/logos/bytedance.png"
+requirements:
+  min_memory_gb: 48
+  recommended_memory_gb: 96
+  disk_gb: 60
+  cuda_compute: "12.1"
+ui:
+  type: web
+  port: 7871
+  path: "/"
+docker:
+  build: false
+  build_time_minutes: 25
+  gpu: true
+status: community-verified
+release_date: "2026-05"
+requires_hf_token: false
