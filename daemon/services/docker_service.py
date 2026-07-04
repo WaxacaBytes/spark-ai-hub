@@ -245,6 +245,17 @@ def _parse_hf_file_filter(recipe_dir: Path, service_name: str) -> list[str]:
                     _, quant = _split_repo_quant(t.split("=", 1)[1])
                     _add(quant)
                     break
+
+    # Vision GGUF recipes need the multimodal projector cached at install time so
+    # that `--mmproj-auto` resolves from the local HF cache when the container is
+    # launched offline (HF_HUB_OFFLINE=1). Pull the repo's mmproj alongside the
+    # main weights whenever vision is opted in and not explicitly disabled.
+    wants_mmproj = (
+        any(t in ("--mmproj-auto", "-mm", "--mmproj", "-mmu", "--mmproj-url") for t in tokens)
+        and "--no-mmproj" not in tokens
+    )
+    if wants_mmproj:
+        _add("mmproj")
     return patterns
 
 
@@ -683,7 +694,21 @@ async def remove_recipe(slug: str) -> str:
         )
         await stop_proc.wait()
 
-    cmd = _compose_cmd(slug, recipe_dir) + ["down", "--rmi", "all", "--volumes"]
+    # Figure out which images are exclusive to this recipe. We must NOT use
+    # `docker compose down --rmi all` blindly: several recipes share a runtime
+    # base image (e.g. the llama.cpp `full-cuda13-*` image is reused across GGUF
+    # recipes), and removing it would break the offline-launch guarantee of the
+    # other still-installed recipes. Only remove images no other installed
+    # recipe references.
+    own_images = set(_parse_compose_images(slug))
+    shared_images: set[str] = set()
+    for other_slug in await get_installed_slugs():
+        if other_slug == slug:
+            continue
+        shared_images.update(_parse_compose_images(other_slug))
+    removable_images = own_images - shared_images
+
+    cmd = _compose_cmd(slug, recipe_dir) + ["down", "--volumes"]
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -693,6 +718,13 @@ async def remove_recipe(slug: str) -> str:
     await proc.wait()
 
     if proc.returncode == 0:
+        for image in removable_images:
+            rmi_proc = await asyncio.create_subprocess_exec(
+                "docker", "rmi", "-f", image,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await rmi_proc.communicate()
         for volume in await _find_project_volumes(slug):
             vol_proc = await asyncio.create_subprocess_exec(
                 "docker", "volume", "rm", "-f", volume,
@@ -796,22 +828,54 @@ async def get_container_name(slug: str) -> str | None:
         return None
 
 
-async def find_prefetch_container(slug: str) -> str | None:
-    """Return the name of a running compose-run prefetch container for this slug, if any."""
-    prefix = f"{_compose_project(slug)}-"
+async def _project_run_containers(slug: str) -> list[str]:
+    """Names of running one-off compose-run containers (the prefetch sidecar) for
+    this slug's project.
+
+    Matched by the *exact* `com.docker.compose.project` label rather than a name
+    prefix, so a sibling slug whose project name is a prefix of this one
+    (e.g. `vllm-qwen36-27b-nvfp4` vs `vllm-qwen36-27b-nvfp4-dflash`) can't
+    cross-match and corrupt each other's install state."""
+    project = _compose_project(slug)
     try:
         proc = await asyncio.create_subprocess_exec(
-            "docker", "ps", "--format", "{{.Names}}",
+            "docker", "ps",
+            "--filter", f"label=com.docker.compose.project={project}",
+            "--format", "{{.Names}}",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, _ = await proc.communicate()
-        for name in stdout.decode().strip().splitlines():
-            if name.startswith(prefix) and "-run-" in name:
-                return name
     except Exception:
-        pass
-    return None
+        return []
+    return [n for n in stdout.decode().strip().splitlines() if "-run-" in n]
+
+
+async def _volume_has_weights(slug: str) -> bool:
+    """True if this slug's HF cache volume actually contains downloaded model
+    snapshot files. Used to distinguish a *completed* prefetch from one that was
+    interrupted (daemon restart, uninstall) — the latter must not be recorded as
+    a successful install, or the recipe launches offline with no weights."""
+    volume = f"{_compose_project(slug)}_huggingface-cache"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "run", "--rm", "-v", f"{volume}:/c", "alpine",
+            "sh", "-c",
+            "find /c/hub -type f \\( -name '*.safetensors' -o -name '*.gguf' "
+            "-o -name '*.bin' \\) 2>/dev/null | head -1",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+    except Exception:
+        return False
+    return bool(stdout.decode().strip())
+
+
+async def find_prefetch_container(slug: str) -> str | None:
+    """Return the name of a running compose-run prefetch container for this slug, if any."""
+    names = await _project_run_containers(slug)
+    return names[0] if names else None
 
 
 async def restore_installing_state(known_slugs: list[str]) -> None:
@@ -819,7 +883,8 @@ async def restore_installing_state(known_slugs: list[str]) -> None:
     restore the installing pending state so the UI reflects the correct status."""
     try:
         proc = await asyncio.create_subprocess_exec(
-            "docker", "ps", "--format", "{{.Names}}",
+            "docker", "ps",
+            "--format", '{{.Names}}\t{{.Label "com.docker.compose.project"}}',
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -827,50 +892,57 @@ async def restore_installing_state(known_slugs: list[str]) -> None:
     except Exception:
         return
 
-    running_names = stdout.decode().strip().splitlines()
+    # (container_name, project_label) for every running compose-run sidecar.
+    running: list[tuple[str, str]] = []
+    for line in stdout.decode().strip().splitlines():
+        name, _, project = line.partition("\t")
+        if "-run-" in name:
+            running.append((name, project))
 
     for slug in known_slugs:
         if get_pending(slug) == "installing":
             continue
-        prefix = f"{_compose_project(slug)}-"
-        for name in running_names:
-            if name.startswith(prefix) and "-run-" in name:
-                set_pending(slug, "installing")
-                asyncio.create_task(_watch_prefetch_done(slug))
-                print(f"[restore] detected in-progress install for {slug} ({name})")
-                break
+        project = _compose_project(slug)
+        # Exact project-label match — never a name prefix — so sibling slugs
+        # don't steal each other's in-progress install state.
+        match = next((name for name, proj in running if proj == project), None)
+        if match:
+            set_pending(slug, "installing")
+            asyncio.create_task(_watch_prefetch_done(slug))
+            print(f"[restore] detected in-progress install for {slug} ({match})")
 
 
 async def _watch_prefetch_done(slug: str) -> None:
-    """Poll until the prefetch run-container for this slug exits, then mark installed."""
-    prefix = f"{_compose_project(slug)}-"
+    """Poll until the prefetch run-container for this slug exits, then mark
+    installed *only if* the weights were actually downloaded."""
     for _ in range(7200):  # up to 2 hours
         await asyncio.sleep(5)
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "docker", "ps", "--format", "{{.Names}}",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _ = await proc.communicate()
-            names = stdout.decode().strip().splitlines()
-            still_running = any(n.startswith(prefix) and "-run-" in n for n in names)
+            still_running = bool(await _project_run_containers(slug))
             if not still_running:
-                # Prefetch containers exited — write the installed record if not already there.
-                try:
-                    db = await get_db()
+                # Container gone. Distinguish a completed prefetch from an
+                # interrupted one (daemon restart / uninstall killed it): only
+                # record "installed" when the weights are present on disk.
+                # Otherwise clear the pending state and leave the recipe
+                # not-installed so the UI offers Install rather than a broken
+                # Launch against an empty cache.
+                if await _volume_has_weights(slug):
                     try:
-                        await db.execute(
-                            "INSERT OR IGNORE INTO installed_recipes (slug, status, compose_project) VALUES (?, 'installed', ?)",
-                            (slug, _compose_project(slug)),
-                        )
-                        await db.commit()
-                    finally:
-                        await db.close()
-                except Exception as e:
-                    print(f"[restore] DB write failed for {slug}: {e}")
+                        db = await get_db()
+                        try:
+                            await db.execute(
+                                "INSERT OR IGNORE INTO installed_recipes (slug, status, compose_project) VALUES (?, 'installed', ?)",
+                                (slug, _compose_project(slug)),
+                            )
+                            await db.commit()
+                        finally:
+                            await db.close()
+                    except Exception as e:
+                        print(f"[restore] DB write failed for {slug}: {e}")
+                    print(f"[restore] install complete for {slug}")
+                else:
+                    print(f"[restore] prefetch for {slug} ended without weights; not marking installed")
                 clear_pending(slug)
-                print(f"[restore] install complete for {slug}")
                 return
         except Exception:
             pass
@@ -914,7 +986,10 @@ async def _find_project_volumes(slug: str) -> list[str]:
     # Also check without the trailing slug suffix parts (e.g. spark-ai-hub-hunyuan3d vs spark-ai-hub-hunyuan3d-spark)
     prefixes = {project + "_"}
     base = slug.rsplit("-", 1)[0] if "-" in slug else slug
-    if base != slug:
+    # ...but only if `base` is not itself a real, separate recipe. Otherwise a
+    # slug like `vllm-qwen36-27b-nvfp4-dflash` would match — and delete — the
+    # cache volume of its sibling recipe `vllm-qwen36-27b-nvfp4`.
+    if base != slug and get_recipe_dir(base) is None:
         prefixes.add(f"spark-ai-hub-{base}_")
 
     proc = await asyncio.create_subprocess_exec(
