@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from daemon.config import settings
 from daemon.db import init_db
 from daemon.routers import recipes, containers, system, openai_proxy, anthropic_proxy
+from daemon.services.connect_service import compute_connect_info
 from daemon.services.registry_service import load_recipes, get_recipes
 from daemon.services.docker_service import is_recipe_running, start_health_check, restore_installing_state
 
@@ -65,8 +66,25 @@ app.include_router(system.router)
 app.include_router(anthropic_proxy.router)
 app.include_router(openai_proxy.router)
 
-# Serve the `sah` CLI for `curl ${HUB}/sah/install.sh | sh`
+# Serve the `sah` CLI for `curl ${HUB}/sah/install.sh | sh`.
+# The installer is served dynamically so it bakes in *this* Hub's own stable
+# addresses (mDNS / Tailscale) as the candidate list — never the transient IP
+# the client happened to curl from. Registered before the /sah static mount so
+# it takes precedence over the raw file.
 if SAH_DIR.is_dir():
+    _SAH_INSTALL = SAH_DIR / "install.sh"
+
+    @app.get("/sah/install.sh")
+    def sah_install_script():
+        # Sync def → threadpool: compute_connect_info shells out to tailscale.
+        text = _SAH_INSTALL.read_text()
+        info = compute_connect_info(settings.port)
+        candidates = " ".join(c["url"] for c in info["candidates"]) or info["primary"]
+        # Replace only the assignment (first occurrence); the guard line keeps
+        # the literal marker so a standalone run still detects "not injected".
+        text = text.replace("@SAH_CANDIDATES@", candidates, 1)
+        return Response(content=text, media_type="text/x-shellscript")
+
     app.mount("/sah", StaticFiles(directory=str(SAH_DIR)), name="sah")
 
 # Serve static assets (js, css, etc.) under /assets

@@ -63,6 +63,7 @@ export default function Catalog({ search = '' }) {
   const recipes = useStore((s) => s.recipes)
   const selectRecipe = useStore((s) => s.selectRecipe)
   const installRecipe = useStore((s) => s.installRecipe)
+  const openConnect = useStore((s) => s.openConnect)
   const [category, setCategory] = useState('all')
 
   const heroIndex = useRef(Math.floor(Math.random() * 1000))
@@ -204,6 +205,21 @@ export default function Catalog({ search = '' }) {
                 </h2>
                 <p className="text-xs text-text-dim mt-0.5 m-0">{section.subtitle}</p>
               </div>
+              {section.id === 'vllm' && (
+                <button
+                  onClick={openConnect}
+                  title="Connect a coding agent to the served model"
+                  className="ml-auto shrink-0 flex items-center gap-2.5 pl-2.5 pr-3.5 py-1.5 rounded-xl bg-surface-high text-text-muted border border-outline-dim text-xs font-semibold cursor-pointer hover:text-text hover:border-text-dim transition-all"
+                >
+                  <span className="flex -space-x-1.5">
+                    <AgentChip><ClaudeMark className="w-3 h-3 text-[#D97757]" /></AgentChip>
+                    <AgentChip><img src="/logos/openai.png" alt="Codex" className="w-3.5 h-3.5 object-contain" /></AgentChip>
+                    <AgentChip><img src="/logos/qwen.png" alt="Qwen Code" className="w-3.5 h-3.5 object-contain" /></AgentChip>
+                    <AgentChip><TerminalMark className="w-3 h-3 text-text-muted" /></AgentChip>
+                  </span>
+                  Connect to a coding agent
+                </button>
+              )}
             </div>
             <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
               {section.recipes.map((r) => (
@@ -221,6 +237,37 @@ export default function Catalog({ search = '' }) {
         )}
       </div>
     </div>
+  )
+}
+
+function AgentChip({ children }) {
+  return (
+    <span className="w-5 h-5 rounded-full bg-white ring-1 ring-outline-dim flex items-center justify-center overflow-hidden">
+      {children}
+    </span>
+  )
+}
+
+// Anthropic/Claude-style radial burst mark.
+function ClaudeMark({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-label="Claude Code">
+      <g transform="translate(12 12)">
+        {[0, 45, 90, 135, 180, 225, 270, 315].map((deg) => (
+          <rect key={deg} x="-1" y="-10" width="2" height="9" rx="1" transform={`rotate(${deg})`} />
+        ))}
+      </g>
+    </svg>
+  )
+}
+
+// Generic terminal/CLI glyph for the other coding agents.
+function TerminalMark({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-label="CLI agents">
+      <path d="M5 8l4 4-4 4" />
+      <line x1="12" y1="16" x2="18" y2="16" />
+    </svg>
   )
 }
 

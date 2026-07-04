@@ -2,11 +2,22 @@ import asyncio
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
+from daemon.config import settings
 from daemon.models.container import SystemMetrics
 from daemon.services import hf_token
+from daemon.services.connect_service import compute_connect_info
 from daemon.services.monitor_service import get_system_metrics
 
 router = APIRouter(tags=["system"])
+
+
+@router.get("/api/system/connect")
+def connect_info():
+    """Reachable addresses for wiring up a `sah` client to this Hub.
+
+    Sync `def` so FastAPI runs it in a threadpool — it shells out to
+    `tailscale` and opens a socket, which must not block the event loop."""
+    return compute_connect_info(settings.port)
 
 
 @router.get("/api/system/hf-token")

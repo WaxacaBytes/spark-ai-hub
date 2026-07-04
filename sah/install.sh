@@ -1,31 +1,70 @@
 #!/usr/bin/env sh
-# sah installer — drops the `sah` CLI into ~/.local/bin and persists the Hub URL.
+# sah installer — drops the `sah` CLI into ~/.local/bin and persists the Hub
+# address(es). The Hub serves this script with its own stable names injected,
+# so the client stores a name that survives the server's IP changing (DHCP).
 #
 # Usage on a client laptop:
-#   curl http://192.168.3.16:9000/sah/install.sh | sh
-#   curl http://192.168.3.16:9000/sah/install.sh | sh -s -- --hub http://other:9000
+#   curl -fsSL http://<hub>:9000/sah/install.sh | sh
+#   curl -fsSL http://<hub>:9000/sah/install.sh | sh -s -- --hub http://other:9000
 set -eu
 
-HUB="${SAH_HUB:-http://192.168.3.16:9000}"
+# Candidate Hub URLs, most-stable first. The Hub replaces the marker below
+# when it serves this script; if the marker survives (script run standalone),
+# treat it as empty.
+CANDIDATES="@SAH_CANDIDATES@"
+case "$CANDIDATES" in *@SAH_CANDIDATES@*) CANDIDATES="" ;; esac
+
+# Explicit overrides win and go to the front of the list.
+HUB="${SAH_HUB:-}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --hub) HUB="$2"; shift 2;;
         *) echo "unknown arg: $1" >&2; exit 1;;
     esac
 done
+[ -n "$HUB" ] && CANDIDATES="$HUB $CANDIDATES"
+[ -n "$CANDIDATES" ] && [ "$CANDIDATES" != " " ] || CANDIDATES="http://localhost:9000"
+
+# De-duplicate while preserving order (POSIX-safe, no arrays).
+ORDERED=""
+seen=""
+for c in $CANDIDATES; do
+    c="${c%/}"
+    [ -n "$c" ] || continue
+    case " $seen " in *" $c "*) continue ;; esac
+    seen="$seen $c"
+    ORDERED="$ORDERED $c"
+done
 
 BIN_DIR="${HOME}/.local/bin"
 CONFIG_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/sah"
 mkdir -p "$BIN_DIR" "$CONFIG_DIR"
 
-echo "Downloading sah from ${HUB}/sah/sah ..."
-curl -fsSL "${HUB}/sah/sah" -o "${BIN_DIR}/sah"
+# Download the CLI from the first candidate that actually serves it.
+DOWNLOAD_HUB=""
+for c in $ORDERED; do
+    echo "Trying ${c}/sah/sah ..."
+    if curl -fsSL -m 8 "${c}/sah/sah" -o "${BIN_DIR}/sah" 2>/dev/null; then
+        DOWNLOAD_HUB="$c"
+        break
+    fi
+done
+if [ -z "$DOWNLOAD_HUB" ]; then
+    echo "Could not reach the Hub at any of:${ORDERED}" >&2
+    exit 1
+fi
 chmod +x "${BIN_DIR}/sah"
 
-printf '%s\n' "$HUB" > "${CONFIG_DIR}/hub"
+# Persist every candidate (stable name first). sah probes this list on each
+# run and uses the first that answers, so a changed server IP self-heals.
+: > "${CONFIG_DIR}/hub"
+for c in $ORDERED; do
+    printf '%s\n' "$c" >> "${CONFIG_DIR}/hub"
+done
 
 echo "Installed: ${BIN_DIR}/sah"
-echo "Hub:       ${HUB}"
+echo "Hub:      ${DOWNLOAD_HUB}"
+printf 'Saved %s address(es) for automatic reconnection.\n' "$(echo "$ORDERED" | wc -w | tr -d ' ')"
 
 # Ensure ${BIN_DIR} is on PATH — both for this session and future shells.
 ensure_path_line() {

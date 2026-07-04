@@ -21,6 +21,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
@@ -36,19 +37,83 @@ except ModuleNotFoundError:  # pragma: no cover
     except ModuleNotFoundError:
         tomllib = None  # type: ignore
 
-DEFAULT_HUB = "http://192.168.3.16:9000"
+DEFAULT_HUB = "http://localhost:9000"
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "sah"
 CONFIG_FILE = CONFIG_DIR / "hub"
 
+_hub_cache: str | None = None
+
+
+def _hub_candidates() -> list[str]:
+    """Ordered Hub URLs to try. $SAH_HUB wins; otherwise every non-empty line
+    of the config file (stable name first, IP last — written at install time)."""
+    if v := os.environ.get("SAH_HUB"):
+        return [v.rstrip("/")]
+    if CONFIG_FILE.is_file():
+        urls = [ln.strip().rstrip("/") for ln in CONFIG_FILE.read_text().splitlines()]
+        urls = [u for u in urls if u]
+        if urls:
+            return urls
+    return [DEFAULT_HUB]
+
+
+def _is_alive(base: str, timeout: float = 1.5) -> bool:
+    """Can we open a TCP connection to this Hub's port?
+
+    A TCP connect, not an HTTP request: a live Hub accepts the connection
+    instantly even when its app layer is briefly saturated (installs, log
+    streaming), whereas a stale address times out. An HTTP probe would give
+    false negatives under load and wrongly fall through to a dead address.
+
+    We resolve every address ourselves and try IPv4 first with a short
+    per-address timeout. mDNS names can resolve to a mix of IPv4, IPv6 and
+    (on the server itself) docker-bridge addresses; the Hub binds 0.0.0.0
+    (IPv4), so trying IPv4 first avoids a stray IPv6 record eating the whole
+    budget and causing a false "dead" verdict."""
+    parts = urllib.parse.urlsplit(base)
+    host = parts.hostname
+    if not host:
+        return False
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except OSError:
+        return False
+    infos.sort(key=lambda i: 0 if i[0] == socket.AF_INET else 1)
+    for family, socktype, proto, _canon, sockaddr in infos:
+        s = socket.socket(family, socktype, proto)
+        s.settimeout(timeout)
+        try:
+            s.connect(sockaddr)
+            return True
+        except OSError:
+            continue
+        finally:
+            s.close()
+    return False
+
 
 def hub_url() -> str:
-    if v := os.environ.get("SAH_HUB"):
-        return v.rstrip("/")
-    if CONFIG_FILE.is_file():
-        v = CONFIG_FILE.read_text().strip()
-        if v:
-            return v.rstrip("/")
-    return DEFAULT_HUB
+    """First reachable Hub address, cached for the life of the process.
+
+    With a single candidate we skip the probe (fast path, matches an explicit
+    override). With several — the install-time list — we probe in order and use
+    the first that answers, so a changed server IP self-heals via the stable
+    mDNS/Tailscale name without the user touching anything."""
+    global _hub_cache
+    if _hub_cache:
+        return _hub_cache
+    candidates = _hub_candidates()
+    if len(candidates) == 1:
+        _hub_cache = candidates[0]
+        return _hub_cache
+    for base in candidates:
+        if _is_alive(base):
+            _hub_cache = base
+            return base
+    # Nothing answered — return the most stable candidate for sane messages.
+    _hub_cache = candidates[0]
+    return _hub_cache
 
 
 def api_base() -> str:
@@ -237,10 +302,14 @@ def _write_json_atomic(path: Path, data: dict) -> None:
 
 
 def cmd_info(_args) -> None:
+    active = hub_url()
     m = current_model()
-    _kv("Hub", hub_url())
+    _kv("Hub", active)
+    others = [c for c in _hub_candidates() if c != active]
+    if others:
+        _kv("Fallback hubs", ", ".join(others))
     _kv("OpenAI base", api_base())
-    _kv("Anthropic base", hub_url())
+    _kv("Anthropic base", active)
     _kv("API key", "sah  (any value works)")
     _kv("Current model", m or "(none — launch one in the Hub)")
 

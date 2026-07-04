@@ -3,6 +3,7 @@ import { useStore } from './store'
 import { useMetrics } from './hooks/useMetrics'
 import ThemeToggle from './components/ThemeToggle'
 import HfTokenModal from './components/HfTokenModal'
+import ConnectModal from './components/ConnectModal'
 import Catalog from './pages/Catalog'
 import Running from './pages/Running'
 import System from './pages/System'
@@ -158,6 +159,7 @@ export default function App() {
         </main>
       </div>
       <HfTokenModal />
+      <ConnectModal />
     </div>
   )
 }
