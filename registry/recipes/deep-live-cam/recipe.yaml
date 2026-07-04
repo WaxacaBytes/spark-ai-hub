@@ -1,7 +1,7 @@
 name: "Deep-Live-Cam"
 slug: deep-live-cam
-version: "1.0.0"
-description: "Perform real-time face swaps on images, videos, and webcam streams with Deep-Live-Cam, using InsightFace and GFPGAN for high-quality single-image face replacement."
+version: "1.1.0"
+description: "Perform real-time face swaps on images, videos, and webcam streams with Deep-Live-Cam, using InsightFace and GFPGAN for high-quality single-image face replacement. Live webcam tuned for smoothness on DGX Spark (cached source face, tunable detection size)."
 author: "hacksider"
 source: "spark-ai-hub"
 website: "https://github.com/hacksider/Deep-Live-Cam"
@@ -26,8 +26,8 @@ ui:
   port: 7869
   path: "/"
 docker:
-  build: false
-  build_time_minutes: 10
+  build: true
+  build_time_minutes: 2
   gpu: true
 status: community-verified
 release_date: "2023-09"

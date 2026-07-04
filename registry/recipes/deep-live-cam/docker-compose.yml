@@ -1,11 +1,29 @@
 services:
   deep-live-cam:
-    image: ghcr.io/waxacabytes/deep-live-cam-spark-ai-hub:latest
+    build:
+      context: .
+      # No hidden config: the only changes vs the upstream image are two patched
+      # source files, applied inline here. They make the LIVE webcam smooth:
+      #   1. app.py — caches the source face across frames instead of re-running
+      #      full detection + ArcFace embedding on the (unchanging) source image
+      #      EVERY frame. That was the dominant per-frame cost ("sin recargar el
+      #      modelo cada vez"). Per-frame compute drops ~119ms -> ~78ms on GB10,
+      #      so it now fits under Gradio's 100ms stream budget (no frame backlog
+      #      = no growing lag).
+      #   2. modules/face_analyser.py — det_size is now env-tunable via
+      #      DLC_DET_SIZE (default 320 for live; bump to 640 for the image/video
+      #      tabs if you need to catch small faces in group shots).
+      dockerfile_inline: |
+        FROM ghcr.io/waxacabytes/deep-live-cam-spark-ai-hub:latest
+        COPY app.py /app/deep-live-cam/app.py
+        COPY modules/face_analyser.py /app/deep-live-cam/modules/face_analyser.py
+    image: spark-ai-hub/deep-live-cam:smooth
     container_name: spark-ai-hub-deep-live-cam
     ports:
       - "7869:7860"
     environment:
       PORT: "7860"
+      DLC_DET_SIZE: "320"
     volumes:
       - deep-live-cam-models:/app/deep-live-cam/models
       - deep-live-cam-output:/app/deep-live-cam/output
