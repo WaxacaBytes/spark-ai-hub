@@ -1,0 +1,43 @@
+name: "Nemotron-3 Elastic 30B-A3B NVFP4"
+slug: vllm-nemotron3-elastic-30b-a3b-nvfp4
+version: "1.0.0"
+description: "NVIDIA Nemotron-Labs-3 Elastic 30B-A3B (MoE, 3B active) — a 3-in-1 elastic reasoning model with nested 30B/23B/12B variants in one NVFP4 checkpoint (23B/12B extractable zero-shot). Hybrid Mamba2-Transformer-MoE, 256K context. Served here as the full 30B; OpenAI-compatible API."
+author: "NVIDIA"
+source: "official"
+website: "https://build.nvidia.com/spark/vllm"
+upstream: "https://huggingface.co/nvidia/NVIDIA-Nemotron-Labs-3-Elastic-30B-A3B-NVFP4"
+category: llm
+tags:
+  - llm
+  - moe
+  - reasoning
+  - elastic
+  - tool-use
+  - vllm
+  - nvfp4
+  - nvidia-official
+logo: "/logos/nvidia.png"
+requirements:
+  min_memory_gb: 30
+  recommended_memory_gb: 45
+  disk_gb: 30
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 10
+  gpu: true
+status: community-verified
+release_date: "2026-04"
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-07-03"
+tokens_per_second: 58.3
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "nvidia/NVIDIA-Nemotron-Labs-3-Elastic-30B-A3B-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/NVIDIA-Nemotron-Labs-3-Elastic-30B-A3B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
