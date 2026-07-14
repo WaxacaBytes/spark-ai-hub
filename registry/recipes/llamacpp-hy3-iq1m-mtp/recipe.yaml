@@ -1,0 +1,46 @@
+name: "Hunyuan Hy3 295B (1-bit IQ1_M + MTP)"
+slug: llamacpp-hy3-iq1m-mtp
+version: "1.0.0"
+description: "Tencent Hunyuan Hy3 (hy_v3) 295B MoE at 1-bit (IQ1_M, ~92GB) with MTP self-speculative decoding, served via a custom-patched llama.cpp built native for the DGX Spark (ARM64+CUDA13). OpenAI-compatible API, 65K context, thinking + tool-call parser."
+author: "Tencent / AngelSlim"
+source: "community"
+website: "https://huggingface.co/AngelSlim/Hy3-GGUF"
+upstream: "https://huggingface.co/AngelSlim/Hy3-GGUF"
+category: llm
+tags:
+  - llm
+  - moe
+  - gguf
+  - llama-cpp
+  - hunyuan
+  - hy3
+  - 1-bit
+  - iq1_m
+  - mtp
+  - reasoning
+  - tool-use
+logo: "/logos/hunyuan.png"
+requirements:
+  min_memory_gb: 108
+  recommended_memory_gb: 128
+  disk_gb: 95
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 4
+  gpu: true
+status: community-verified
+release_date: "2026-07-14"
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-07-14"
+tokens_per_second: 14
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "hy3"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"hy3\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
