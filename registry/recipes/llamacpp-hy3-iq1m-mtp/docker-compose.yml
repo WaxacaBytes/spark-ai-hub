@@ -87,7 +87,7 @@ services:
         {%- endif %}
 
         {%- if not reasoning_effort is defined %}
-            {%- set reasoning_effort = 'no_think' %}
+            {%- set reasoning_effort = 'low' %}
         {%- elif reasoning_effort not in ['high', 'low', 'no_think'] %}
             {%- if reasoning_effort is none %}
                 {{- raise_exception('reasoning_effort error : None, should be no_think/low/high') }}
