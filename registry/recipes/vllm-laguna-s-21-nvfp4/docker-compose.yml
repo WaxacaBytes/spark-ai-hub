@@ -41,6 +41,14 @@ services:
       - poolside_v1
       - --reasoning-parser
       - poolside_v1
+      # Native interleaved thinking on by default, as in the card's serve command.
+      # Required, not cosmetic: the template does `enable_thinking | default(true)`
+      # so the model always thinks, but poolside_v1 (a DeepSeekV3ReasoningParser)
+      # defaults `thinking` to False and falls back to IdentityReasoningParser,
+      # which dumps the chain-of-thought plus a stray `</think>` into `content`
+      # and leaves `reasoning` null. This flag is what separates the two fields.
+      - --default-chat-template-kwargs
+      - '{"enable_thinking": true}'
       - --override-generation-config
       - '{"temperature":0.7,"top_p":0.95}'
       - --max-num-seqs
