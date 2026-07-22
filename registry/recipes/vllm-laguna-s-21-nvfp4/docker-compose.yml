@@ -1,0 +1,62 @@
+services:
+  vllm:
+    # poolside/Laguna-S-2.1-NVFP4 is a `LagunaForCausalLM` (model_type: laguna)
+    # 117.6B-A8.5B MoE. The model card states serving requires vLLM 0.25.0+, and
+    # its "DGX Spark" recipe specifically calls for "vLLM 0.25.1 with CUDA-13
+    # torch". The plain `-aarch64` tag is the CUDA-13 (cu130) build — matching the
+    # host's CUDA 13 driver — so it is pinned here (not the `-cu129` variant).
+    # The poolside_v1 tool-call and reasoning parsers ship inside vLLM 0.25.1, so
+    # no custom image build is needed (build: false).
+    image: vllm/vllm-openai:v0.25.1-aarch64
+    container_name: spark-ai-hub-vllm-laguna-s-21-nvfp4
+    ports:
+      - "9001:8000"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Offline-first: once install has prefetched both the NVFP4 weights and the
+      # DFlash drafter into the cache volume, launch must never hit the network.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    # This is poolside's DGX Spark serving recipe from the model card, verbatim
+    # except for host/port binding. The checkpoint is compressed-tensors
+    # nvfp4-pack-quantized with a baked-in FP8 KV cache (kv_cache_scheme), so vLLM
+    # auto-detects the quantization and KV dtype — no --quantization / --kv-cache-dtype
+    # needed. Both the served model and the --speculative-config drafter are given
+    # as HF repo ids so the Hub prefetches both into the cache volume at install.
+    command:
+      - --model
+      - poolside/Laguna-S-2.1-NVFP4
+      - --port
+      - "8000"
+      # The official vLLM recipe for Laguna serves with --trust-remote-code
+      # (the repo ships a custom config/tokenizer for the `laguna` arch).
+      - --trust-remote-code
+      - --speculative-config
+      - '{"model":"poolside/Laguna-S-2.1-DFlash-NVFP4","num_speculative_tokens":15}'
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - poolside_v1
+      - --reasoning-parser
+      - poolside_v1
+      - --override-generation-config
+      - '{"temperature":0.7,"top_p":0.95}'
+      - --max-num-seqs
+      - "32"
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.85"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

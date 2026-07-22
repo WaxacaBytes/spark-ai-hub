@@ -1,0 +1,45 @@
+name: "Laguna-S 2.1 NVFP4"
+slug: vllm-laguna-s-21-nvfp4
+version: "1.0.0"
+description: "poolside's Laguna-S-2.1 (117.6B-A8.5B MoE, 256 experts) served in native NVFP4 on vLLM 0.25.1 (CUDA-13), following the model card's DGX Spark recipe. Blackwell-native FP4 weights (~71 GB) with an FP8 KV cache and DFlash speculative decoding (poolside/Laguna-S-2.1-DFlash-NVFP4, 15 spec tokens) for agentic coding at a 262K context."
+author: "poolside"
+source: "community"
+website: "https://poolside.ai/"
+upstream: "https://huggingface.co/poolside/Laguna-S-2.1-NVFP4"
+category: llm
+tags:
+  - llm
+  - moe
+  - reasoning
+  - coding
+  - agentic
+  - tool-use
+  - vllm
+  - nvfp4
+  - speculative-decoding
+  - dflash
+  - experimental
+logo: "/logos/poolside.png"
+requirements:
+  min_memory_gb: 100
+  recommended_memory_gb: 120
+  disk_gb: 85
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: false
+  build_time_minutes: 2
+  gpu: true
+status: community-verified
+release_date: "2026-07-21"
+requires_hf_token: false
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "poolside/Laguna-S-2.1-NVFP4"
+  api_key: "not-needed"
+  max_context: "262144"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"poolside/Laguna-S-2.1-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512}'"
+tokens_per_second: 23.5
