@@ -29,5 +29,3 @@ docker:
   gpu: true
 status: official
 release_date: "2023-10"
-depends_on:
-  - ollama-runtime

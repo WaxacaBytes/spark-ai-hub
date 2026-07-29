@@ -452,7 +452,7 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
               <div>
                 <div className="text-[11px] uppercase tracking-[0.16em] text-text-dim font-label">Suggested Add-On</div>
                 <p className="text-sm text-text-dim leading-6 m-0 mt-2">
-                  For quick local testing, install a shared Ollama runtime and connect this app to its default endpoint.
+                  For quick local testing, install a shared model runtime and connect this app to its default endpoint.
                 </p>
               </div>
               <div className="space-y-3">
