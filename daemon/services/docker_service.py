@@ -227,15 +227,26 @@ def _parse_hf_file_filter(recipe_dir: Path, service_name: str) -> list[str]:
     tokens = cmd.split() if isinstance(cmd, str) else [str(x) for x in cmd]
     patterns: list[str] = []
 
+    def _broaden_split(value: str) -> str:
+        # A `--hf-file` that names one shard of a multi-part GGUF
+        # (`...-00001-of-00003.gguf`) must still cause EVERY shard to be
+        # prefetched, or the model is unloadable offline. Replace the shard
+        # index with a glob so all parts of this split match; the resulting
+        # pattern already contains `*`, so the prefetcher uses it verbatim.
+        m = re.search(r"-(\d{5})-of-(\d{5})\.gguf$", value, re.IGNORECASE)
+        if not m:
+            return value
+        return value[: m.start(1)] + "*" + value[m.end(1) :]
+
     def _add(value: str | None) -> None:
         if value and value not in patterns:
             patterns.append(value)
 
     for i, t in enumerate(tokens):
         if t in ("--hf-file", "-hff") and i + 1 < len(tokens):
-            _add(tokens[i + 1])
+            _add(_broaden_split(tokens[i + 1]))
         elif t.startswith("--hf-file=") or t.startswith("-hff="):
-            _add(t.split("=", 1)[1])
+            _add(_broaden_split(t.split("=", 1)[1]))
         elif t in ("-hf", "-hfr", "--hf-repo", "-hfd", "-hfrd", "--hf-repo-draft") and i + 1 < len(tokens):
             _, quant = _split_repo_quant(tokens[i + 1])
             _add(quant)

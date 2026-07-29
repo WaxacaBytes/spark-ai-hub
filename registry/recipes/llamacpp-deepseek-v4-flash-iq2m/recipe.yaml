@@ -1,0 +1,44 @@
+name: "DeepSeek-V4-Flash (UD-IQ2_M)"
+slug: llamacpp-deepseek-v4-flash-iq2m
+version: "1.0.0"
+description: "DeepSeek-V4-Flash 284B MoE (13B active) at 2-bit (Unsloth Dynamic UD-IQ2_M, ~91GB) via llama.cpp. Hybrid CSA+HCA attention, million-token-scale context, thinking modes. OpenAI-compatible API."
+author: "DeepSeek AI"
+source: "community"
+website: "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash"
+upstream: "https://huggingface.co/unsloth/DeepSeek-V4-Flash-GGUF"
+category: llm
+tags:
+  - llm
+  - moe
+  - gguf
+  - llama-cpp
+  - deepseek
+  - deepseek-v4
+  - iq2_m
+  - reasoning
+  - tool-use
+logo: "/logos/deepseek.png"
+requirements:
+  min_memory_gb: 105
+  recommended_memory_gb: 128
+  disk_gb: 95
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: false
+  build_time_minutes: 0
+  gpu: true
+status: community-verified
+release_date: "2026-07-28"
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-07-28"
+tokens_per_second: 16.4
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "deepseek-v4-flash"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"deepseek-v4-flash\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"

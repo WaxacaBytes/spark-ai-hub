@@ -1,0 +1,67 @@
+services:
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:full-cuda13-b10156
+    container_name: spark-ai-hub-llamacpp-deepseek-v4-flash-iq2m
+    entrypoint:
+      - /app/llama-server
+    command:
+      # DeepSeek-V4-Flash 284B-A13B, Unsloth Dynamic UD-IQ2_M (3 shards, ~91GB).
+      # llama.cpp auto-loads all split shards from the first one; the Hub prefetches
+      # every shard at install so launch is fully offline.
+      - -hf
+      - unsloth/DeepSeek-V4-Flash-GGUF
+      - --hf-file
+      - UD-IQ2_M/DeepSeek-V4-Flash-UD-IQ2_M-00001-of-00003.gguf
+      - --alias
+      - deepseek-v4-flash
+      - -ngl
+      - "999"
+      - -c
+      - "98304"
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8080"
+      # DeepSeek MLA-style attention needs flash-attention enabled.
+      - -fa
+      - "on"
+      # Use the Unsloth-improved chat template baked into the GGUF (the upstream
+      # DeepSeek-V4 release ships no jinja template; Unsloth added one).
+      - --jinja
+      # DeepSeek-recommended sampling: temp 1.0, top-p 1.0.
+      - --temp
+      - "1.0"
+      - --top-p
+      - "1.0"
+      # Never hit the network at launch — all shards are prefetched at install.
+      - --offline
+      - --no-mmap
+      - --cont-batching
+      - -np
+      - "1"
+      - -t
+      - "16"
+      - -tb
+      - "16"
+    ports:
+      - "9001:8080"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - GGML_CUDA_ENABLE_UNIFIED_MEMORY=1
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - LLAMA_OFFLINE=1
+      - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:
