@@ -1,11 +1,11 @@
-name: "DeepSeek-V4-Flash (UD-IQ2_M)"
+name: "DeepSeek-V4-Flash-0731 (UD-IQ2_M)"
 slug: llamacpp-deepseek-v4-flash-iq2m
-version: "1.0.0"
-description: "DeepSeek-V4-Flash 284B MoE (13B active) at 2-bit (Unsloth Dynamic UD-IQ2_M, ~91GB) via llama.cpp. Hybrid CSA+HCA attention, million-token-scale context, thinking modes. OpenAI-compatible API."
+version: "2.0.0"
+description: "DeepSeek-V4-Flash-0731 284B MoE (13B active) at 2-bit (Unsloth Dynamic UD-IQ2_M, ~91GB) via llama.cpp. Official release superseding the preview: much stronger agentic + coding scores (Terminal Bench 2.1 82.7). Hybrid CSA+HCA attention, million-token-scale context, thinking modes. OpenAI-compatible API."
 author: "DeepSeek AI"
 source: "community"
-website: "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash"
-upstream: "https://huggingface.co/unsloth/DeepSeek-V4-Flash-GGUF"
+website: "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-0731"
+upstream: "https://huggingface.co/unsloth/DeepSeek-V4-Flash-0731-GGUF"
 category: llm
 tags:
   - llm
@@ -14,6 +14,7 @@ tags:
   - llama-cpp
   - deepseek
   - deepseek-v4
+  - agentic
   - iq2_m
   - reasoning
   - tool-use
@@ -32,11 +33,11 @@ docker:
   build_time_minutes: 0
   gpu: true
 status: community-verified
-release_date: "2026-07-28"
+release_date: "2026-07-31"
 tested_on:
   dgx_os: "7.2"
-  date: "2026-07-28"
-tokens_per_second: 16.4
+  date: "2026-08-01"
+tokens_per_second: 16.5
 integration:
   api_url: "http://<SPARK_IP>:9001/v1"
   model_id: "deepseek-v4-flash"

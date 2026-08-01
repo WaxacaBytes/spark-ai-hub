@@ -5,13 +5,14 @@ services:
     entrypoint:
       - /app/llama-server
     command:
-      # DeepSeek-V4-Flash 284B-A13B, Unsloth Dynamic UD-IQ2_M (3 shards, ~91GB).
-      # llama.cpp auto-loads all split shards from the first one; the Hub prefetches
-      # every shard at install so launch is fully offline.
+      # DeepSeek-V4-Flash-0731 284B-A13B, Unsloth Dynamic UD-IQ2_M (3 shards, ~91GB).
+      # 0731 is the official release, superseding the preview (much stronger agentic
+      # and coding benchmarks). llama.cpp auto-loads all split shards from the first
+      # one; the Hub prefetches every shard at install so launch is fully offline.
       - -hf
-      - unsloth/DeepSeek-V4-Flash-GGUF
+      - unsloth/DeepSeek-V4-Flash-0731-GGUF
       - --hf-file
-      - UD-IQ2_M/DeepSeek-V4-Flash-UD-IQ2_M-00001-of-00003.gguf
+      - UD-IQ2_M/DeepSeek-V4-Flash-0731-UD-IQ2_M-00001-of-00003.gguf
       - --alias
       - deepseek-v4-flash
       - -ngl
@@ -28,11 +29,11 @@ services:
       # Use the Unsloth-improved chat template baked into the GGUF (the upstream
       # DeepSeek-V4 release ships no jinja template; Unsloth added one).
       - --jinja
-      # DeepSeek-recommended sampling: temp 1.0, top-p 1.0.
+      # DeepSeek-recommended sampling for 0731: temp 1.0, top-p 0.95.
       - --temp
       - "1.0"
       - --top-p
-      - "1.0"
+      - "0.95"
       # Never hit the network at launch — all shards are prefetched at install.
       - --offline
       - --no-mmap
