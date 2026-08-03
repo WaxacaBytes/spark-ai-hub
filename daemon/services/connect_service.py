@@ -28,6 +28,7 @@ SUPPORTED_AGENTS = [
     {"name": "Qwen Code", "kind": "CLI", "command": "sah qwen"},
     {"name": "Hermes", "kind": "CLI", "command": "sah hermes"},
     {"name": "OpenClaw", "kind": "CLI", "command": "sah openclaw"},
+    {"name": "Pi", "kind": "CLI", "command": "sah pi"},
     {"name": "Claude Desktop", "kind": "Desktop", "command": "sah claude-desktop --install"},
     {"name": "Hermes Desktop", "kind": "Desktop", "command": "sah hermes-desktop"},
     {"name": "Other OpenAI/Anthropic apps", "kind": "Any", "command": "sah env"},

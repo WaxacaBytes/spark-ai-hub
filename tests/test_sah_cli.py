@@ -91,19 +91,36 @@ class SahCliTests(unittest.TestCase):
         self.assertIn("Mode", text)
         self.assertIn("sah qwen --install", text)
         self.assertIn("sah claude-desktop --restore", text)
-        self.assertRegex(text, r"hermes\s+CLI\s+.*launch only\s+sah hermes\s+n/a")
+        self.assertRegex(text, r"hermes\s+CLI\s+.*persistent\s+sah hermes\s+sah hermes --install")
+        self.assertRegex(text, r"pi\s+CLI\s+.*persistent\s+sah pi\s+sah pi --install")
 
-    def test_hermes_persistent_install_is_explicitly_unsupported(self):
-        class Args:
-            install = True
-            restore = False
-            status = False
-            passthrough = []
+    def test_hermes_install_rewrites_only_the_model_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            cfg = home / ".hermes" / "config.yaml"
+            cfg.parent.mkdir(parents=True)
+            cfg.write_text(
+                "model:\n  default: anthropic/claude-opus-4.6\n  provider: auto\n"
+                "toolsets:\n- hermes-cli\n"
+            )
 
-        with self.assertRaises(SystemExit) as ctx:
-            self.sah.cmd_hermes(Args())
+            old_config_dir = self.sah.CONFIG_DIR
+            self.sah.CONFIG_DIR = Path(tmp) / "config" / "sah"
+            try:
+                with mock.patch.object(self.sah.Path, "home", return_value=home):
+                    with mock.patch.object(self.sah, "api_base", return_value="http://hub/v1"):
+                        with mock.patch("sys.stdout", new=io.StringIO()):
+                            self.sah._install_hermes_global("Qwen/Qwen3.6-27B-FP8")
 
-        self.assertIn("launch-only", str(ctx.exception))
+                            text = cfg.read_text()
+                            self.assertIn("default: Qwen/Qwen3.6-27B-FP8", text)
+                            self.assertIn("base_url: http://hub/v1", text)
+                            self.assertIn("toolsets:\n- hermes-cli", text)
+
+                            self.sah._restore_client_file("hermes", cfg)
+                        self.assertIn("anthropic/claude-opus-4.6", cfg.read_text())
+            finally:
+                self.sah.CONFIG_DIR = old_config_dir
 
     def test_toml_validation_rejects_invalid_config(self):
         with self.assertRaises(SystemExit) as ctx:
@@ -212,6 +229,66 @@ class SahCliTests(unittest.TestCase):
 
         self.assertEqual(config_path, home / ".openclaw-sah" / "openclaw.json")
         self.assertEqual(legacy_path, home / ".openclaw-sah" / "clawdbot.json")
+
+    def test_pi_models_config_registers_hub_provider(self):
+        with mock.patch.object(self.sah, "api_base", return_value="http://hub/v1"):
+            config = self.sah._pi_models_config(
+                "unsloth/Qwen3.6-27B-NVFP4", {"max_model_len": 262144}
+            )
+
+        provider = config["providers"]["sah"]
+        self.assertEqual(provider["baseUrl"], "http://hub/v1")
+        self.assertEqual(provider["api"], "openai-completions")
+        # reasoning_effort is what turns thinking on for Hub models — without
+        # it they emit zero reasoning tokens, so pi must be allowed to send it.
+        self.assertTrue(provider["compat"]["supportsReasoningEffort"])
+        self.assertTrue(provider["models"][0]["reasoning"])
+        self.assertFalse(provider["compat"]["supportsDeveloperRole"])
+        model = provider["models"][0]
+        self.assertEqual(model["id"], "unsloth/Qwen3.6-27B-NVFP4")
+        self.assertEqual(model["input"], ["text", "image"])
+        self.assertEqual(model["contextWindow"], 262144)
+
+    def test_pi_models_config_keeps_other_providers(self):
+        base = {"providers": {"ollama": {"baseUrl": "http://localhost:11434/v1"}}}
+        with mock.patch.object(self.sah, "api_base", return_value="http://hub/v1"):
+            config = self.sah._pi_models_config("meta-llama/Llama-3.3-70B", {}, base)
+
+        self.assertIn("ollama", config["providers"])
+        self.assertEqual(config["providers"]["sah"]["models"][0]["input"], ["text"])
+
+    def test_pi_install_and_restore_round_trips_both_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            agent = home / ".pi" / "agent"
+            agent.mkdir(parents=True)
+            (agent / "settings.json").write_text('{"theme": "light"}\n')
+
+            old_config_dir = self.sah.CONFIG_DIR
+            self.sah.CONFIG_DIR = Path(tmp) / "config" / "sah"
+            try:
+                with mock.patch.dict(self.sah.os.environ, {}, clear=False):
+                    self.sah.os.environ.pop("PI_CODING_AGENT_DIR", None)
+                    with mock.patch.object(self.sah.Path, "home", return_value=home):
+                        with mock.patch.object(self.sah, "api_base", return_value="http://hub/v1"):
+                            with mock.patch("sys.stdout", new=io.StringIO()):
+                                self.sah._install_pi_global("Qwen/Qwen3.6-27B-FP8", {})
+
+                                settings = json.loads((agent / "settings.json").read_text())
+                                self.assertEqual(settings["defaultProvider"], "sah")
+                                self.assertEqual(settings["defaultModel"], "Qwen/Qwen3.6-27B-FP8")
+                                self.assertEqual(settings["theme"], "light")
+                                self.assertTrue((agent / "models.json").is_file())
+
+                                self.sah._restore_pi_global()
+
+                            # settings.json existed before, models.json did not.
+                            self.assertEqual(
+                                (agent / "settings.json").read_text(), '{"theme": "light"}\n'
+                            )
+                            self.assertFalse((agent / "models.json").exists())
+            finally:
+                self.sah.CONFIG_DIR = old_config_dir
 
 
 if __name__ == "__main__":

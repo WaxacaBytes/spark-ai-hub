@@ -29,6 +29,7 @@ sah codex               # launch Codex against the Hub
 sah hermes              # launch Hermes Agent against the Hub
 sah qwen                # launch Qwen Code against the Hub
 sah openclaw            # launch OpenClaw against the Hub
+sah pi                  # launch Pi Coding Agent against the Hub
 sah claude              # launch Claude Code against the Hub  (needs Anthropic-compat endpoint, WIP)
 sah claude-desktop --install  # wire Claude Desktop to the Hub
 
