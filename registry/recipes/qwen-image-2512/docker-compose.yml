@@ -7,6 +7,10 @@ services:
     environment:
       PORT: "7860"
       OUTPUT_DIR: "/data/output"
+      # Model repo is hardcoded in app.py (MODEL_ID=Qwen/Qwen-Image-2512), so the
+      # Hub's command parsers can't see it. Declare it so install-time prefetch
+      # pulls it into the cache volume (online) before the offline launch.
+      SPARK_PREFETCH_HF_REPOS: "Qwen/Qwen-Image-2512"
       HF_HOME: "/root/.cache/huggingface"
       HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-1}"
       TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-1}"

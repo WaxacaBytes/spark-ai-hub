@@ -329,6 +329,54 @@ def _parse_vllm_model_repos(recipe_dir: Path) -> tuple[str, list[str]] | None:
     return service_name, repos
 
 
+def _parse_declared_hf_repos(recipe_dir: Path) -> tuple[str, list[tuple[str, list[str]]]] | None:
+    """Recipes whose model repo is hardcoded in app code (e.g. Gradio/diffusers
+    apps) can't be discovered by the vLLM/llama.cpp command parsers, so their
+    install-time prefetch never runs and the offline launch crashes with an
+    empty cache. They opt in explicitly by declaring a `SPARK_PREFETCH_HF_REPOS`
+    env var (comma/space/newline-separated) on their service.
+
+    Each entry is `repo` (pull the whole repo) or `repo|pat1|pat2` where the
+    trailing pipe-separated tokens restrict the download to matching files
+    (substring patterns, wrapped in `*...*` unless they already contain a glob
+    char). That matters for repos like `lightx2v/...-Lightning` (100+ GB of
+    variants) where the app only loads a single named safetensors file. Returns
+    (service_name, [(repo, [patterns]), ...]) for the first service that declares it."""
+    compose_file = recipe_dir / "docker-compose.yml"
+    if not compose_file.is_file():
+        return None
+    try:
+        with open(compose_file) as f:
+            data = yaml.safe_load(f) or {}
+    except Exception:
+        return None
+    for svc_name, svc in (data.get("services") or {}).items():
+        env = (svc or {}).get("environment") or {}
+        raw = None
+        if isinstance(env, dict):
+            raw = env.get("SPARK_PREFETCH_HF_REPOS")
+        elif isinstance(env, list):
+            for item in env:
+                if isinstance(item, str) and item.startswith("SPARK_PREFETCH_HF_REPOS="):
+                    raw = item.split("=", 1)[1]
+                    break
+        if not raw:
+            continue
+        specs: list[tuple[str, list[str]]] = []
+        for tok in re.split(r"[,\s]+", str(raw)):
+            tok = tok.strip()
+            if not tok:
+                continue
+            parts = tok.split("|")
+            repo = parts[0].strip()
+            pats = [p.strip() for p in parts[1:] if p.strip()]
+            if repo:
+                specs.append((repo, pats))
+        if specs:
+            return svc_name, specs
+    return None
+
+
 async def _stream_proc(cmd: list[str], cwd: str, env: dict | None = None) -> AsyncGenerator[tuple[str, int | None], None]:
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -384,13 +432,30 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
     yield f"[spark-ai-hub] Starting install for {slug}..."
 
     vllm_model = _parse_vllm_model_repos(recipe_dir)
+    declared_repos = _parse_declared_hf_repos(recipe_dir)
 
-    if vllm_model is not None:
-        service_name, model_repos = vllm_model
-        hf_patterns = _parse_hf_file_filter(recipe_dir, service_name)
-        draft_repo = _parse_hf_draft_repo(recipe_dir, service_name)
-        if draft_repo and draft_repo not in model_repos:
-            model_repos.append(draft_repo)
+    if vllm_model is not None or declared_repos is not None:
+        # repo_specs: list of (repo, [file patterns]); [] patterns = whole repo.
+        repo_specs: list[tuple[str, list[str]]] = []
+        if vllm_model is not None:
+            service_name, model_repos = vllm_model
+            hf_patterns = _parse_hf_file_filter(recipe_dir, service_name)
+            draft_repo = _parse_hf_draft_repo(recipe_dir, service_name)
+            if draft_repo and draft_repo not in model_repos:
+                model_repos.append(draft_repo)
+            # llama.cpp quant/mmproj filter applies to every repo, as before.
+            repo_specs = [(repo, hf_patterns) for repo in model_repos]
+        else:
+            service_name = declared_repos[0]
+        # Fold in explicitly declared per-repo specs (a recipe may both run vLLM
+        # and declare extras, or simply enumerate everything it needs offline).
+        if declared_repos is not None:
+            seen = {repo for repo, _ in repo_specs}
+            for repo, pats in declared_repos[1]:
+                if repo not in seen:
+                    repo_specs.append((repo, pats))
+                    seen.add(repo)
+        model_repos = [repo for repo, _ in repo_specs]
         # Phase 1: prepare image (build locally if build:true, else pull)
         if build_recipe:
             pull_cmd = _compose_cmd(slug, recipe_dir) + ["build"]
@@ -411,7 +476,7 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
         # Phase 2: prefetch HF weights via compose run (no port publishing)
         env = _launch_env()
         token = env.get("HF_TOKEN", "")
-        repos_arg = ", ".join(repr(repo) for repo in model_repos)
+        specs_arg = ", ".join(f"({repo!r}, {pats!r})" for repo, pats in repo_specs)
         prefetch_script = (
             "import os, sys\n"
             "os.environ['PYTHONUNBUFFERED'] = '1'\n"
@@ -427,11 +492,11 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
             "    import tqdm.auto as _ta; _ta.tqdm.__init__ = _forced_tqdm_init\n"
             "except Exception: pass\n"
             "from huggingface_hub import snapshot_download\n"
-            f"repos = [{repos_arg}]\n"
-            f"hf_patterns = {hf_patterns!r}\n"
-            "globs = [p if any(c in p for c in '*?[') else f'*{p}*' for p in hf_patterns]\n"
-            "kwargs = {'allow_patterns': globs} if globs else {}\n"
-            "for repo in repos:\n"
+            f"specs = [{specs_arg}]\n"
+            "repos = [r for r, _ in specs]\n"
+            "for repo, pats in specs:\n"
+            "    globs = [p if any(c in p for c in '*?[') else f'*{p}*' for p in pats]\n"
+            "    kwargs = {'allow_patterns': globs} if globs else {}\n"
             "    print(f'[prefetch] downloading {repo}'"
             " + (f\" (patterns: {globs})\" if globs else \"\") + '...', flush=True)\n"
             "    p = snapshot_download(repo, **kwargs)\n"
@@ -459,6 +524,10 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
                 "-e", f"HF_TOKEN={token}",
                 "-e", "HF_HUB_OFFLINE=0",
                 "-e", "TRANSFORMERS_OFFLINE=0",
+                # xet keeps a separate chunk cache alongside the blobs, roughly
+                # doubling transient disk use mid-download. Disable it so the
+                # on-disk footprint stays ~= the repo size.
+                "-e", "HF_HUB_DISABLE_XET=1",
                 "-e", "PYTHONUNBUFFERED=1",
                 "-e", f"PREFETCH_SCRIPT={prefetch_script}",
                 "-v", f"{volume_name}:/root/.cache/huggingface",
@@ -471,6 +540,9 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
                 "-e", f"HF_TOKEN={token}",
                 "-e", "HF_HUB_OFFLINE=0",
                 "-e", "TRANSFORMERS_OFFLINE=0",
+                # Disable xet's chunk cache so mid-download disk use stays
+                # ~= repo size instead of ~2x (matters on a near-full disk).
+                "-e", "HF_HUB_DISABLE_XET=1",
                 "-e", "PYTHONUNBUFFERED=1",
                 "--entrypoint", "python3",
                 service_name,
