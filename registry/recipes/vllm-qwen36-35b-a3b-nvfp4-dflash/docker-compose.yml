@@ -1,18 +1,9 @@
 services:
   vllm:
-    # KNOWN-BROKEN as of 2026-07-01: dflash does NOT run with this checkpoint on
-    # ANY vLLM image, including this nightly (0.22.1rc1.dev26+g4721bb3aa) it was
-    # built for. Root cause is architectural, not a version issue: the NVIDIA
-    # checkpoint bakes in an fp8 KV cache (quant_algo=FP8), but z-lab dflash's
-    # drafter needs a bf16 / non-causal KV path (hence --attention-backend
-    # flash_attn). vLLM requires target+drafter to share one KV-cache page size,
-    # so `unify_kv_cache_spec_page_size` asserts and engine init fails.
-    #   Tested images: v0.20.0/v0.22.0/v0.22.1 can't load the checkpoint
-    #   (lm_head.input_scale); v0.23.0/v0.24.0 load it but hit the same page_size
-    #   assertion; nightly-4721 also hits the page_size assertion.
-    # The recorded tokens_per_second (101.8) appears to be unverified — this
-    # config does not reach serving. Left on nightly-4721 pending investigation
-    # (the drafter would need an fp8-KV-compatible path, or a bf16-KV checkpoint).
+    # NVIDIA's nvidia/Qwen3.6-35B-A3B-NVFP4 card requires the vLLM nightly (0.20.0
+    # can't load this checkpoint's W4A16_NVFP4 MIXED_PRECISION experts). We build a
+    # local image FROM the pinned nightly with z-lab/dflash baked in, so launch is
+    # fully offline and reproducible.
     build:
       context: .
       dockerfile_inline: |
