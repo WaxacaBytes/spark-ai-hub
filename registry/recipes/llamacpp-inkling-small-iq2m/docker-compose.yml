@@ -1,0 +1,73 @@
+services:
+  llama-server:
+    # llama.cpp built with the TML Inkling architecture (upstream PR #25731,
+    # not yet in mainline), native for the DGX Spark (ARM64 + CUDA 13, sm_121).
+    image: ghcr.io/waxacabytes/inkling-llamacpp-spark-ai-hub:latest
+    # Built locally at install time — no registry ships an Inkling-capable
+    # llama.cpp yet. Layers are compiled once and cached; relaunch is offline.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: spark-ai-hub-llamacpp-inkling-small-iq2m
+    command:
+      - -hf
+      - unsloth/Inkling-Small-GGUF
+      # Unsloth ships each quant in its own subdirectory; naming shard 1 makes
+      # the Hub's install-time prefetch pull all 3 shards (~82GB).
+      - --hf-file
+      - UD-IQ2_M/Inkling-Small-UD-IQ2_M-00001-of-00003.gguf
+      - --alias
+      - inkling-small
+      - -ngl
+      - "999"
+      # Native context is 1M; capped at 256K to keep KV within 128GB unified
+      # memory alongside the ~82GB of weights. 35 of 42 layers are local
+      # (sliding window 512), so only the 7 global layers hold a full-length KV.
+      - -c
+      - "262144"
+      - -fa
+      - "on"
+      # KV cache MUST stay f16. Inkling applies a short convolution (sconv) over
+      # K/V, which copies cache tensor -> cache tensor; ggml_cuda_cpy has no
+      # q8_0 -> q8_0 kernel, so `-ctk q8_0 -ctv q8_0` aborts during warmup with
+      #   cpy.cu:609: unsupported type combination (q8_0 to q8_0)
+      # This is affordable here: 35 of the 42 layers are local (sliding window
+      # 512), so only the 7 global layers carry a full-length KV cache.
+      # Use the chat template embedded in the GGUF.
+      - --jinja
+      # Never touch the network at launch — weights are prefetched at install.
+      - --offline
+      - --no-mmap
+      - --cont-batching
+      - -np
+      - "1"
+      - -t
+      - "16"
+      - -tb
+      - "16"
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8080"
+    ports:
+      - "9001:8080"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - GGML_CUDA_ENABLE_UNIFIED_MEMORY=1
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - LLAMA_OFFLINE=1
+      - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

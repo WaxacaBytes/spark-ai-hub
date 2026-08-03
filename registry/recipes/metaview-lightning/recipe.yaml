@@ -1,0 +1,41 @@
+name: "MetaView Lightning — Novel View Synthesis"
+slug: metaview-lightning
+version: "1.0.0"
+description: "Synthesize a novel camera view from a single image. Drag a 3D camera widget to set yaw/pitch and MetaView (ECCV 2026) renders the scene from that viewpoint in 8 steps, using Depth-Anything-3 geometry priors + a Qwen-Image-Edit backbone accelerated by the Lightning 8-step LoRA."
+author: "Kwai-Kolors"
+source: "spark-ai-hub"
+website: "https://huggingface.co/Kwai-Kolors/MetaView"
+upstream: "https://github.com/KlingAIResearch/MetaView"
+fork: "https://huggingface.co/spaces/hugging-apps/metaview-lightning"
+category: image-gen
+categories:
+  - image-gen
+  - multi-modal
+tags:
+  - metaview
+  - novel-view-synthesis
+  - qwen
+  - image-edit
+  - 3d-camera
+  - depth-anything-3
+  - camera-angle
+  - perspective
+  - lightning
+  - gradio
+icon: "⚡"
+logo: "/logos/qwen.png"
+requirements:
+  min_memory_gb: 80
+  recommended_memory_gb: 110
+  disk_gb: 130
+  cuda_compute: "12.1"
+ui:
+  type: web
+  port: 7872
+  path: "/"
+docker:
+  build: true
+  build_time_minutes: 25
+  gpu: true
+status: community-verified
+release_date: "2026-07"

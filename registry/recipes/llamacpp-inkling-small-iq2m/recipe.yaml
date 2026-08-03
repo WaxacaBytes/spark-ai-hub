@@ -1,0 +1,45 @@
+name: "Inkling-Small 276B (UD-IQ2_M)"
+slug: llamacpp-inkling-small-iq2m
+version: "1.0.0"
+description: "Thinking Machines Inkling-Small, a 276B sparse MoE (12B active, 256 experts) at Unsloth Dynamic 2-bit (UD-IQ2_M, ~82GB), served via a llama.cpp built native for the DGX Spark (ARM64 + CUDA 13). OpenAI-compatible API, 256K context. Reasoning model: it thinks before answering, so allow 2000+ max_tokens or the visible answer comes back empty (the chain-of-thought arrives in reasoning_content)."
+author: "Thinking Machines"
+source: "community"
+website: "https://huggingface.co/thinkingmachines/Inkling-Small"
+upstream: "https://huggingface.co/unsloth/Inkling-Small-GGUF"
+category: llm
+tags:
+  - llm
+  - moe
+  - gguf
+  - llama-cpp
+  - thinking-machines
+  - inkling
+  - 2-bit
+  - iq2_m
+  - long-context
+  - tool-use
+logo: "/logos/inkling.png"
+requirements:
+  min_memory_gb: 100
+  recommended_memory_gb: 128
+  disk_gb: 85
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 6
+  gpu: true
+status: community-verified
+release_date: "2026-07-30"
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-07-30"
+tokens_per_second: 22.7
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "inkling-small"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"inkling-small\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
