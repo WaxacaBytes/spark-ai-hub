@@ -7,12 +7,6 @@ services:
     environment:
       PORT: "7860"
       OUTPUT_DIR: "/data/output"
-      # Weights are hardcoded in app.py, so the Hub's command parsers can't see
-      # them. Declare them here so install-time prefetch pulls them into the
-      # cache volume (online) before the container is launched offline. The two
-      # LoRA repos hold many multi-GB variants (Lightning is 100+ GB), but the
-      # app loads a single named file from each, so restrict with `|<file>`.
-      SPARK_PREFETCH_HF_REPOS: "Qwen/Qwen-Image-Edit-2511,lightx2v/Qwen-Image-Edit-2511-Lightning|Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors,fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA|qwen-image-edit-2511-multiple-angles-lora.safetensors"
       HF_HOME: "/root/.cache/huggingface"
       HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-1}"
       TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-1}"
