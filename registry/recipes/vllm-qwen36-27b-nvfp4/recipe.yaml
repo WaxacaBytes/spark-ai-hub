@@ -34,6 +34,11 @@ docker:
   build: false
   gpu: true
 status: community-verified
+engine: "vLLM"
+params_b: 27
+arch: dense
+quantization: "NVFP4"
+weights_gb: 21.9
 release_date: "2026-06-30"
 requires_hf_token: true
 integration:

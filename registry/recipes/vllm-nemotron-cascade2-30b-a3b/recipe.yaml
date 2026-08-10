@@ -29,6 +29,12 @@ docker:
   build_time_minutes: 5
   gpu: true
 status: community-verified
+engine: "vLLM"
+params_b: 30
+active_params_b: 3
+arch: moe
+quantization: "BF16"
+weights_gb: 63.2
 release_date: "2026-03"
 tested_on:
   dgx_os: "7.2"

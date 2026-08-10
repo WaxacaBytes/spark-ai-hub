@@ -37,6 +37,11 @@ docker:
   build_time_minutes: 2
   gpu: true
 status: experimental
+engine: "Atlas"
+params_b: 31
+arch: dense
+quantization: "NVFP4"
+weights_gb: 32.6
 release_date: "2026-05-18"
 requires_hf_token: true
 integration:

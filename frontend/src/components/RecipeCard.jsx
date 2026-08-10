@@ -2,7 +2,16 @@ import { useState } from 'react'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 
-export default function RecipeCard({ recipe }) {
+// "35B-A3B" for MoE (total + active), plain "27B" for dense.
+export function formatParams(recipe) {
+  const b = (n) => (Number.isInteger(n) ? n : n.toFixed(1))
+  const total = `${b(recipe.params_b)}B`
+  return recipe.active_params_b != null ? `${total}-A${b(recipe.active_params_b)}B` : total
+}
+
+// `hideCategories` is set for the Ready-to-Serve Models section, where every
+// card is an LLM and the category chip carries no information.
+export default function RecipeCard({ recipe, hideCategories = false }) {
   const selectRecipe = useStore((s) => s.selectRecipe)
   const installing = useStore((s) => s.installing)
   const updating = useStore((s) => s.updating)
@@ -61,14 +70,33 @@ export default function RecipeCard({ recipe }) {
           <p className="text-xs text-text-muted mt-1.5 m-0 line-clamp-1">{recipe.description}</p>
 
           {/* Tags */}
-          <div className="flex items-center gap-1.5 mt-2">
-            {recipeCategories.slice(0, 2).map((cat) => (
+          <div className="flex flex-wrap items-center gap-1.5 mt-2">
+            {!hideCategories && recipeCategories.slice(0, 2).map((cat) => (
               <span key={cat} className="text-[10px] font-label text-secondary bg-secondary/10 px-2 py-0.5 rounded-full">
                 {cat}
               </span>
             ))}
             {!recipe.docker?.gpu && (
               <span className="text-[10px] font-label text-text-dim bg-surface-high px-2 py-0.5 rounded-full">CPU</span>
+            )}
+            {recipe.engine && (
+              <span className="text-[10px] font-label text-text-muted bg-surface-high px-2 py-0.5 rounded-full">{recipe.engine}</span>
+            )}
+            {recipe.arch && (
+              <span className="text-[10px] font-label text-text-muted bg-surface-high px-2 py-0.5 rounded-full uppercase">
+                {recipe.arch === 'moe' ? 'MoE' : 'Dense'}
+              </span>
+            )}
+            {recipe.params_b != null && (
+              <span className="text-[10px] font-label text-text-muted bg-surface-high px-2 py-0.5 rounded-full">
+                {formatParams(recipe)}
+              </span>
+            )}
+            {recipe.quantization && (
+              <span className="text-[10px] font-label text-text-muted bg-surface-high px-2 py-0.5 rounded-full">{recipe.quantization}</span>
+            )}
+            {recipe.weights_gb != null && (
+              <span className="text-[10px] font-label text-text-muted bg-surface-high px-2 py-0.5 rounded-full">{recipe.weights_gb} GB</span>
             )}
             {recipe.tokens_per_second != null && (
               <span className="text-[10px] font-label text-primary bg-primary/10 px-2 py-0.5 rounded-full">{recipe.tokens_per_second} tok/s</span>

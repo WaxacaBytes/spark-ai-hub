@@ -34,6 +34,11 @@ docker:
   build_time_minutes: 10
   gpu: true
 status: community-verified
+engine: "vLLM"
+params_b: 31
+arch: dense
+quantization: "NVFP4"
+weights_gb: 32.6
 release_date: "2026-03"
 tested_on:
   dgx_os: "7.2"

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
+import { formatParams } from '../components/RecipeCard'
 
 const DETAIL_TABS = [
   { id: 'details', label: 'Overview' },
@@ -184,7 +185,13 @@ export default function RecipeDetail() {
             </div>
           </div>
 
-          <div className="hidden lg:flex items-center gap-2 shrink-0">
+          <div className="hidden lg:flex flex-wrap items-center gap-2 shrink-0">
+            {recipe.engine && <SpecBadge label="Engine" value={recipe.engine} />}
+            {recipe.params_b != null && (
+              <SpecBadge label={recipe.arch === 'moe' ? 'MoE' : 'Dense'} value={formatParams(recipe)} />
+            )}
+            {recipe.quantization && <SpecBadge label="Precision" value={recipe.quantization} />}
+            {recipe.weights_gb != null && <SpecBadge label="Weights" value={`${recipe.weights_gb} GB`} />}
             <SpecBadge label="Memory" value={`${recipe.requirements?.min_memory_gb ?? 8}–${recipe.requirements?.recommended_memory_gb ?? recipe.requirements?.min_memory_gb ?? 8} GB`} />
             <SpecBadge label="Disk" value={`${recipe.requirements?.disk_gb ?? 10} GB`} />
             {recipe.tokens_per_second != null && (

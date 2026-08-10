@@ -34,6 +34,12 @@ docker:
   build_time_minutes: 2
   gpu: true
 status: community-verified
+engine: "vLLM"
+params_b: 117.6
+active_params_b: 8.5
+arch: moe
+quantization: "NVFP4"
+weights_gb: 99.7
 release_date: "2026-07-21"
 requires_hf_token: false
 integration:

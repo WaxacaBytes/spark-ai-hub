@@ -35,6 +35,11 @@ docker:
   build_time_minutes: 3
   gpu: true
 status: community-verified
+engine: "vLLM"
+params_b: 27
+arch: dense
+quantization: "NVFP4"
+weights_gb: 23.4
 release_date: "2026-05-07"
 requires_hf_token: true
 integration:

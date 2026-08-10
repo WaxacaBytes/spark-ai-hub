@@ -32,6 +32,12 @@ docker:
   build_time_minutes: 3
   gpu: true
 status: community-verified
+engine: "vLLM"
+params_b: 35
+active_params_b: 3
+arch: moe
+quantization: "BF16"
+weights_gb: 71.9
 release_date: "2026-05-05"
 requires_hf_token: true
 integration:

@@ -51,6 +51,13 @@ class Recipe(BaseModel):
     source: str = "community"  # spark-ai-hub | official | community
     status: str = "experimental"
     release_date: str = ""  # YYYY-MM or YYYY-MM-DD, model/tool original release date used for catalog ordering
+    # model metadata (LLM recipes) — powers the catalog badges and sort controls
+    engine: str = ""                      # serving engine: vLLM | llama.cpp | Atlas
+    params_b: float | None = None         # total parameters, in billions
+    active_params_b: float | None = None  # active parameters per token, MoE only
+    arch: str = ""                        # "dense" | "moe"
+    quantization: str = ""                # BF16 | FP8 | NVFP4 | INT4 | MXFP4 | Q8_0 | IQ2_M | ...
+    weights_gb: float | None = None       # actual weight download size on disk, in GB
     depends_on: list[str] = []
     requires_hf_token: bool = False
     runtime_env_path: str = ""

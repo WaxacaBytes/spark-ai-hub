@@ -31,6 +31,11 @@ docker:
   build_time_minutes: 3
   gpu: true
 status: community-verified
+engine: "vLLM"
+params_b: 9
+arch: dense
+quantization: "BF16"
+weights_gb: 19.3
 release_date: "2026-04-30"
 integration:
   api_url: "http://<SPARK_IP>:9001/v1"

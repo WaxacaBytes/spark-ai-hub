@@ -53,6 +53,33 @@ const SOURCE_SECTIONS = [
   { id: 'vllm', label: 'Ready-to-Serve Models', subtitle: 'Curated models for DGX Spark. Served on port 9001, one at a time', icon: 'models' },
 ]
 
+// Sort modes for the "Ready-to-Serve Models" section. Each `key` returns a
+// number to sort descending; null/undefined values always sink to the bottom.
+const MODEL_SORTS = [
+  { id: 'release', label: 'Newest', key: null },
+  { id: 'params', label: 'Params', key: (r) => r.params_b },
+  { id: 'size', label: 'Size on disk', key: (r) => r.weights_gb },
+  { id: 'speed', label: 'Speed', key: (r) => r.tokens_per_second },
+]
+
+function byRelease(a, b) {
+  const dateOrder = (b.release_date || '').localeCompare(a.release_date || '')
+  if (dateOrder !== 0) return dateOrder
+  return (a.name || '').localeCompare(b.name || '')
+}
+
+function makeComparator(sort) {
+  if (!sort?.key) return byRelease
+  return (a, b) => {
+    const av = sort.key(a)
+    const bv = sort.key(b)
+    if (av == null && bv == null) return byRelease(a, b)
+    if (av == null) return 1
+    if (bv == null) return -1
+    return bv - av || byRelease(a, b)
+  }
+}
+
 function getSectionId(recipe) {
   if ((recipe.source || 'community') === 'spark-ai-hub') return 'spark-ai-hub'
   if (recipe.slug.startsWith('vllm-') || recipe.slug.startsWith('llamacpp-') || recipe.slug.startsWith('atlas-')) return 'vllm'
@@ -65,6 +92,7 @@ export default function Catalog({ search = '' }) {
   const installRecipe = useStore((s) => s.installRecipe)
   const openConnect = useStore((s) => s.openConnect)
   const [category, setCategory] = useState('all')
+  const [modelSortId, setModelSortId] = useState('release')
 
   const heroIndex = useRef(Math.floor(Math.random() * 1000))
 
@@ -81,17 +109,14 @@ export default function Catalog({ search = '' }) {
   })
 
   const grouped = useMemo(() => {
+    const modelSort = MODEL_SORTS.find((s) => s.id === modelSortId)
     return SOURCE_SECTIONS.map((section) => ({
       ...section,
       recipes: filtered
         .filter((r) => getSectionId(r) === section.id)
-        .sort((a, b) => {
-          const dateOrder = (b.release_date || '').localeCompare(a.release_date || '')
-          if (dateOrder !== 0) return dateOrder
-          return (a.name || '').localeCompare(b.name || '')
-        }),
+        .sort(section.id === 'vllm' ? makeComparator(modelSort) : byRelease),
     })).filter((section) => section.recipes.length > 0)
-  }, [filtered])
+  }, [filtered, modelSortId])
 
   const recipesWithBanners = recipes.filter((r) => getBanner(r.slug))
   const featured = recipesWithBanners.length > 0
@@ -197,7 +222,7 @@ export default function Catalog({ search = '' }) {
       <div className="px-6 pt-4 space-y-10">
         {grouped.map((section) => (
           <div key={section.id} className="animate-fadeIn">
-            <div className="mb-4 flex items-center gap-2">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
               <SectionIcon kind={section.icon} />
               <div>
                 <h2 className="text-lg font-bold text-text tracking-tight font-display m-0">
@@ -206,10 +231,28 @@ export default function Catalog({ search = '' }) {
                 <p className="text-xs text-text-dim mt-0.5 m-0">{section.subtitle}</p>
               </div>
               {section.id === 'vllm' && (
+                <div className="ml-auto shrink-0 flex items-center gap-1 rounded-xl bg-surface-high border border-outline-dim p-0.5">
+                  <span className="text-[10px] font-label text-text-dim px-2">Sort</span>
+                  {MODEL_SORTS.map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => setModelSortId(s.id)}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer transition-all ${
+                        modelSortId === s.id
+                          ? 'bg-primary text-primary-on'
+                          : 'bg-transparent text-text-muted hover:text-text'
+                      }`}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {section.id === 'vllm' && (
                 <button
                   onClick={openConnect}
                   title="Connect a coding agent to the served model"
-                  className="ml-auto shrink-0 flex items-center gap-2.5 pl-2.5 pr-3.5 py-1.5 rounded-xl bg-surface-high text-text-muted border border-outline-dim text-xs font-semibold cursor-pointer hover:text-text hover:border-text-dim transition-all"
+                  className="shrink-0 flex items-center gap-2.5 pl-2.5 pr-3.5 py-1.5 rounded-xl bg-surface-high text-text-muted border border-outline-dim text-xs font-semibold cursor-pointer hover:text-text hover:border-text-dim transition-all"
                 >
                   <span className="flex -space-x-1.5">
                     <AgentChip><ClaudeMark className="w-3 h-3 text-[#D97757]" /></AgentChip>
@@ -223,7 +266,7 @@ export default function Catalog({ search = '' }) {
             </div>
             <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
               {section.recipes.map((r) => (
-                <RecipeCard key={r.slug} recipe={r} />
+                <RecipeCard key={r.slug} recipe={r} hideCategories={section.id === 'vllm'} />
               ))}
             </div>
           </div>

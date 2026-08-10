@@ -35,6 +35,12 @@ docker:
   build_time_minutes: 2
   gpu: true
 status: community-verified
+engine: "Atlas"
+params_b: 122
+active_params_b: 10
+arch: moe
+quantization: "NVFP4"
+weights_gb: 76.4
 release_date: "2026-05-13"
 requires_hf_token: true
 integration:

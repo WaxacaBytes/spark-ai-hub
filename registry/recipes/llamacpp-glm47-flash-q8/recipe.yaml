@@ -30,6 +30,12 @@ docker:
   build_time_minutes: 0
   gpu: true
 status: community-verified
+engine: "llama.cpp"
+params_b: 30
+active_params_b: 3
+arch: moe
+quantization: "Q8_0"
+weights_gb: 31.8
 release_date: "2026-01-19"
 tested_on:
   dgx_os: "7.2"
