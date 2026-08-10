@@ -1,0 +1,81 @@
+services:
+  vllm:
+    # Ling-3.0-tiny is the small member of the Ling-3.0 hybrid-linear MoE family
+    # (BailingMoeV3 / `bailing_hybrid`: Kimi Delta Attention + gated MLA). That
+    # model class, its `ling3` reasoning/tool parsers and the KDA state cache
+    # only landed in vLLM on 2026-08-05, which is newer than every tagged
+    # release, so this recipe pins the arm64 nightly *by digest* — the same
+    # image the Ling-3.0-flash recipe uses. Digest-pinning keeps launch
+    # reproducible and offline after install even though vLLM prunes its dated
+    # nightly tags from Docker Hub within about a day.
+    image: vllm/vllm-openai@sha256:01945934eb699a136507c44ca30618f508c465621230247ff4e3356462e14fcb
+    container_name: spark-ai-hub-vllm-ling3-tiny-fp8
+    ports:
+      - "9001:8000"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # DGX Spark (GB10 Blackwell, sm_121a).
+      - CUTE_DSL_ARCH=sm_121a
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      # This is a *block-scaled* FP8 checkpoint (`scale_fmt: ue8m0`), and neither
+      # of the two kernels vLLM prefers for that layout works on GB10 (sm_121a):
+      #   DeepGEMM -> Assertion error (csrc/apis/layout.hpp:60):
+      #               Unknown SF transformation
+      #   CUTLASS  -> cutlass_gemm_caller (c3x/cutlass_gemm_caller.cuh:52):
+      #               Invalid status
+      # Turning UE8M0 off instead (VLLM_USE_DEEP_GEMM_E8M0=0) does not help --
+      # DeepGEMM then dies on "Unknown recipe" in its layout heuristics.
+      # Disabling both kernels leaves TritonFp8BlockScaledMMKernel for the dense
+      # linears and the Triton FP8 MoE backend for the experts, which do run on
+      # sm_121a. That fallback is why this recipe lands under the 100-105 tok/s
+      # inclusionAI quote for FP8 on a DGX Spark.
+      - VLLM_USE_DEEP_GEMM=0
+      - VLLM_MOE_USE_DEEP_GEMM=0
+      - VLLM_DISABLED_KERNELS=DeepGemmFp8BlockScaledMMKernel,CutlassFp8BlockScaledMMKernel
+    ipc: host
+    command:
+      - --model
+      - inclusionAI/Ling-3.0-tiny-fp8
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --served-model-name
+      - inclusionAI/Ling-3.0-tiny-fp8
+      # Model card: KDA state cache must use the aligned layout.
+      - --mamba-cache-mode
+      - align
+      - --enable-prefix-caching
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - ling3
+      - --reasoning-parser
+      - ling3
+      # The checkpoint is trained to 128K and the model card extends it to 256K
+      # with YaRN (factor 2.0) — config.json ships no rope_scaling, so the
+      # scaling has to be injected the same way the card's SGLang command does.
+      - --hf-overrides
+      - '{"rope_scaling":{"rope_type":"yarn","factor":2.0,"original_max_position_embeddings":131072}}'
+      - --max-model-len
+      - "262144"
+      - --max-num-seqs
+      - "16"
+      - --gpu-memory-utilization
+      # Right-sized on GB10 (121.69 GiB visible): 0.16 reserves 8.87 GiB of KV =
+      # 5.14x concurrency at the full 262144 context, which covers the 16
+      # scheduled sequences without holding memory the rest of the box could use.
+      - "0.16"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

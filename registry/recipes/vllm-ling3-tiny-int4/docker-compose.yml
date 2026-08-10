@@ -1,0 +1,69 @@
+services:
+  vllm:
+    # Same pinned arm64 nightly as the other Ling-3.0 recipes: the BailingMoeV3
+    # `bailing_hybrid` model (Kimi Delta Attention + gated MLA), its KDA state
+    # cache and the `ling3` parsers only landed in vLLM on 2026-08-05, newer
+    # than every tagged release. Pinned by digest because vLLM prunes its dated
+    # nightly tags from Docker Hub within about a day.
+    image: vllm/vllm-openai@sha256:01945934eb699a136507c44ca30618f508c465621230247ff4e3356462e14fcb
+    container_name: spark-ai-hub-vllm-ling3-tiny-int4
+    ports:
+      - "9001:8000"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # DGX Spark (GB10 Blackwell, sm_121a).
+      - CUTE_DSL_ARCH=sm_121a
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+    ipc: host
+    command:
+      - --model
+      - inclusionAI/Ling-3.0-tiny-int4
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --served-model-name
+      - inclusionAI/Ling-3.0-tiny-int4
+      # Model card: KDA state cache must use the aligned layout.
+      - --mamba-cache-mode
+      - align
+      - --enable-prefix-caching
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - ling3
+      - --reasoning-parser
+      - ling3
+      # NOTE: this checkpoint's config.json claims `num_nextn_predict_layers: 1`,
+      # but the safetensors index stops at layer 23 — no NEXTN/MTP head is
+      # actually shipped. Do NOT add `--speculative-config '{"method":"mtp"}'`
+      # here; there are no weights to load for it.
+      #
+      # The checkpoint is trained to 128K and the model card extends it to 256K
+      # with YaRN (factor 2.0) — config.json ships no rope_scaling, so the
+      # scaling has to be injected the same way the card's SGLang command does.
+      - --hf-overrides
+      - '{"rope_scaling":{"rope_type":"yarn","factor":2.0,"original_max_position_embeddings":131072}}'
+      - --max-model-len
+      - "262144"
+      - --max-num-seqs
+      - "16"
+      - --gpu-memory-utilization
+      # Right-sized on GB10 (121.69 GiB visible). At 0.15 vLLM reserved 10.78 GiB
+      # of KV = 6.24x concurrency at the full 262144 context, more than the 16
+      # scheduled sequences need. 0.13 measures 8.16 GiB = 4.73x and hands the
+      # rest of the box back.
+      - "0.13"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:
