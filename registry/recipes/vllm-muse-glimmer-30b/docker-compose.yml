@@ -1,0 +1,61 @@
+services:
+  vllm:
+    # Muse Glimmer is a new architecture (`muse_glimmer`,
+    # MuseGlimmerForConditionalGeneration) that only exists in vLLM's dedicated
+    # Muse Glimmer image. Pinned to the arm64 + CUDA 13 build by digest so the
+    # DGX Spark always gets the native aarch64 image and launch is reproducible.
+    # Tag: vllm/vllm-openai:muse-glimmer-arm64-cu130
+    image: vllm/vllm-openai@sha256:ae1de325b8ea670288c328460a95d3807838cd254e8e9961ea7f6a741ce2c563
+    container_name: spark-ai-hub-vllm-muse-glimmer-30b
+    ports:
+      - "9001:8000"
+    volumes:
+      - huggingface-cache:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+    ipc: host
+    # Serve command from Meta's model card, plus the Spark-tuned memory
+    # headroom. Full-precision BF16 weights — the reference quality bar.
+    command:
+      - --model
+      - meta-models/Muse-Glimmer-30B
+      - --port
+      - "8000"
+      # The card ships a generation_config.json with the sampling defaults the
+      # model was tuned for; `auto` makes vLLM honour it.
+      - --generation-config
+      - auto
+      - --tensor-parallel-size
+      - "1"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - muse_glimmer
+      # Muse Glimmer is a reasoning model: chain-of-thought is split out into
+      # `reasoning` and only the answer lands in `content`. Budget a few
+      # thousand max_tokens or the visible answer comes back empty.
+      - --reasoning-parser
+      - muse_glimmer
+      # Native context is 131072 (see config.json max_position_embeddings).
+      # 39 of the 52 layers are sliding-window (2048), so only 13 global layers
+      # carry a full-length KV cache — a full 128K session costs ~1.8 GiB.
+      - --max-model-len
+      - "131072"
+      - --gpu-memory-utilization
+      # 59.6 GB of BF16 weights + the 1.8B ViT-G/14 vision tower. Measured: at
+      # 0.55 vLLM reserved 12.25 GiB KV = 6.6x concurrency at 131072, more than
+      # needed. 0.50 keeps ~3x and frees ~6 GB.
+      - "0.50"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  huggingface-cache:

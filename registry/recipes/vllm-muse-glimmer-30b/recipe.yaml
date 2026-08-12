@@ -1,0 +1,52 @@
+name: "Muse Glimmer 30B"
+slug: vllm-muse-glimmer-30b
+version: "1.0.0"
+description: "Meta's Muse Glimmer 30B at full BF16 precision — a dense multimodal agentic model (52 layers, 6656 hidden, gated sliding-window attention) with a 1.8B ViT-G/14 perception encoder, distilled from Muse Spark for autonomous tool use, reasoning, and failure recovery on local hardware. Served on vLLM's dedicated Muse Glimmer image with muse_glimmer tool + reasoning parsing, 128K context. Reasoning model: allow 2000+ max_tokens or the visible answer comes back empty (the chain-of-thought arrives in `reasoning`)."
+author: "Meta"
+source: "official"
+website: "https://huggingface.co/meta-models/Muse-Glimmer-30B"
+upstream: "https://huggingface.co/meta-models/Muse-Glimmer-30B"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - reasoning
+  - agentic
+  - tool-use
+  - vllm
+  - meta
+  - muse-glimmer
+  - bf16
+logo: "/logos/meta.png"
+requirements:
+  min_memory_gb: 68
+  recommended_memory_gb: 80
+  disk_gb: 62
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: false
+  build_time_minutes: 5
+  gpu: true
+status: community-verified
+engine: "vLLM"
+params_b: 29.6
+arch: dense
+quantization: "BF16"
+weights_gb: 59.6
+context_length: 131072
+release_date: "2026-08-11"
+requires_hf_token: false
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-08-11"
+tokens_per_second: 4.2
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "meta-models/Muse-Glimmer-30B"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"meta-models/Muse-Glimmer-30B\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 2048, \"temperature\": 0}'"
