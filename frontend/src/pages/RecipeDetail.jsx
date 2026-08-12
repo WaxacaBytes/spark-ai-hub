@@ -503,7 +503,7 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
                     value={recipe.integration.curl_example.replace(/<SPARK_IP>/g, location.hostname)}
                   />
                 )}
-                {(recipe.tags?.includes('vllm') || recipe.tags?.includes('llama-cpp') || recipe.tags?.includes('atlas') || recipe.tags?.includes('dspark')) && (
+                {(recipe.tags?.includes('vllm') || recipe.tags?.includes('llama-cpp') || recipe.tags?.includes('atlas')) && (
                   <BenchmarkBlock
                     value={`python3 - <<'EOF'
 import time, urllib.request, json
