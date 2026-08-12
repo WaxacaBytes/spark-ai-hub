@@ -60,6 +60,16 @@ class WeightsInImageTest(unittest.TestCase):
                     offenders.append(f"{slug}: HF_TOKEN passed as ARG")
         self.assertEqual(offenders, [])
 
+    def test_no_recipe_ships_a_sidecar_dockerfile(self):
+        """Full transparency: everything a recipe builds must be visible in
+        docker-compose.yml as dockerfile_inline, not hidden in a side file the
+        Hub's compose editor never shows."""
+        offenders = [
+            str(p.relative_to(RECIPES))
+            for p in sorted(RECIPES.glob("*/Dockerfile*"))
+        ]
+        self.assertEqual(offenders, [], "use build.dockerfile_inline instead")
+
     def test_recipes_that_build_declare_it_in_recipe_yaml(self):
         offenders = []
         for slug, compose in _composes():
