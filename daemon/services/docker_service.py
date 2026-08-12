@@ -150,185 +150,6 @@ def ensure_runtime_env(recipe_dir: Path) -> tuple[Path | None, bool]:
     return env_file, True
 
 
-def _split_repo_quant(value: str) -> tuple[str, str | None]:
-    """Split `user/repo:quant` into (`user/repo`, `quant`). `quant` is the
-    llama.cpp filename hint (substring matched against repo files)."""
-    if ":" in value:
-        repo, quant = value.split(":", 1)
-        return repo, (quant or None)
-    return value, None
-
-
-def _parse_vllm_model_service(recipe_dir: Path) -> tuple[str, str] | None:
-    """If the compose file has a vllm-style service with `--model <repo>`
-    (or a llama.cpp-style service with `-hf <repo>` / `--hf-repo <repo>`,
-    or an Atlas-style service with `serve <repo>`),
-    return (service_name, model_repo). Used to detect recipes whose install
-    should prefetch HF weights via a no-port sidecar instead of binding ports."""
-    compose_file = recipe_dir / "docker-compose.yml"
-    if not compose_file.is_file():
-        return None
-    try:
-        with open(compose_file) as f:
-            data = yaml.safe_load(f) or {}
-    except Exception:
-        return None
-    for svc_name, svc in (data.get("services") or {}).items():
-        cmd = svc.get("command")
-        if not cmd:
-            continue
-        tokens = cmd.split() if isinstance(cmd, str) else [str(x) for x in cmd]
-        image = str(svc.get("image") or "")
-        if len(tokens) >= 2 and tokens[0] == "serve" and "/" in tokens[1] and "atlas" in image.lower():
-            repo, _ = _split_repo_quant(tokens[1])
-            return svc_name, repo
-        for i, t in enumerate(tokens):
-            if t in ("--model", "-hf", "-hfr", "--hf-repo") and i + 1 < len(tokens):
-                repo, _ = _split_repo_quant(tokens[i + 1])
-                return svc_name, repo
-            for prefix in ("--model=", "--hf-repo=", "-hf=", "--hf-repo-draft="):
-                if t.startswith(prefix):
-                    repo, _ = _split_repo_quant(t.split("=", 1)[1])
-                    return svc_name, repo
-    return None
-
-
-def _service_needs_external_prefetch(recipe_dir: Path, service_name: str) -> bool:
-    """Atlas runtime images intentionally ship without Python/HF tooling, so
-    model prefetch has to use a separate downloader container."""
-    compose_file = recipe_dir / "docker-compose.yml"
-    try:
-        with open(compose_file) as f:
-            data = yaml.safe_load(f) or {}
-    except Exception:
-        return False
-    svc = (data.get("services") or {}).get(service_name) or {}
-    image = str(svc.get("image") or "").lower()
-    cmd = svc.get("command") or []
-    tokens = cmd.split() if isinstance(cmd, str) else [str(x) for x in cmd]
-    return bool(tokens and tokens[0] == "serve" and "atlas" in image)
-
-
-def _parse_hf_file_filter(recipe_dir: Path, service_name: str) -> list[str]:
-    """Collect filename patterns to pass to snapshot_download's allow_patterns.
-
-    Picks up both the main file (`--hf-file <name>` or the `:<quant>` suffix on
-    `-hf`/`--hf-repo`) and the draft file used for speculative decoding
-    (`-hfd <repo>:<quant>` / `--hf-repo-draft`). Returns substring patterns;
-    callers should wrap them in `*...*` for glob matching."""
-    compose_file = recipe_dir / "docker-compose.yml"
-    try:
-        with open(compose_file) as f:
-            data = yaml.safe_load(f) or {}
-    except Exception:
-        return []
-    svc = (data.get("services") or {}).get(service_name) or {}
-    cmd = svc.get("command") or []
-    tokens = cmd.split() if isinstance(cmd, str) else [str(x) for x in cmd]
-    patterns: list[str] = []
-
-    def _broaden_split(value: str) -> str:
-        # A `--hf-file` that names one shard of a multi-part GGUF
-        # (`...-00001-of-00003.gguf`) must still cause EVERY shard to be
-        # prefetched, or the model is unloadable offline. Replace the shard
-        # index with a glob so all parts of this split match; the resulting
-        # pattern already contains `*`, so the prefetcher uses it verbatim.
-        m = re.search(r"-(\d{5})-of-(\d{5})\.gguf$", value, re.IGNORECASE)
-        if not m:
-            return value
-        return value[: m.start(1)] + "*" + value[m.end(1) :]
-
-    def _add(value: str | None) -> None:
-        if value and value not in patterns:
-            patterns.append(value)
-
-    for i, t in enumerate(tokens):
-        if t in ("--hf-file", "-hff") and i + 1 < len(tokens):
-            _add(_broaden_split(tokens[i + 1]))
-        elif t.startswith("--hf-file=") or t.startswith("-hff="):
-            _add(_broaden_split(t.split("=", 1)[1]))
-        elif t in ("-hf", "-hfr", "--hf-repo", "-hfd", "-hfrd", "--hf-repo-draft") and i + 1 < len(tokens):
-            _, quant = _split_repo_quant(tokens[i + 1])
-            _add(quant)
-        else:
-            for prefix in ("-hf=", "--hf-repo=", "-hfd=", "--hf-repo-draft="):
-                if t.startswith(prefix):
-                    _, quant = _split_repo_quant(t.split("=", 1)[1])
-                    _add(quant)
-                    break
-
-    # Vision GGUF recipes need the multimodal projector cached at install time so
-    # that `--mmproj-auto` resolves from the local HF cache when the container is
-    # launched offline (HF_HUB_OFFLINE=1). Pull the repo's mmproj alongside the
-    # main weights whenever vision is opted in and not explicitly disabled.
-    wants_mmproj = (
-        any(t in ("--mmproj-auto", "-mm", "--mmproj", "-mmu", "--mmproj-url") for t in tokens)
-        and "--no-mmproj" not in tokens
-    )
-    if wants_mmproj:
-        _add("mmproj")
-    return patterns
-
-
-def _parse_hf_draft_repo(recipe_dir: Path, service_name: str) -> str | None:
-    """If a draft repo (`-hfd <repo>` / `--hf-repo-draft <repo>`) is set
-    *and differs from the main repo*, return it so install-time prefetch
-    pulls it too."""
-    compose_file = recipe_dir / "docker-compose.yml"
-    try:
-        with open(compose_file) as f:
-            data = yaml.safe_load(f) or {}
-    except Exception:
-        return None
-    svc = (data.get("services") or {}).get(service_name) or {}
-    cmd = svc.get("command") or []
-    tokens = cmd.split() if isinstance(cmd, str) else [str(x) for x in cmd]
-    for i, t in enumerate(tokens):
-        if t in ("-hfd", "-hfrd", "--hf-repo-draft") and i + 1 < len(tokens):
-            return _split_repo_quant(tokens[i + 1])[0]
-        for prefix in ("-hfd=", "--hf-repo-draft="):
-            if t.startswith(prefix):
-                return _split_repo_quant(t.split("=", 1)[1])[0]
-    return None
-
-
-def _parse_vllm_model_repos(recipe_dir: Path) -> tuple[str, list[str]] | None:
-    parsed = _parse_vllm_model_service(recipe_dir)
-    if not parsed:
-        return None
-
-    service_name, model_repo = parsed
-    repos = [model_repo]
-
-    compose_file = recipe_dir / "docker-compose.yml"
-    try:
-        with open(compose_file) as f:
-            data = yaml.safe_load(f) or {}
-    except Exception:
-        return service_name, repos
-
-    svc = (data.get("services") or {}).get(service_name) or {}
-    cmd = svc.get("command") or []
-    tokens = cmd.split() if isinstance(cmd, str) else [str(x) for x in cmd]
-    for i, token in enumerate(tokens):
-        if token == "--speculative-config" and i + 1 < len(tokens):
-            raw_config = tokens[i + 1]
-        elif token.startswith("--speculative-config="):
-            raw_config = token.split("=", 1)[1]
-        else:
-            continue
-
-        try:
-            spec_config = json.loads(raw_config)
-        except json.JSONDecodeError:
-            continue
-        draft_model = spec_config.get("model")
-        if draft_model and draft_model not in repos:
-            repos.append(draft_model)
-
-    return service_name, repos
-
-
 async def _stream_proc(cmd: list[str], cwd: str, env: dict | None = None) -> AsyncGenerator[tuple[str, int | None], None]:
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -383,131 +204,25 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
 
     yield f"[spark-ai-hub] Starting install for {slug}..."
 
-    vllm_model = _parse_vllm_model_repos(recipe_dir)
-
-    if vllm_model is not None:
-        service_name, model_repos = vllm_model
-        hf_patterns = _parse_hf_file_filter(recipe_dir, service_name)
-        draft_repo = _parse_hf_draft_repo(recipe_dir, service_name)
-        if draft_repo and draft_repo not in model_repos:
-            model_repos.append(draft_repo)
-        # Phase 1: prepare image (build locally if build:true, else pull)
-        if build_recipe:
-            pull_cmd = _compose_cmd(slug, recipe_dir) + ["build"]
-            yield f"[spark-ai-hub] Building local image: {' '.join(pull_cmd)}"
-        else:
-            pull_cmd = _compose_cmd(slug, recipe_dir) + ["pull"]
-            yield f"[spark-ai-hub] Pulling image: {' '.join(pull_cmd)}"
-        rc = None
-        async for text, code in _stream_proc(pull_cmd, str(recipe_dir)):
-            if text:
-                yield text
-            if code is not None:
-                rc = code
-        if rc != 0:
-            yield f"[spark-ai-hub] Install failed with exit code {rc}"
-            return
-
-        # Phase 2: prefetch HF weights via compose run (no port publishing)
-        env = _launch_env()
-        token = env.get("HF_TOKEN", "")
-        repos_arg = ", ".join(repr(repo) for repo in model_repos)
-        prefetch_script = (
-            "import os, sys\n"
-            "os.environ['PYTHONUNBUFFERED'] = '1'\n"
-            # Force tqdm to write to stdout and not suppress itself when not a tty
-            "import tqdm as _tqdm\n"
-            "def _forced_tqdm_init(self, *a, **kw):\n"
-            "    kw['disable'] = False\n"
-            "    kw.setdefault('file', sys.stdout)\n"
-            "    _tqdm.tqdm.__class_orig_init__(self, *a, **kw)\n"
-            "_tqdm.tqdm.__class_orig_init__ = _tqdm.tqdm.__init__\n"
-            "_tqdm.tqdm.__init__ = _forced_tqdm_init\n"
-            "try:\n"
-            "    import tqdm.auto as _ta; _ta.tqdm.__init__ = _forced_tqdm_init\n"
-            "except Exception: pass\n"
-            "from huggingface_hub import snapshot_download\n"
-            f"repos = [{repos_arg}]\n"
-            f"hf_patterns = {hf_patterns!r}\n"
-            "globs = [p if any(c in p for c in '*?[') else f'*{p}*' for p in hf_patterns]\n"
-            "kwargs = {'allow_patterns': globs} if globs else {}\n"
-            "for repo in repos:\n"
-            "    print(f'[prefetch] downloading {repo}'"
-            " + (f\" (patterns: {globs})\" if globs else \"\") + '...', flush=True)\n"
-            "    p = snapshot_download(repo, **kwargs)\n"
-            "    print(f'[prefetch] {repo} ready at {p}', flush=True)\n"
-            # gpt-oss needs the openai_harmony tiktoken vocab cached for offline runtime.
-            "if any(r.startswith('openai/gpt-oss') for r in repos):\n"
-            "    import urllib.request, pathlib\n"
-            "    tk_dir = pathlib.Path('/root/.cache/huggingface/tiktoken_encodings')\n"
-            "    tk_dir.mkdir(parents=True, exist_ok=True)\n"
-            "    tk_file = tk_dir / 'o200k_base.tiktoken'\n"
-            "    if not tk_file.exists():\n"
-            "        url = 'https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken'\n"
-            "        print(f'[prefetch] downloading {url} -> {tk_file}', flush=True)\n"
-            "        urllib.request.urlretrieve(url, tk_file)\n"
-            "    print(f'[prefetch] tiktoken vocab ready at {tk_file}', flush=True)\n"
-        )
-        if _service_needs_external_prefetch(recipe_dir, service_name):
-            volume_name = f"{_compose_project(slug)}_huggingface-cache"
-            shell_script = (
-                "pip install --no-cache-dir 'huggingface_hub[hf_xet]' tqdm >/tmp/prefetch-pip.log "
-                "&& python3 -u -c \"$PREFETCH_SCRIPT\""
-            )
-            run_cmd = [
-                "docker", "run", "--rm",
-                "-e", f"HF_TOKEN={token}",
-                "-e", "HF_HUB_OFFLINE=0",
-                "-e", "TRANSFORMERS_OFFLINE=0",
-                "-e", "PYTHONUNBUFFERED=1",
-                "-e", f"PREFETCH_SCRIPT={prefetch_script}",
-                "-v", f"{volume_name}:/root/.cache/huggingface",
-                "python:3.13-slim",
-                "sh", "-lc", shell_script,
-            ]
-        else:
-            run_cmd = _compose_cmd(slug, recipe_dir) + [
-                "run", "--rm", "--no-deps",
-                "-e", f"HF_TOKEN={token}",
-                "-e", "HF_HUB_OFFLINE=0",
-                "-e", "TRANSFORMERS_OFFLINE=0",
-                "-e", "PYTHONUNBUFFERED=1",
-                "--entrypoint", "python3",
-                service_name,
-                "-u", "-c", prefetch_script,
-            ]
-        yield f"[spark-ai-hub] Prefetching weights for {', '.join(model_repos)} (no port bind)..."
-        # Redact the HF token before logging the command so it doesn't leak
-        # into the build log (which is exposed via /api/recipes/{slug}/build-status).
-        redacted_cmd = [
-            f"HF_TOKEN={'***' if token else ''}" if part.startswith("HF_TOKEN=") else part
-            for part in run_cmd
-        ]
-        yield f"[spark-ai-hub] Running: {' '.join(redacted_cmd)}"
-        rc = None
-        async for text, code in _stream_proc(run_cmd, str(recipe_dir), env=env):
-            if text:
-                yield text
-            if code is not None:
-                rc = code
-        if rc != 0:
-            yield f"[spark-ai-hub] Install failed with exit code {rc}"
-            return
+    # Install acquires the app artifact and nothing else: weights are baked
+    # into the image at build time, so there is no separate download phase and
+    # nothing is written outside the image.
+    if build_recipe:
+        cmd = _compose_cmd(slug, recipe_dir) + ["build"]
     else:
-        # Legacy path: non-vllm recipes keep the old "up -d" install behavior.
-        cmd = _compose_cmd(slug, recipe_dir) + ["up", "-d"]
-        if build_recipe:
-            cmd.append("--build")
-        yield f"[spark-ai-hub] Running: {' '.join(cmd)}"
-        rc = None
-        async for text, code in _stream_proc(cmd, str(recipe_dir), env=_launch_env()):
-            if text:
-                yield text
-            if code is not None:
-                rc = code
-        if rc != 0:
-            yield f"[spark-ai-hub] Install failed with exit code {rc}"
-            return
+        cmd = _compose_cmd(slug, recipe_dir) + ["pull"]
+    yield f"[spark-ai-hub] Running: {' '.join(cmd)}"
+    rc = None
+    # _launch_env() carries the auto-detected HF token, which the build needs
+    # to pull gated checkpoints.
+    async for text, code in _stream_proc(cmd, str(recipe_dir), env=_launch_env()):
+        if text:
+            yield text
+        if code is not None:
+            rc = code
+    if rc != 0:
+        yield f"[spark-ai-hub] Install failed with exit code {rc}"
+        return
 
     db = await get_db()
     try:
@@ -671,15 +386,6 @@ async def stop_recipe(slug: str) -> str:
     if not recipe_dir:
         return f"Recipe directory not found for {slug}"
 
-    prefetch = await find_prefetch_container(slug)
-    if prefetch:
-        stop_proc = await asyncio.create_subprocess_exec(
-            "docker", "stop", prefetch,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        await stop_proc.wait()
-
     cmd = _compose_cmd(slug, recipe_dir) + ["down"]
     proc = await asyncio.create_subprocess_exec(
         *cmd,
@@ -695,15 +401,6 @@ async def remove_recipe(slug: str) -> str:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
         return f"Recipe directory not found for {slug}"
-
-    prefetch = await find_prefetch_container(slug)
-    if prefetch:
-        stop_proc = await asyncio.create_subprocess_exec(
-            "docker", "stop", prefetch,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        await stop_proc.wait()
 
     # Figure out which images are exclusive to this recipe. We must NOT use
     # `docker compose down --rmi all` blindly: several recipes share a runtime
@@ -837,127 +534,6 @@ async def get_container_name(slug: str) -> str | None:
         return names[0] if names else None
     except Exception:
         return None
-
-
-async def _project_run_containers(slug: str) -> list[str]:
-    """Names of running one-off compose-run containers (the prefetch sidecar) for
-    this slug's project.
-
-    Matched by the *exact* `com.docker.compose.project` label rather than a name
-    prefix, so a sibling slug whose project name is a prefix of this one
-    (e.g. `vllm-qwen36-27b-nvfp4` vs `vllm-qwen36-27b-nvfp4-dflash`) can't
-    cross-match and corrupt each other's install state."""
-    project = _compose_project(slug)
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "docker", "ps",
-            "--filter", f"label=com.docker.compose.project={project}",
-            "--format", "{{.Names}}",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await proc.communicate()
-    except Exception:
-        return []
-    return [n for n in stdout.decode().strip().splitlines() if "-run-" in n]
-
-
-async def _volume_has_weights(slug: str) -> bool:
-    """True if this slug's HF cache volume actually contains downloaded model
-    snapshot files. Used to distinguish a *completed* prefetch from one that was
-    interrupted (daemon restart, uninstall) — the latter must not be recorded as
-    a successful install, or the recipe launches offline with no weights."""
-    volume = f"{_compose_project(slug)}_huggingface-cache"
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "docker", "run", "--rm", "-v", f"{volume}:/c", "alpine",
-            "sh", "-c",
-            "find /c/hub -type f \\( -name '*.safetensors' -o -name '*.gguf' "
-            "-o -name '*.bin' \\) 2>/dev/null | head -1",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await proc.communicate()
-    except Exception:
-        return False
-    return bool(stdout.decode().strip())
-
-
-async def find_prefetch_container(slug: str) -> str | None:
-    """Return the name of a running compose-run prefetch container for this slug, if any."""
-    names = await _project_run_containers(slug)
-    return names[0] if names else None
-
-
-async def restore_installing_state(known_slugs: list[str]) -> None:
-    """On daemon startup, detect any prefetch-run containers still running and
-    restore the installing pending state so the UI reflects the correct status."""
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "docker", "ps",
-            "--format", '{{.Names}}\t{{.Label "com.docker.compose.project"}}',
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await proc.communicate()
-    except Exception:
-        return
-
-    # (container_name, project_label) for every running compose-run sidecar.
-    running: list[tuple[str, str]] = []
-    for line in stdout.decode().strip().splitlines():
-        name, _, project = line.partition("\t")
-        if "-run-" in name:
-            running.append((name, project))
-
-    for slug in known_slugs:
-        if get_pending(slug) == "installing":
-            continue
-        project = _compose_project(slug)
-        # Exact project-label match — never a name prefix — so sibling slugs
-        # don't steal each other's in-progress install state.
-        match = next((name for name, proj in running if proj == project), None)
-        if match:
-            set_pending(slug, "installing")
-            asyncio.create_task(_watch_prefetch_done(slug))
-            print(f"[restore] detected in-progress install for {slug} ({match})")
-
-
-async def _watch_prefetch_done(slug: str) -> None:
-    """Poll until the prefetch run-container for this slug exits, then mark
-    installed *only if* the weights were actually downloaded."""
-    for _ in range(7200):  # up to 2 hours
-        await asyncio.sleep(5)
-        try:
-            still_running = bool(await _project_run_containers(slug))
-            if not still_running:
-                # Container gone. Distinguish a completed prefetch from an
-                # interrupted one (daemon restart / uninstall killed it): only
-                # record "installed" when the weights are present on disk.
-                # Otherwise clear the pending state and leave the recipe
-                # not-installed so the UI offers Install rather than a broken
-                # Launch against an empty cache.
-                if await _volume_has_weights(slug):
-                    try:
-                        db = await get_db()
-                        try:
-                            await db.execute(
-                                "INSERT OR IGNORE INTO installed_recipes (slug, status, compose_project) VALUES (?, 'installed', ?)",
-                                (slug, _compose_project(slug)),
-                            )
-                            await db.commit()
-                        finally:
-                            await db.close()
-                    except Exception as e:
-                        print(f"[restore] DB write failed for {slug}: {e}")
-                    print(f"[restore] install complete for {slug}")
-                else:
-                    print(f"[restore] prefetch for {slug} ended without weights; not marking installed")
-                clear_pending(slug)
-                return
-        except Exception:
-            pass
-    clear_pending(slug)
 
 
 async def get_installed_slugs() -> set[str]:

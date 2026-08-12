@@ -1,17 +1,33 @@
 services:
   trellis2:
-    image: abelpc/trellis2-spark:v2.0
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('microsoft/TRELLIS.2-4B'); snapshot_download('briaai/RMBG-2.0')"
+        FROM abelpc/trellis2-spark:v2.0
+        COPY --from=weights /weights /workspace/cache/huggingface
+    image: spark-ai-hub/trellis2-spark:v2.0
     container_name: spark-ai-hub-trellis2
     ports:
       - "12156:12156"
-    volumes:
-      - trellis2-hf-cache:/workspace/cache/huggingface
-      - trellis2-triton-cache:/workspace/cache/triton
-      - trellis2-torch-cache:/workspace/cache/torch
     environment:
       GRADIO_SERVER_NAME: "0.0.0.0"
       GRADIO_SERVER_PORT: "12156"
       HF_HOME: "/workspace/cache/huggingface"
+      # app.py loads microsoft/TRELLIS.2-4B; the entrypoint patches briaai/RMBG-2.0
+      # (background removal). Declare both so install-time prefetch caches them
+      # before the offline launch. NOTE: if the pipeline pulls further transitive
+      # assets at init, add them here (confirm with a test install).
+      SPARK_PREFETCH_HF_REPOS: "microsoft/TRELLIS.2-4B,briaai/RMBG-2.0"
       TRITON_CACHE_DIR: "/workspace/cache/triton"
       TORCH_HOME: "/workspace/cache/torch"
       ATTN_BACKEND: "flash-attn"
@@ -27,7 +43,6 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
-volumes:
-  trellis2-hf-cache:
-  trellis2-triton-cache:
-  trellis2-torch-cache:
+secrets:
+  hf_token:
+    environment: HF_TOKEN

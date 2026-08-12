@@ -28,7 +28,7 @@ ui:
   port: 7862
   path: "/"
 docker:
-  build: false
+  build: true
   build_time_minutes: 8
   gpu: true
 status: community-verified

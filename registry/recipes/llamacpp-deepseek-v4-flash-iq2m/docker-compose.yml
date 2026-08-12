@@ -1,6 +1,21 @@
 services:
   llama-server:
-    image: ghcr.io/ggml-org/llama.cpp:full-cuda13-b10156
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('unsloth/DeepSeek-V4-Flash-0731-GGUF', allow_patterns=['UD-IQ2_M/DeepSeek-V4-Flash-0731-UD-IQ2_M-*-of-00003.gguf'])"
+        FROM ghcr.io/ggml-org/llama.cpp:full-cuda13-b10156
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/llamacpp-deepseek-v4-flash-iq2m:full-cuda13-b10156
     container_name: spark-ai-hub-llamacpp-deepseek-v4-flash-iq2m
     entrypoint:
       - /app/llama-server
@@ -46,8 +61,6 @@ services:
       - "16"
     ports:
       - "9001:8080"
-    volumes:
-      - huggingface-cache:/root/.cache/huggingface
     environment:
       - GGML_CUDA_ENABLE_UNIFIED_MEMORY=1
       - HF_TOKEN=${HF_TOKEN:-}
@@ -64,5 +77,6 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
-volumes:
-  huggingface-cache:
+secrets:
+  hf_token:
+    environment: HF_TOKEN

@@ -12,7 +12,7 @@ from daemon.db import init_db
 from daemon.routers import recipes, containers, system, openai_proxy, anthropic_proxy
 from daemon.services.connect_service import compute_connect_info
 from daemon.services.registry_service import load_recipes, get_recipes
-from daemon.services.docker_service import is_recipe_running, start_health_check, restore_installing_state
+from daemon.services.docker_service import is_recipe_running, start_health_check
 
 DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 SAH_DIR = Path(__file__).resolve().parent.parent / "sah"
@@ -22,21 +22,9 @@ async def _check_running_readiness():
     """On startup, probe already-running recipes so ready cache is warm."""
     await asyncio.sleep(2)  # let everything initialize
     slugs = list(get_recipes().keys())
-    await restore_installing_state(slugs)
     for slug in slugs:
         if await is_recipe_running(slug):
             await start_health_check(slug)
-
-
-async def _sync_installing_loop():
-    """Periodically re-sync _pending_actions with actual Docker state.
-    Catches cases where a pending state was cleared prematurely but the
-    prefetch container is still running."""
-    await asyncio.sleep(30)
-    while True:
-        slugs = list(get_recipes().keys())
-        await restore_installing_state(slugs)
-        await asyncio.sleep(30)
 
 
 @asynccontextmanager
@@ -44,7 +32,6 @@ async def lifespan(app: FastAPI):
     await init_db()
     load_recipes()
     asyncio.create_task(_check_running_readiness())
-    asyncio.create_task(_sync_installing_loop())
     yield
 
 

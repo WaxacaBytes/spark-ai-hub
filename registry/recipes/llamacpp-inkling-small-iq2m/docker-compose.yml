@@ -8,6 +8,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      secrets:
+        - hf_token
     container_name: spark-ai-hub-llamacpp-inkling-small-iq2m
     command:
       - -hf
@@ -51,8 +53,6 @@ services:
       - "8080"
     ports:
       - "9001:8080"
-    volumes:
-      - huggingface-cache:/root/.cache/huggingface
     environment:
       - GGML_CUDA_ENABLE_UNIFIED_MEMORY=1
       - HF_TOKEN=${HF_TOKEN:-}
@@ -69,5 +69,6 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
-volumes:
-  huggingface-cache:
+secrets:
+  hf_token:
+    environment: HF_TOKEN
