@@ -1,0 +1,82 @@
+services:
+  vllm:
+    # Ling-3.0-flash is a native hybrid-linear MoE (35 Kimi Delta Attention +
+    # 7 gated MLA layers, 512 routed experts). Upstream vLLM only gained the
+    # BailingMoeV3 KDA model, its MTP head and the `ling3` parsers on
+    # 2026-08-05, which is newer than every tagged release, so this recipe
+    # pins the arm64 nightly *by digest* (nightly-aarch64, 2026-08-09).
+    # Digest-pinning keeps launch reproducible and offline after install even
+    # though vLLM prunes its dated nightly tags.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('inclusionAI/Ling-3.0-flash-int4')"
+        FROM vllm/vllm-openai@sha256:01945934eb699a136507c44ca30618f508c465621230247ff4e3356462e14fcb
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/vllm-ling3-flash-int4:01945934eb699a136507c44ca30618f508c465621230247ff4e3356462e14fcb
+    container_name: spark-ai-hub-vllm-ling3-flash-int4
+    ports:
+      - "9001:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # DGX Spark (GB10 Blackwell, sm_121a).
+      - CUTE_DSL_ARCH=sm_121a
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+    ipc: host
+    command:
+      - --model
+      - inclusionAI/Ling-3.0-flash-int4
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --served-model-name
+      - inclusionAI/Ling-3.0-flash-int4
+      # Model card: KDA state cache must use the aligned layout.
+      - --mamba-cache-mode
+      - align
+      - --enable-prefix-caching
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - ling3
+      - --reasoning-parser
+      - ling3
+      # The int4 checkpoint ships the NEXTN/MTP head (layer 42), so speculative
+      # decoding is free performance — recommended by the model card. The card
+      # suggests 3 tokens, but Ling-3.0 has only one NEXTN layer, so vLLM has to
+      # re-run it per extra token and acceptance drops; measured on GB10.
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":1}'
+      # Native trained context (8K -> 32K -> 256K schedule).
+      - --max-model-len
+      - "262144"
+      - --max-num-seqs
+      - "8"
+      - --gpu-memory-utilization
+      # Right-sized on GB10 (121.69 GiB visible). At 0.90 vLLM reserved 38.4 GiB
+      # of KV = 14.3x concurrency at the full 262144 context — far more than the
+      # 8 scheduled sequences can use. 0.68 keeps ~4x concurrency and hands
+      # ~27 GiB back to the rest of the box.
+      - "0.68"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN

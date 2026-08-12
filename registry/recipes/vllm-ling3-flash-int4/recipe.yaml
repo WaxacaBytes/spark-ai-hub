@@ -1,0 +1,54 @@
+name: "Ling-3.0-flash INT4"
+slug: vllm-ling3-flash-int4
+version: "1.0.0"
+description: "inclusionAI's official 4-bit build of Ling-3.0-flash — a 124B-total / 5.1B-active native hybrid-linear MoE (35 Kimi Delta Attention + 7 gated MLA layers, 512 experts) tuned for agentic coding and deep research. INT4 is the strongest of the official 4-bit checkpoints (GPQA-diamond 83.65 vs 82.42 for FP4), served on vLLM with the model's own NEXTN/MTP speculative head, ling3 reasoning + tool parsers, and the full 256K context."
+author: "inclusionAI (Ant Group)"
+source: "official"
+website: "https://huggingface.co/inclusionAI/Ling-3.0-flash"
+upstream: "https://huggingface.co/inclusionAI/Ling-3.0-flash-int4"
+category: llm
+tags:
+  - llm
+  - moe
+  - hybrid-linear
+  - reasoning
+  - coding
+  - agentic
+  - tool-use
+  - long-context
+  - vllm
+  - ling
+  - int4
+logo: "/logos/ling.png"
+requirements:
+  min_memory_gb: 100
+  recommended_memory_gb: 120
+  disk_gb: 110
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 5
+  gpu: true
+status: community-verified
+engine: "vLLM"
+params_b: 124
+active_params_b: 5.1
+arch: moe
+quantization: "INT4"
+weights_gb: 77.0
+release_date: "2026-08-09"
+requires_hf_token: false
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-08-09"
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "inclusionAI/Ling-3.0-flash-int4"
+  api_key: "not-needed"
+  max_context: "262144"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"inclusionAI/Ling-3.0-flash-int4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 4096, \"temperature\": 0.6, \"top_p\": 0.95}'"
+tokens_per_second: 36.0
