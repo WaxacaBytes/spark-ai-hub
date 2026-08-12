@@ -1,6 +1,21 @@
 services:
   llama-server:
-    image: ghcr.io/ggml-org/llama.cpp:full-cuda13-b8953
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('unsloth/GLM-4.7-Flash-GGUF', allow_patterns=['*GLM-4.7-Flash-Q8_0.gguf*'])"
+        FROM ghcr.io/ggml-org/llama.cpp:full-cuda13-b8953
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/llamacpp-glm47-flash-q8:full-cuda13-b8953
     container_name: spark-ai-hub-llamacpp-glm47-flash-q8
     entrypoint:
       - /app/llama-server
@@ -44,8 +59,6 @@ services:
       - "16"
     ports:
       - "9001:8080"
-    volumes:
-      - huggingface-cache:/root/.cache/huggingface
     environment:
       - GGML_CUDA_ENABLE_UNIFIED_MEMORY=1
       - HF_TOKEN=${HF_TOKEN:-}
@@ -61,5 +74,6 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
-volumes:
-  huggingface-cache:
+secrets:
+  hf_token:
+    environment: HF_TOKEN

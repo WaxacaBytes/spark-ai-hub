@@ -4,12 +4,25 @@ services:
     # It only loads on vLLM's dedicated Gemma4 image (vllm/vllm-openai:gemma).
     # Pinned to the arm64 (DGX Spark / aarch64) image digest so launch is
     # reproducible and works offline once pulled at install time.
-    image: vllm/vllm-openai@sha256:e7d5835566d26faaefa2f7b0f9c365e8bda83aa340f2ebf2f9ba8e53ed5c7e55
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/diffusiongemma-26B-A4B-it-NVFP4')"
+        FROM vllm/vllm-openai@sha256:e7d5835566d26faaefa2f7b0f9c365e8bda83aa340f2ebf2f9ba8e53ed5c7e55
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/vllm-diffusiongemma-26b-a4b-it-nvfp4:e7d5835566d26faaefa2f7b0f9c365e8bda83aa340f2ebf2f9ba8e53ed5c7e55
     container_name: spark-ai-hub-vllm-diffusiongemma-26b-a4b-it-nvfp4
     ports:
       - "9001:8000"
-    volumes:
-      - huggingface-cache:/root/.cache/huggingface
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
@@ -57,5 +70,6 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
-volumes:
-  huggingface-cache:
+secrets:
+  hf_token:
+    environment: HF_TOKEN

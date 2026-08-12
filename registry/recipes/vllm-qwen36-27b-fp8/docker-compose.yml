@@ -1,11 +1,24 @@
 services:
   vllm:
-    image: vllm/vllm-openai:v0.20.0-aarch64-cu130
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3.6-27B-FP8')"
+        FROM vllm/vllm-openai:v0.20.0-aarch64-cu130
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/vllm-qwen36-27b-fp8:v0.20.0-aarch64-cu130
     container_name: spark-ai-hub-vllm-qwen36-27b-fp8
     ports:
       - "9001:8000"
-    volumes:
-      - huggingface-cache:/root/.cache/huggingface
     environment:
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
@@ -42,5 +55,6 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
-volumes:
-  huggingface-cache:
+secrets:
+  hf_token:
+    environment: HF_TOKEN

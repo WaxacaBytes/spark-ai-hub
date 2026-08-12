@@ -31,7 +31,7 @@ ui:
   port: 9001
   path: "/v1/models"
 docker:
-  build: false
+  build: true
   gpu: true
 status: community-verified
 engine: "vLLM"
