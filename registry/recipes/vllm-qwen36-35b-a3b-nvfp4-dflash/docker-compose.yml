@@ -1,24 +1,42 @@
 services:
   vllm:
-    # NVIDIA's nvidia/Qwen3.6-35B-A3B-NVFP4 card requires the vLLM nightly (0.20.0
-    # can't load this checkpoint's W4A16_NVFP4 MIXED_PRECISION experts). We build a
-    # local image FROM the pinned nightly with z-lab/dflash baked in, so launch is
-    # fully offline and reproducible.
+    # KNOWN-BROKEN as of 2026-07-01: dflash does NOT run with this checkpoint on
+    # ANY vLLM image, including this nightly (0.22.1rc1.dev26+g4721bb3aa) it was
+    # built for. Root cause is architectural, not a version issue: the NVIDIA
+    # checkpoint bakes in an fp8 KV cache (quant_algo=FP8), but z-lab dflash's
+    # drafter needs a bf16 / non-causal KV path (hence --attention-backend
+    # flash_attn). vLLM requires target+drafter to share one KV-cache page size,
+    # so `unify_kv_cache_spec_page_size` asserts and engine init fails.
+    #   Tested images: v0.20.0/v0.22.0/v0.22.1 can't load the checkpoint
+    #   (lm_head.input_scale); v0.23.0/v0.24.0 load it but hit the same page_size
+    #   assertion; nightly-4721 also hits the page_size assertion.
+    # The recorded tokens_per_second (101.8) appears to be unverified — this
+    # config does not reach serving. Left on nightly-4721 pending investigation
+    # (the drafter would need an fp8-KV-compatible path, or a bf16-KV checkpoint).
     build:
+      secrets:
+        - hf_token
       context: .
       dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/Qwen3.6-35B-A3B-NVFP4'); snapshot_download('z-lab/Qwen3.6-35B-A3B-DFlash')"
         FROM vllm/vllm-openai:nightly-4721bb3aa43078167eb893a9ebf9e50565030c1c
         RUN apt-get update -qq \
          && apt-get install -y --no-install-recommends git \
          && rm -rf /var/lib/apt/lists/* \
          && pip install --no-cache-dir git+https://github.com/z-lab/dflash.git \
          && pip cache purge || true
+        COPY --from=weights /weights /root/.cache/huggingface
     image: spark-ai-hub/vllm-qwen36-35b-a3b-nvfp4-dflash:nightly-4721bb3a
     container_name: spark-ai-hub-vllm-qwen36-35b-a3b-nvfp4-dflash
     ports:
       - "9001:8000"
-    volumes:
-      - huggingface-cache:/root/.cache/huggingface
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
@@ -84,5 +102,6 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
-volumes:
-  huggingface-cache:
+secrets:
+  hf_token:
+    environment: HF_TOKEN

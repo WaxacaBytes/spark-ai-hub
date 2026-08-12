@@ -32,7 +32,7 @@ ui:
   port: 7863
   path: "/"
 docker:
-  build: false
+  build: true
   build_time_minutes: 8
   gpu: true
 status: community-verified

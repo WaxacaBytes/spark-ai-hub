@@ -1,3 +1,14 @@
+# --- weights stage ---------------------------------------------------
+# Model weights are part of the app artifact: baked into the final image
+# below, so `docker rmi` reclaims every byte this recipe introduced.
+FROM python:3.13-slim AS weights
+ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+RUN pip install --no-cache-dir huggingface_hub
+RUN --mount=type=secret,id=hf_token \
+    HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+    python3 -c "from huggingface_hub import snapshot_download; snapshot_download('unsloth/Inkling-Small-GGUF', allow_patterns=['*UD-IQ2_M/Inkling-Small-UD-IQ2_M-*-of-00003.gguf*'])"
+# ---------------------------------------------------------------------
+
 # inkling-llamacpp-spark-ai-hub — llama.cpp with the TML Inkling architecture
 #
 # Inkling is NOT in mainline llama.cpp yet. Support lives in an open upstream PR:
@@ -72,3 +83,5 @@ ENV PATH="/opt/llama/bin:${PATH}" \
 
 EXPOSE 8080
 ENTRYPOINT ["/opt/llama/bin/llama-server"]
+
+COPY --from=weights /weights /root/.cache/huggingface

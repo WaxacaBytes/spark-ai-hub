@@ -1,18 +1,38 @@
 services:
   qwen-image-perspective:
-    image: ghcr.io/waxacabytes/qwen-image-perspective-spark-ai-hub:latest
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen-Image-Edit-2511'); snapshot_download('lightx2v/Qwen-Image-Edit-2511-Lightning', allow_patterns=['*Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors*']); snapshot_download('fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA', allow_patterns=['*qwen-image-edit-2511-multiple-angles-lora.safetensors*'])"
+        FROM ghcr.io/waxacabytes/qwen-image-perspective-spark-ai-hub:latest
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/qwen-image-perspective:latest
     container_name: spark-ai-hub-qwen-image-perspective
     ports:
       - "7863:7860"
     environment:
       PORT: "7860"
       OUTPUT_DIR: "/data/output"
+      # Weights are hardcoded in app.py, so the Hub's command parsers can't see
+      # them. Declare them here so install-time prefetch pulls them into the
+      # cache volume (online) before the container is launched offline. The two
+      # LoRA repos hold many multi-GB variants (Lightning is 100+ GB), but the
+      # app loads a single named file from each, so restrict with `|<file>`.
+      SPARK_PREFETCH_HF_REPOS: "Qwen/Qwen-Image-Edit-2511,lightx2v/Qwen-Image-Edit-2511-Lightning|Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors,fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA|qwen-image-edit-2511-multiple-angles-lora.safetensors"
       HF_HOME: "/root/.cache/huggingface"
       HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-1}"
       TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-1}"
       PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
     volumes:
-      - qwen-image-perspective-cache:/root/.cache/huggingface
       - qwen-image-perspective-output:/data/output
     deploy:
       resources:
@@ -24,5 +44,8 @@ services:
     restart: unless-stopped
 
 volumes:
-  qwen-image-perspective-cache:
   qwen-image-perspective-output:
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN

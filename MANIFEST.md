@@ -12,13 +12,21 @@
 
 Once you install an app, you must be able to launch it without an internet connection — **always, every time, forever.**
 
-No silent model downloads at runtime. No missing weights discovered mid-session. No "please connect to the internet" errors after initial install. Everything an app needs to function is fetched, cached, and verified during installation. Launch is instant, local, and guaranteed.
+No silent model downloads at runtime. No missing weights discovered mid-session. No "please connect to the internet" errors after initial install. Everything an app needs to function is baked into its image during installation. Launch is instant, local, and guaranteed.
+
+If a download fails because a server is unreachable or the connection drops, that is not something the hub works around: the install failed, and the user installs again. The hub never trades the offline-launch guarantee for download convenience.
 
 ### 2. Complete Container Isolation
 
-Every app lives inside its own Docker container. All data, models, configurations, and artifacts are contained within that container's volumes.
+Every app lives inside its own Docker container.
 
-**Uninstallation is total.** Removing an app removes every byte it consumed. No orphaned volumes, no residual model caches, no hidden data holding space hostage. What you see is what gets freed.
+**Model weights are part of the app artifact.** They are baked into the image at build time, never mounted from a cache volume. An app is one thing you can point at, not an image plus a pile of downloaded state with its own lifetime. A recipe may declare volumes only for data the *user* creates — outputs, databases, uploads — never for models.
+
+**Uninstallation is total.** Removing an app removes every byte it consumed: removing the image is sufficient. No orphaned volumes, no residual model caches, no hidden data holding space hostage. What you see is what gets freed.
+
+This is why the cache is not merely inconvenient but forbidden: a cache outlives the thing it belongs to. Change a recipe's quantization and the old weights stay behind, unreferenced and invisible, and no amount of care at uninstall time can find what nothing points to. An image cannot drift from the app, because it *is* the app.
+
+Corollary: never reintroduce a store that survives `docker rmi` — no HF cache volumes, no bind-mounted host caches, and no BuildKit `RUN --mount=type=cache` for weights. The last one is the tempting one, offered as a fix for re-downloading after a failed build. Refuse it.
 
 ### 3. DGX Spark Proven — Built Native, Not Ported
 
