@@ -1,18 +1,36 @@
 services:
   qwen-image-2512:
-    image: ghcr.io/waxacabytes/qwen-image-2512-spark-ai-hub:latest
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen-Image-2512')"
+        FROM ghcr.io/waxacabytes/qwen-image-2512-spark-ai-hub:latest
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/qwen-image-2512:latest
     container_name: spark-ai-hub-qwen-image-2512
     ports:
       - "7862:7860"
     environment:
       PORT: "7860"
       OUTPUT_DIR: "/data/output"
+      # Model repo is hardcoded in app.py (MODEL_ID=Qwen/Qwen-Image-2512), so the
+      # Hub's command parsers can't see it. Declare it so install-time prefetch
+      # pulls it into the cache volume (online) before the offline launch.
+      SPARK_PREFETCH_HF_REPOS: "Qwen/Qwen-Image-2512"
       HF_HOME: "/root/.cache/huggingface"
       HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-1}"
       TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-1}"
       PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
     volumes:
-      - qwen-image-2512-cache:/root/.cache/huggingface
       - qwen-image-2512-output:/data/output
     deploy:
       resources:
@@ -24,5 +42,8 @@ services:
     restart: unless-stopped
 
 volumes:
-  qwen-image-2512-cache:
   qwen-image-2512-output:
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN

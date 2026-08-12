@@ -5,12 +5,25 @@ services:
     # cudagraph-alignment, M-RoPE fallback, Marlin MoE pin, flashinfer 0.6.8). Stock /
     # our pinned nightly does NOT compile FP4 kernels for SM 12.x. Anonymous public GHCR
     # pull, so launch works offline once the image is pulled at install time.
-    image: ghcr.io/aeon-7/vllm-spark-omni-q36:v1.2
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('AEON-7/Qwen3.6-35B-A3B-heretic-NVFP4'); snapshot_download('z-lab/Qwen3.6-35B-A3B-DFlash')"
+        FROM ghcr.io/aeon-7/vllm-spark-omni-q36:v1.2
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/vllm-qwen36-35b-a3b-heretic-nvfp4-dflash:v1.2
     container_name: spark-ai-hub-vllm-qwen36-35b-a3b-heretic-nvfp4-dflash
     ports:
       - "9001:8000"
-    volumes:
-      - huggingface-cache:/root/.cache/huggingface
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
@@ -82,5 +95,6 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
-volumes:
-  huggingface-cache:
+secrets:
+  hf_token:
+    environment: HF_TOKEN

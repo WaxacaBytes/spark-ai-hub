@@ -5,12 +5,25 @@ services:
     # Muse Glimmer image. Pinned to the arm64 + CUDA 13 build by digest so the
     # DGX Spark always gets the native aarch64 image and launch is reproducible.
     # Tag: vllm/vllm-openai:muse-glimmer-arm64-cu130
-    image: vllm/vllm-openai@sha256:ae1de325b8ea670288c328460a95d3807838cd254e8e9961ea7f6a741ce2c563
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('RedHatAI/Muse-Glimmer-30B-NVFP4')"
+        FROM vllm/vllm-openai@sha256:ae1de325b8ea670288c328460a95d3807838cd254e8e9961ea7f6a741ce2c563
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/vllm-muse-glimmer-30b-nvfp4:ae1de325b8ea670288c328460a95d3807838cd254e8e9961ea7f6a741ce2c563
     container_name: spark-ai-hub-vllm-muse-glimmer-30b-nvfp4
     ports:
       - "9001:8000"
-    volumes:
-      - huggingface-cache:/root/.cache/huggingface
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
@@ -58,5 +71,6 @@ services:
               capabilities: [gpu]
     restart: unless-stopped
 
-volumes:
-  huggingface-cache:
+secrets:
+  hf_token:
+    environment: HF_TOKEN

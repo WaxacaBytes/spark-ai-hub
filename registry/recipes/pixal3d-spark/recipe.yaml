@@ -28,7 +28,7 @@ ui:
   port: 12158
   path: "/"
 docker:
-  build: false
+  build: true
   build_time_minutes: 8
   gpu: true
 status: official

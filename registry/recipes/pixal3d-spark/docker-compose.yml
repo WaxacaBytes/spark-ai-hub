@@ -1,13 +1,25 @@
 services:
   pixal3d:
-    image: ghcr.io/waxacabytes/pixal3d-spark-ai-hub:latest
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('TencentARC/Pixal3D-T'); snapshot_download('Ruicheng/moge-2-vitl'); snapshot_download('briaai/RMBG-2.0'); snapshot_download('camenduru/dinov3-vitl16-pretrain-lvd1689m')"
+        FROM ghcr.io/waxacabytes/pixal3d-spark-ai-hub:latest
+        COPY --from=weights /weights /workspace/cache/huggingface
+    image: spark-ai-hub/pixal3d-spark:latest
     container_name: spark-ai-hub-pixal3d
     ports:
       - "12158:7860"
     volumes:
-      - pixal3d-hf-cache:/workspace/cache/huggingface
-      - pixal3d-triton-cache:/workspace/cache/triton
-      - pixal3d-torch-cache:/workspace/cache/torch
       - pixal3d-output:/workspace/Pixal3D/tmp
     environment:
       GRADIO_SERVER_NAME: "0.0.0.0"
@@ -29,7 +41,8 @@ services:
     restart: unless-stopped
 
 volumes:
-  pixal3d-hf-cache:
-  pixal3d-triton-cache:
-  pixal3d-torch-cache:
   pixal3d-output:
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN

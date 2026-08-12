@@ -1,3 +1,14 @@
+# --- weights stage ---------------------------------------------------
+# Model weights are part of the app artifact: baked into the final image
+# below, so `docker rmi` reclaims every byte this recipe introduced.
+FROM python:3.13-slim AS weights
+ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+RUN pip install --no-cache-dir huggingface_hub
+RUN --mount=type=secret,id=hf_token \
+    HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+    python3 -c "from huggingface_hub import snapshot_download; snapshot_download('AngelSlim/Hy3-GGUF', allow_patterns=['*Hy3-IQ1_M-mtp.gguf*'])"
+# ---------------------------------------------------------------------
+
 # hy3-llamacpp-spark-ai-hub — patched llama.cpp with hy_v3 (Hunyuan v3) support
 #
 # The hy_v3 architecture is NOT in mainline llama.cpp. AngelSlim ship two patches
@@ -78,3 +89,5 @@ ENV PATH="/opt/llama/bin:${PATH}" \
 
 EXPOSE 8080
 ENTRYPOINT ["/opt/llama/bin/llama-server"]
+
+COPY --from=weights /weights /root/.cache/huggingface
