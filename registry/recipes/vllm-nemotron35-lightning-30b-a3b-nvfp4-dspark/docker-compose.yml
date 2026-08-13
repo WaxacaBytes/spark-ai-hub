@@ -41,10 +41,10 @@ services:
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
     ipc: host
-    # NVIDIA's own "1x DGX Spark (GB10)" vLLM recipe from the model card, with two
-    # Hub conventions applied: context capped at 256K (native is 1M) and
-    # --gpu-memory-utilization right-sized for the Spark instead of the card's
-    # 0.91, which would reserve ~116 GB for a model whose weights are 23 GB.
+    # NVIDIA's own "1x DGX Spark (GB10)" vLLM recipe from the model card, served
+    # at the card's full validated 1M context, with --gpu-memory-utilization
+    # right-sized for the Spark instead of the card's 0.91 (which would reserve
+    # ~110 GB for a model whose weights are 19.5 GB).
     command:
       - --model
       - nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4
@@ -90,9 +90,11 @@ services:
       - "32"
       # Right-sized for the Spark, the one place this departs from the card's
       # flag list. The card's 0.91 would reserve ~110 GB for a model whose
-      # weights are 19.5 GB. 0.25 fits a 2.66M token KV cache — 2.54x
-      # concurrency at the full 1M context, inside the Hub's 1.5x-5x band — and
-      # leaves the rest of the Spark's unified memory free for other apps.
+      # weights are 19.5 GB. KV costs ~3.0 KiB/token here (measured: 0.21 gave
+      # 975K tokens, 0.25 gave 2.66M, 0.31 gave 4.89M), so 0.32 buys a 5.54M
+      # token cache — 5.28x concurrency at the full 1M context, the top of the
+      # Hub's 1.5x-5x band — for ~39 GB total, leaving ~80 GB of the Spark
+      # free for other apps.
       # Verified by retrieving a fact from the middle of a 588K token prompt.
       #
       # Measured and rejected: raising --max-num-batched-tokens to 16384 with
@@ -100,7 +102,7 @@ services:
       # 1536" warning) left decode speed unchanged, 108.0 vs 109.7 tok/s, while
       # its activation memory pushed KV concurrency down to 1.45x. Not worth it.
       - --gpu-memory-utilization
-      - "0.25"
+      - "0.32"
     deploy:
       resources:
         reservations:

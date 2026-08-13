@@ -46,7 +46,7 @@ requires_hf_token: false
 tested_on:
   dgx_os: "7.2"
   date: "2026-08-12"
-tokens_per_second: 104.3
+tokens_per_second: 110.1
 integration:
   api_url: "http://<SPARK_IP>:9001/v1"
   model_id: "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4"
