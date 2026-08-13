@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { formatParams } from '../components/RecipeCard'
@@ -8,10 +9,22 @@ const DETAIL_TABS = [
   { id: 'logs', label: 'Logs' },
 ]
 
+// Remount on slug change so per-recipe local state (active tab, logo
+// fallback, …) doesn't leak from one app's page to the next.
 export default function RecipeDetail() {
-  const selectedRecipe = useStore((s) => s.selectedRecipe)
+  const { slug } = useParams()
+  return <RecipeDetailPage key={slug} slug={slug} />
+}
+
+function RecipeDetailPage({ slug }) {
+  const navigate = useNavigate()
   const recipes = useStore((s) => s.recipes)
-  const clearRecipe = useStore((s) => s.clearRecipe)
+  // "Back" walks browser history when there is somewhere to go back to,
+  // so it lands where the user came from (Store or Running).
+  const goBack = () => {
+    if (window.history.length > 1) navigate(-1)
+    else navigate('/')
+  }
   const installing = useStore((s) => s.installing)
   const updating = useStore((s) => s.updating)
   const removing = useStore((s) => s.removing)
@@ -28,7 +41,7 @@ export default function RecipeDetail() {
   const connectLogs = useStore((s) => s.connectLogs)
   const disconnectLogs = useStore((s) => s.disconnectLogs)
 
-  const recipe = recipes.find((r) => r.slug === selectedRecipe)
+  const recipe = recipes.find((r) => r.slug === slug)
   const scrollRef = useRef(null)
   const previousRecipeRef = useRef(null)
   const previousPreferLogsRef = useRef(false)
@@ -40,6 +53,9 @@ export default function RecipeDetail() {
   const [hfToken, setHfToken] = useState('')
   const [hfSaving, setHfSaving] = useState(false)
   const [hfError, setHfError] = useState('')
+  // Must run before any early return — hooks can't be conditional, and on a
+  // deep link this component first renders with the catalog still empty.
+  const logoUrl = useThemedLogo(recipe?.logo)
 
   const isBuilding = !!installing[recipe?.slug]
   const isUpdating = !!updating[recipe?.slug]
@@ -76,10 +92,18 @@ export default function RecipeDetail() {
     previousPreferLogsRef.current = preferLogs
   }, [recipe, isBuilding])
 
+  // Deep link / hard refresh: the catalog hasn't arrived yet, so don't
+  // claim the recipe is missing until we actually have the list.
+  if (!recipe && recipes.length === 0) {
+    return (
+      <div className="p-8 text-sm text-text-dim animate-fadeIn">Loading…</div>
+    )
+  }
+
   if (!recipe) {
     return (
       <div className="p-8 animate-fadeIn">
-        <button onClick={clearRecipe} className="text-primary bg-transparent border-none cursor-pointer text-sm font-semibold font-display">
+        <button onClick={goBack} className="text-primary bg-transparent border-none cursor-pointer text-sm font-semibold font-display">
           ← Back
         </button>
         <p className="text-text-muted mt-4">Recipe not found.</p>
@@ -88,7 +112,6 @@ export default function RecipeDetail() {
   }
 
   const isRemoving = !!removing[recipe.slug]
-  const logoUrl = useThemedLogo(recipe.logo)
   const isReady = recipe.ready
   const cLogs = containerLogs[recipe.slug] || []
   const bLogs = buildLogs[recipe.slug] || []
@@ -154,7 +177,7 @@ export default function RecipeDetail() {
     <div className="flex flex-col h-full animate-fadeIn">
       <div className="shrink-0 px-6 py-5 bg-surface-low/60 backdrop-blur-md border-b border-outline-dim">
         <button
-          onClick={clearRecipe}
+          onClick={goBack}
           className="flex items-center gap-1.5 text-text-muted hover:text-primary bg-transparent border-none cursor-pointer text-sm p-0 mb-4 transition-colors font-medium font-display"
         >
           <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">

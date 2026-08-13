@@ -16,7 +16,9 @@ export const useStore = create((set, get) => ({
   purging: {},     // slug -> true
   _inFlight: {},  // slug -> { starting, running, ready, installed } overrides during transitions
   _ws: null,
-  selectedRecipe: null,
+  // Router navigate(), registered by App. Which recipe is open lives in the
+  // URL (/app/:slug), not here — that's what makes Back and new tabs work.
+  _navigate: null,
   containerLogs: {},
   // slug -> true when the last install attempt failed; used to keep build
   // logs visible (instead of flashing back to "Container not running") until
@@ -41,13 +43,10 @@ export const useStore = create((set, get) => ({
   setRecipes: (recipes) => set({ recipes }),
   setMetrics: (metrics) => set({ metrics }),
 
-  selectRecipe: (slug) => {
-    set({ selectedRecipe: slug })
-  },
+  setNavigate: (navigate) => set({ _navigate: navigate }),
 
-  clearRecipe: () => {
-    get().disconnectLogs()
-    set({ selectedRecipe: null })
+  selectRecipe: (slug) => {
+    get()._navigate?.(`/app/${slug}`)
   },
 
   connectLogs: (slug) => {

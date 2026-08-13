@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from './store'
 import { useMetrics } from './hooks/useMetrics'
 import ThemeToggle from './components/ThemeToggle'
@@ -10,26 +11,47 @@ import System from './pages/System'
 import RecipeDetail from './pages/RecipeDetail'
 
 const NAV_ITEMS = [
-  { id: 'catalog', label: 'Store', icon: StorefrontIcon },
-  { id: 'running', label: 'Running', icon: PlayIcon },
-  { id: 'about', label: 'About', icon: InfoIcon },
+  { path: '/', label: 'Store', icon: StorefrontIcon },
+  { path: '/running', label: 'Running', icon: PlayIcon },
+  { path: '/about', label: 'About', icon: InfoIcon },
 ]
 
+const PAGE_TITLES = {
+  '/': 'Store',
+  '/running': 'Running',
+  '/system': 'System',
+  '/about': 'About',
+}
+
 export default function App() {
-  const [tab, setTab] = useState('catalog')
   const recipes = useStore((s) => s.recipes)
   const fetchRecipes = useStore((s) => s.fetchRecipes)
-  const selectedRecipe = useStore((s) => s.selectedRecipe)
-  const clearRecipe = useStore((s) => s.clearRecipe)
+  const setNavigate = useStore((s) => s.setNavigate)
   const theme = useStore((s) => s.theme)
   const metrics = useStore((s) => s.metrics)
   const [search, setSearch] = useState('')
+  const location = useLocation()
+  const navigate = useNavigate()
+
+  const isDetail = location.pathname.startsWith('/app/')
 
   useMetrics()
+
+  // Let store actions (selectRecipe, …) drive the router.
+  useEffect(() => {
+    setNavigate(navigate)
+  }, [navigate, setNavigate])
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
   }, [theme])
+
+  // Distinct per-tab titles so multiple browser tabs stay tellable apart.
+  useEffect(() => {
+    const slug = isDetail ? decodeURIComponent(location.pathname.slice('/app/'.length)) : null
+    const name = slug ? (recipes.find((r) => r.slug === slug)?.name || slug) : PAGE_TITLES[location.pathname]
+    document.title = name ? `${name} · Spark AI Hub` : 'Spark AI Hub'
+  }, [location.pathname, isDetail, recipes])
 
   useEffect(() => {
     fetchRecipes()
@@ -44,35 +66,35 @@ export default function App() {
       {/* ─── Sidebar ─── */}
       <aside className="w-[72px] shrink-0 bg-sidebar-bg flex flex-col items-center py-4 border-r border-outline-dim">
         {/* Logo */}
-        <button
-          onClick={() => { clearRecipe(); setTab('catalog') }}
+        <Link
+          to="/"
           className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#152608] to-[#0A1404] flex items-center justify-center border-none cursor-pointer shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-shadow mb-6 p-1.5"
           title="Spark AI Hub"
         >
           <img src="/brand/spark-ai-hub-mark.svg" alt="Spark AI Hub" className="w-full h-full" />
-        </button>
+        </Link>
 
         {/* Nav */}
         <nav className="flex flex-col gap-1 flex-1">
           {NAV_ITEMS.map((item) => {
-            const isActive = tab === item.id && !selectedRecipe
+            const isActive = location.pathname === item.path
             const Icon = item.icon
             return (
-              <button
-                key={item.id}
-                onClick={() => { clearRecipe(); setTab(item.id) }}
+              <Link
+                key={item.path}
+                to={item.path}
                 title={item.label}
-                className={`relative w-11 h-11 rounded-xl flex items-center justify-center border-none cursor-pointer sidebar-link ${
+                className={`relative w-11 h-11 rounded-xl flex items-center justify-center border-none cursor-pointer no-underline sidebar-link ${
                   isActive ? 'active' : 'bg-transparent text-text-dim hover:text-text'
                 }`}
               >
                 <Icon className="w-5 h-5" />
-                {item.id === 'running' && runningCount > 0 && (
+                {item.path === '/running' && runningCount > 0 && (
                   <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-primary text-primary-on text-[10px] font-bold font-label rounded-full flex items-center justify-center px-1">
                     {runningCount}
                   </span>
                 )}
-              </button>
+              </Link>
             )
           })}
         </nav>
@@ -85,26 +107,26 @@ export default function App() {
                 value={metrics.gpu_utilization}
                 label="GPU"
                 color="var(--tertiary)"
-                onClick={() => { clearRecipe(); setTab('system') }}
+                onClick={() => navigate('/system')}
               />
               <MiniGauge
                 value={metrics.ram_total_gb > 0 ? Math.round((metrics.ram_used_gb / metrics.ram_total_gb) * 100) : 0}
                 label="RAM"
                 color="var(--tertiary)"
-                onClick={() => { clearRecipe(); setTab('system') }}
+                onClick={() => navigate('/system')}
               />
               <MiniGauge
                 value={metrics.disk_total_gb > 0 ? Math.round((metrics.disk_used_gb / metrics.disk_total_gb) * 100) : 0}
                 label="DSK"
                 color="var(--primary)"
-                onClick={() => { clearRecipe(); setTab('system') }}
+                onClick={() => navigate('/system')}
               />
               <MiniGauge
                 value={Math.round(metrics.gpu_temperature)}
                 label="TMP"
                 color={metrics.gpu_temperature > 80 ? 'var(--error)' : '#FBBF24'}
                 displayUnit="°"
-                onClick={() => { clearRecipe(); setTab('system') }}
+                onClick={() => navigate('/system')}
               />
             </div>
           )}
@@ -121,7 +143,7 @@ export default function App() {
             <span className="text-[10px] text-text-dim font-medium font-label bg-surface-high px-2 py-0.5 rounded-md">v0.1</span>
           </div>
 
-          {!selectedRecipe && (
+          {!isDetail && (
             <div className="relative">
               <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-dim" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="11" cy="11" r="8" />
@@ -137,7 +159,7 @@ export default function App() {
             </div>
           )}
 
-          {selectedRecipe && (
+          {isDetail && (
             <div className="text-sm text-text-dim font-label">
               {metrics?.gpu_name || 'NVIDIA GB10'}
             </div>
@@ -146,16 +168,14 @@ export default function App() {
 
         {/* Content */}
         <main className="flex-1 overflow-y-auto">
-          {selectedRecipe ? (
-            <RecipeDetail />
-          ) : (
-            <div className="animate-fadeIn">
-              {tab === 'catalog' && <Catalog search={search} />}
-              {tab === 'running' && <Running />}
-              {tab === 'system' && <System />}
-              {tab === 'about' && <About />}
-            </div>
-          )}
+          <Routes>
+            <Route path="/" element={<div className="animate-fadeIn"><Catalog search={search} /></div>} />
+            <Route path="/running" element={<div className="animate-fadeIn"><Running /></div>} />
+            <Route path="/system" element={<div className="animate-fadeIn"><System /></div>} />
+            <Route path="/about" element={<div className="animate-fadeIn"><About /></div>} />
+            <Route path="/app/:slug" element={<RecipeDetail />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
         </main>
       </div>
       <HfTokenModal />

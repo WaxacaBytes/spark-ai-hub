@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 
@@ -12,7 +13,6 @@ export function formatParams(recipe) {
 // `hideCategories` is set for the Ready-to-Serve Models section, where every
 // card is an LLM and the category chip carries no information.
 export default function RecipeCard({ recipe, hideCategories = false }) {
-  const selectRecipe = useStore((s) => s.selectRecipe)
   const installing = useStore((s) => s.installing)
   const updating = useStore((s) => s.updating)
   const installRecipe = useStore((s) => s.installRecipe)
@@ -24,6 +24,7 @@ export default function RecipeCard({ recipe, hideCategories = false }) {
   const isBusy = isBuilding || isUpdating
 
   const handleInstall = (e) => {
+    e.preventDefault()
     e.stopPropagation()
     installRecipe(recipe.slug)
   }
@@ -33,9 +34,9 @@ export default function RecipeCard({ recipe, hideCategories = false }) {
     : [recipe.category]
 
   return (
-    <div
-      onClick={() => selectRecipe(recipe.slug)}
-      className="relative overflow-hidden bg-surface rounded-2xl p-4 card-hover cursor-pointer group"
+    <Link
+      to={`/app/${recipe.slug}`}
+      className="relative block no-underline text-inherit overflow-hidden bg-surface rounded-2xl p-4 card-hover cursor-pointer group"
     >
       {/* Running indicator - top border */}
       {recipe.running && (
@@ -140,6 +141,6 @@ export default function RecipeCard({ recipe, hideCategories = false }) {
           )}
         </div>
       </div>
-    </div>
+    </Link>
   )
 }
