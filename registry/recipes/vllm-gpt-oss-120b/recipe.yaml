@@ -46,3 +46,9 @@ integration:
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"openai/gpt-oss-120b\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
 tokens_per_second: 33.08
+
+cover:
+  image: openai-1515-third.jpg
+  caption: "1515 Third Street in Mission Bay, San Francisco — OpenAI's headquarters."
+  credit: "1515 Third Street.jpg · Coolcaesar · CC BY 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3A1515%20Third%20Street.jpg"

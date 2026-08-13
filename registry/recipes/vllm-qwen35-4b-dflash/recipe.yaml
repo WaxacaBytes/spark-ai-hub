@@ -45,3 +45,11 @@ integration:
 tokens_per_second: 64.1
 
 requires_hf_token: true
+
+cover:
+  image: qwen-4b.jpg
+  caption: "The Qwen capybara at a laptop in a Qwen hoodie. Shared by Qwen models of 4B parameters."
+  fit: contain
+  grade: false
+  credit: "cfahlgren1/flux-qwen-capybara — a FLUX.1-dev LoRA recreating the Qwen capybara · FLUX.1-dev non-commercial licence"
+  source: "https://huggingface.co/cfahlgren1/flux-qwen-capybara"

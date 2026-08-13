@@ -46,3 +46,9 @@ integration:
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"google/gemma-4-E2B-it\", \"messages\": [{\"role\": \"user\", \"content\": \"Solve 17 x 23 step by step.\"}]}'"
 tokens_per_second: 38.7
+
+cover:
+  image: google-io-stage.jpg
+  caption: "Sundar Pichai alone on the stage at Google I/O 2017."
+  credit: "Sundar Pichai at Google IO 2017 Keynote.jpg · Steven Zimmerman · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ASundar%20Pichai%20at%20Google%20IO%202017%20Keynote.jpg"

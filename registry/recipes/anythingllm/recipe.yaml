@@ -29,3 +29,11 @@ docker:
   gpu: false
 status: official
 release_date: "2023-06"
+
+cover:
+  image: app-anythingllm.jpg
+  caption: "AnythingLLM's own project artwork."
+  fit: contain
+  grade: false
+  credit: "AnythingLLM project artwork (from the Hub's original banner set)"
+  source: "https://github.com/Mintplex-Labs/anything-llm"

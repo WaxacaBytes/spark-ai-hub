@@ -37,3 +37,11 @@ docker:
   gpu: true
 status: community-verified
 release_date: "2026-01"
+
+cover:
+  image: app-qwen-angles.jpg
+  caption: "A frame from the Multiple-Angles LoRA's animation grid, showing one subject re-shot from many camera angles."
+  fit: contain
+  grade: false
+  credit: "Multiple-Angles LoRA animation grid, fal"
+  source: "https://huggingface.co/fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA/resolve/main/all_animations_combined.gif"

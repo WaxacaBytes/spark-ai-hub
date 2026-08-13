@@ -34,3 +34,11 @@ docker:
   gpu: true
 status: official
 release_date: "2023-01"
+
+cover:
+  image: app-comfyui.jpg
+  caption: "A ComfyUI node graph — the app's own interface."
+  fit: contain
+  grade: false
+  credit: "ComfyUI project artwork (from the Hub's original banner set)"
+  source: "https://github.com/comfyanonymous/ComfyUI"

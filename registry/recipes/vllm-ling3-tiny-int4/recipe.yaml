@@ -52,3 +52,9 @@ integration:
   max_context: "262144"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"inclusionAI/Ling-3.0-tiny-int4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 4096, \"temperature\": 1.0, \"top_p\": 0.95}'"
 tokens_per_second: 91.2
+
+cover:
+  image: inclusion-pudong.jpg
+  caption: "Shanghai's Pudong skyline. inclusionAI is Ant Group's research lab."
+  credit: "There's the Pudong skyline again (36273761462).jpg · shankar s. from Dubai, united arab emirates · CC BY 2.0"
+  source: "https://commons.wikimedia.org/wiki/File%3AThere%27s%20the%20Pudong%20skyline%20again%20%2836273761462%29.jpg"

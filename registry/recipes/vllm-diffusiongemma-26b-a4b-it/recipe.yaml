@@ -51,3 +51,9 @@ integration:
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"google/diffusiongemma-26B-A4B-it\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
 tokens_per_second: 98.5
+
+cover:
+  image: google-sign.jpg
+  caption: "The Google sign on Charleston Road, Mountain View, at the edge of the Googleplex."
+  credit: "Mountain View (CA, USA), Charleston Road, Google-Schild -- 2022 -- 2896.jpg · Dietmar Rabich · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3AMountain%20View%20%28CA%2C%20USA%29%2C%20Charleston%20Road%2C%20Google-Schild%20--%202022%20--%202896.jpg"

@@ -34,3 +34,10 @@ docker:
 status: official
 release_date: "2026-05"
 requires_hf_token: true
+
+cover:
+  image: app-pixal3d.jpg
+  caption: "Pixal3D's teaser image, from TencentARC's repository."
+  grade: false
+  credit: "Pixal3D teaser, TencentARC"
+  source: "https://raw.githubusercontent.com/TencentARC/Pixal3D/master/assets/teaser.png"

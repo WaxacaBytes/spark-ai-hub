@@ -36,3 +36,10 @@ docker:
 status: community-verified
 release_date: "2026-03"
 requires_hf_token: false
+
+cover:
+  image: app-firered.jpg
+  caption: "A portrait-editing showcase from FireRed Image Edit's model card."
+  grade: false
+  credit: "FireRed Image Edit showcase"
+  source: "https://github.com/FireRedTeam/FireRed-Image-Edit/raw/main/assets/showcase_portrait.jpg"

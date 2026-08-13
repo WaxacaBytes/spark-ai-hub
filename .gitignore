@@ -26,3 +26,6 @@ spark-ai-hub-daemon.db
 
 # OS
 .DS_Store
+
+# Cover-art source cache (tools/build_covers.py)
+tools/.cover-cache/

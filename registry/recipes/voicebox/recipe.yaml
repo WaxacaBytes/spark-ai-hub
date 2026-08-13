@@ -32,3 +32,10 @@ docker:
 status: community-verified
 release_date: "2026-01"
 
+cover:
+  image: app-voicebox.jpg
+  caption: "Voicebox's own site artwork."
+  fit: contain
+  grade: false
+  credit: "Voicebox site artwork"
+  source: "https://voicebox.sh/og.webp"

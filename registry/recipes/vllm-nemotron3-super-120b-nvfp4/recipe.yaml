@@ -46,3 +46,9 @@ integration:
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
 tokens_per_second: 23.3
+
+cover:
+  image: nvidia-gpu-cluster.jpg
+  caption: "A GPU cluster in a data centre — the hardware NVIDIA's largest models are trained on."
+  credit: "CSIRO ScienceImage 11313 The CSIRO GPU cluster at the data centre.jpg · division, CSIRO · CC BY 3.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ACSIRO%20ScienceImage%2011313%20The%20CSIRO%20GPU%20cluster%20at%20the%20data%20centre.jpg"

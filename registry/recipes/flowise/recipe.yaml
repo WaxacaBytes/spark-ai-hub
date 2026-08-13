@@ -29,3 +29,11 @@ docker:
   gpu: false
 status: official
 release_date: "2023-05"
+
+cover:
+  image: app-flowise.jpg
+  caption: "A Flowise flow canvas — the app's own interface."
+  fit: contain
+  grade: false
+  credit: "Flowise project artwork (from the Hub's original banner set)"
+  source: "https://github.com/FlowiseAI/Flowise"

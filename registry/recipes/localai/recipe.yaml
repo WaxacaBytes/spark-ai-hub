@@ -30,3 +30,11 @@ docker:
   gpu: true
 status: official
 release_date: "2023-05"
+
+cover:
+  image: app-localai.jpg
+  caption: "LocalAI's own project artwork."
+  fit: contain
+  grade: false
+  credit: "LocalAI project artwork (from the Hub's original banner set)"
+  source: "https://github.com/mudler/LocalAI"

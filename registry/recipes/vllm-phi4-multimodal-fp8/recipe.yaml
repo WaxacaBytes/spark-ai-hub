@@ -45,3 +45,10 @@ integration:
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Phi-4-multimodal-instruct-FP8\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
 tokens_per_second: 44.55
+
+cover:
+  image: microsoft-seattle-night.jpg
+  caption: "Seattle at blue hour, I-5 running through the foreground below the downtown towers. Microsoft's campus is across Lake Washington in Redmond."
+  focus_x: 0.45
+  credit: "Seattle I-5 skyline dllu.jpg · Dllu · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ASeattle%20I-5%20skyline%20dllu.jpg"

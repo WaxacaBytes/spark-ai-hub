@@ -29,3 +29,11 @@ docker:
   gpu: true
 status: official
 release_date: "2023-10"
+
+cover:
+  image: app-openwebui.jpg
+  caption: "The Open WebUI chat interface, which this recipe pairs with Ollama."
+  fit: contain
+  grade: false
+  credit: "Open WebUI project artwork (from the Hub's original banner set)"
+  source: "https://github.com/open-webui/open-webui"

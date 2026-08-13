@@ -48,3 +48,9 @@ integration:
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"google/gemma-4-E4B-it\", \"messages\": [{\"role\": \"user\", \"content\": \"Solve 17 x 23 step by step.\"}]}'"
 tokens_per_second: 36.5
+
+cover:
+  image: google-council-bluffs.jpg
+  caption: "Google's data centre in Council Bluffs, Iowa, one of the sites its models are trained in."
+  credit: "Google Data Center, Council Bluffs Iowa (49062863796).jpg · Chad Davis · CC BY 2.0"
+  source: "https://commons.wikimedia.org/wiki/File%3AGoogle%20Data%20Center%2C%20Council%20Bluffs%20Iowa%20%2849062863796%29.jpg"

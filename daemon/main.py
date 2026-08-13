@@ -15,6 +15,13 @@ from daemon.services.registry_service import load_recipes, get_recipes
 from daemon.services.docker_service import is_recipe_running, start_health_check
 
 DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+
+# Paths ending in one of these are assets, never SPA routes: if the file is
+# missing the request must 404 rather than fall through to index.html.
+ASSET_SUFFIXES = {
+    ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".ico", ".avif",
+    ".css", ".js", ".mjs", ".map", ".json", ".woff", ".woff2", ".ttf",
+}
 SAH_DIR = Path(__file__).resolve().parent.parent / "sah"
 
 
@@ -74,6 +81,14 @@ if SAH_DIR.is_dir():
 
     app.mount("/sah", StaticFiles(directory=str(SAH_DIR)), name="sah")
 
+# The unmodified cover source images, exactly as a recipe shipped them.
+# Everything under /covers is a rendered derivative (cropped, graded,
+# scrimmed); this is the only place the original picture is served whole.
+COVER_SOURCES = Path(__file__).resolve().parent.parent / "registry" / "covers"
+if COVER_SOURCES.is_dir():
+    app.mount("/cover-sources", StaticFiles(directory=str(COVER_SOURCES)),
+              name="cover-sources")
+
 # Serve static assets (js, css, etc.) under /assets
 if DIST_DIR.is_dir():
     assets_dir = DIST_DIR / "assets"
@@ -86,6 +101,12 @@ if DIST_DIR.is_dir():
         file_path = DIST_DIR / full_path
         if full_path and file_path.is_file():
             return FileResponse(file_path)
+        # A missing asset must 404, not fall through to index.html. Returning
+        # HTML with a 200 for a missing .png/.jpg poisons the browser cache:
+        # the bad response sticks around under heuristic freshness and the
+        # image stays broken long after the real file lands.
+        if Path(full_path).suffix.lower() in ASSET_SUFFIXES:
+            return Response(status_code=404)
         # Fall back to index.html for SPA routing
         index = DIST_DIR / "index.html"
         if index.is_file():

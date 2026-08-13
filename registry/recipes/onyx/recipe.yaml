@@ -31,3 +31,11 @@ docker:
   gpu: false
 status: official
 release_date: "2023-04"
+
+cover:
+  image: app-onyx.jpg
+  caption: "A frame from Onyx's own product demo."
+  fit: contain
+  grade: false
+  credit: "Onyx product demo"
+  source: "https://github.com/onyx-dot-app/onyx/releases/download/v3.0.0/Onyx.gif"

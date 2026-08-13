@@ -48,3 +48,9 @@ integration:
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"minimax-m2.7\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
 tokens_per_second: 29
+
+cover:
+  image: minimax-cray.jpg
+  caption: "Cabinets of the Cray XE6 \"Blue Waters\" supercomputer."
+  credit: "Some cabinets of the Cray XE6 Blue Waters supercomputer.JPG · Stevek ncsa · CC BY-SA 3.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ASome%20cabinets%20of%20the%20Cray%20XE6%20Blue%20Waters%20supercomputer.JPG"

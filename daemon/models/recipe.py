@@ -30,6 +30,27 @@ class RecipeIntegration(BaseModel):
     curl_example: str = ""
 
 
+class RecipeCover(BaseModel):
+    """Cover art, declared by the recipe rather than mapped in code.
+
+    `image` names a file in registry/covers/. Recipes may share one — every
+    build of a model at a given parameter size points at the same image, and
+    that is how they end up looking alike. A recipe contributed from outside
+    ships its own image alongside its yaml, so nothing about it lives here.
+    """
+    image: str = ""
+    caption: str = ""            # what the picture shows and why
+    fit: str = "cover"           # "cover" crops to fill, "contain" shows it whole
+    backdrop_fit: str = ""       # override `fit` for the wide hero; portrait
+                                 # sources usually want "contain" there
+    focus_x: float = 0.5         # where to centre a "cover" crop, 0..1 across
+    focus_y: float = 0.5         # and down. A wide panorama usually needs this
+                                 # or the poster crops away the subject.
+    credit: str = ""             # "File · Author · CC BY 4.0", for CC sources
+    source: str = ""             # URL the image came from
+    grade: bool = True           # apply the cinematic colour grade
+
+
 class Recipe(BaseModel):
     name: str
     slug: str
@@ -44,6 +65,7 @@ class Recipe(BaseModel):
     tags: list[str] = []
     icon: str = ""
     logo: str = ""
+    cover: RecipeCover = RecipeCover()
     requirements: RecipeRequirements = RecipeRequirements()
     ui: RecipeUI = RecipeUI()
     docker: RecipeDocker = RecipeDocker()

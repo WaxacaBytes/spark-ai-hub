@@ -51,3 +51,9 @@ integration:
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Gemma-4-26B-A4B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
 tokens_per_second: 57.2
+
+cover:
+  image: google-bikes.jpg
+  caption: "Google's campus bicycles on Charleston Road, Mountain View."
+  credit: "Mountain View (CA, USA), Charleston Road, Google-Fahrräder -- 2022 -- 2901.jpg · Dietmar Rabich · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3AMountain%20View%20%28CA%2C%20USA%29%2C%20Charleston%20Road%2C%20Google-Fahrr%C3%A4der%20--%202022%20--%202901.jpg"

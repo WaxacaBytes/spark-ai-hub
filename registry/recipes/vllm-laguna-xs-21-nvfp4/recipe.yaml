@@ -48,3 +48,9 @@ integration:
   max_context: "262144"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"poolside/Laguna-XS-2.1-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512}'"
 tokens_per_second: 48.0
+
+cover:
+  image: poolside-station-f.jpg
+  caption: "Parvis Alan Turing outside Station F, the startup campus in Paris."
+  credit: "Parvis Alan Turing Station F Paris.jpg · Cahtls · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3AParvis%20Alan%20Turing%20Station%20F%20Paris.jpg"

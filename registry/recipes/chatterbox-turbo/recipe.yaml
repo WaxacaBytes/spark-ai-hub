@@ -31,3 +31,11 @@ docker:
   gpu: true
 status: official
 release_date: "2025-06"
+
+cover:
+  image: app-chatterbox.jpg
+  caption: "Resemble AI's Chatterbox Multilingual key art, from the project's README."
+  fit: contain
+  grade: false
+  credit: "Resemble AI project artwork"
+  source: "https://raw.githubusercontent.com/resemble-ai/chatterbox/master/Chatterbox-Multilingual.png"

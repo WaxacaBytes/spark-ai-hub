@@ -33,3 +33,11 @@ docker:
   gpu: true
 status: community-verified
 release_date: "2025-12"
+
+cover:
+  image: app-qwen-image.jpg
+  caption: "Qwen-Image 2512's showcase grid, from Alibaba's model card."
+  fit: contain
+  grade: false
+  credit: "Qwen-Image 2512 model-card artwork, Alibaba"
+  source: "https://qianwen-res.oss-accelerate-overseas.aliyuncs.com/Qwen-Image/image2512/image2512big.png"

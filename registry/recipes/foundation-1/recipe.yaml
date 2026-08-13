@@ -31,3 +31,11 @@ docker:
   gpu: true
 status: community-verified
 release_date: "2026-03"
+
+cover:
+  image: app-foundation1.jpg
+  caption: "Foundation-1's banner from its Hugging Face model card."
+  fit: contain
+  grade: false
+  credit: "Foundation-1 model-card banner, RoyalCities"
+  source: "https://huggingface.co/RoyalCities/Foundation-1/resolve/main/Charts/banner.PNG"

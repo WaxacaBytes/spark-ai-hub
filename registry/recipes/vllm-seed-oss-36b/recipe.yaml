@@ -43,3 +43,10 @@ integration:
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"ByteDance-Seed/Seed-OSS-36B-Instruct\", \"messages\": [{\"role\": \"user\", \"content\": \"Solve 17 x 23 step by step.\"}]}'"
 tokens_per_second: 3.17
+
+cover:
+  image: bytedance-beijing-night.jpg
+  caption: "Traffic on Beijing's northeast 4th ring road at dusk, the CBD skyline beyond. ByteDance is headquartered in Beijing."
+  focus_x: 0.85
+  credit: "Beijing skyline from northeast 4th ring road.jpg · Picrazy2 · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ABeijing%20skyline%20from%20northeast%204th%20ring%20road.jpg"

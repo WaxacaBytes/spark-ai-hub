@@ -50,3 +50,10 @@ integration:
   model_id: "RedHatAI/Muse-Glimmer-30B-NVFP4"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"RedHatAI/Muse-Glimmer-30B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 2048, \"temperature\": 0}'"
+
+cover:
+  image: meta-golden-gate.jpg
+  caption: "The Golden Gate Bridge and San Francisco at blue hour, from Hawk Hill. Meta is across the bay in Menlo Park."
+  focus_x: 0.78
+  credit: "Golden Gate Bridge and San Francisco skyline from Hawk Hill at Blue Hour dllu.jpg · Daniel L. Lu (user:dllu) · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3AGolden%20Gate%20Bridge%20and%20San%20Francisco%20skyline%20from%20Hawk%20Hill%20at%20Blue%20Hour%20dllu.jpg"

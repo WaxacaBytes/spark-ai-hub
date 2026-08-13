@@ -45,3 +45,9 @@ integration:
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Phi-4-reasoning-plus-FP8\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
 tokens_per_second: 14.94
+
+cover:
+  image: microsoft-building-92.jpg
+  caption: "Building 92 on Microsoft's Redmond campus, home of the visitor centre."
+  credit: "Building92microsoft.jpg · Coolcaesar · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ABuilding92microsoft.jpg"

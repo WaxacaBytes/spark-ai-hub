@@ -49,3 +49,9 @@ integration:
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Gemma-4-31B-IT-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Solve 17 x 23 step by step.\"}]}'"
 tokens_per_second: 6.9
+
+cover:
+  image: google-campus-green.jpg
+  caption: "A recreation area on Google's Mountain View campus."
+  credit: "Mountain View (CA, USA), Charleston Road, Google-Erholungsfläche -- 2022 -- 2909.jpg · Dietmar Rabich · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3AMountain%20View%20%28CA%2C%20USA%29%2C%20Charleston%20Road%2C%20Google-Erholungsfl%C3%A4che%20--%202022%20--%202909.jpg"

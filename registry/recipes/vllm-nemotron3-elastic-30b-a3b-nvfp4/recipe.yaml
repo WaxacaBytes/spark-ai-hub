@@ -47,3 +47,9 @@ integration:
   model_id: "nvidia/NVIDIA-Nemotron-Labs-3-Elastic-30B-A3B-NVFP4"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/NVIDIA-Nemotron-Labs-3-Elastic-30B-A3B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+
+cover:
+  image: nvidia-hq.jpg
+  caption: "NVIDIA's headquarters on San Tomas Expressway in Santa Clara, California."
+  credit: "2788-2888 San Tomas Expwy.jpg · Coolcaesar · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3A2788-2888%20San%20Tomas%20Expwy.jpg"

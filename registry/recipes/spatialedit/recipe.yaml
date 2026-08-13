@@ -31,3 +31,10 @@ docker:
   gpu: true
 status: community-verified
 release_date: "2026-03"
+
+cover:
+  image: app-spatialedit.jpg
+  caption: "A camera-control edit from SpatialEdit's repository."
+  grade: false
+  credit: "SpatialEdit project artwork"
+  source: "https://raw.githubusercontent.com/EasonXiao-888/SpatialEdit/main/assets/application/camera/output.png"

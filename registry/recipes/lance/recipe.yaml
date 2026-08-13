@@ -36,3 +36,11 @@ docker:
 status: community-verified
 release_date: "2026-05"
 requires_hf_token: false
+
+cover:
+  image: app-lance.jpg
+  caption: "Lance logo art, from ByteDance Research's model card."
+  fit: contain
+  grade: false
+  credit: "Lance logo art, ByteDance Research"
+  source: "https://huggingface.co/bytedance-research/Lance/resolve/main/assets/logo/lance-logo.webp"

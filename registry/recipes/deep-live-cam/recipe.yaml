@@ -31,3 +31,10 @@ docker:
   gpu: true
 status: community-verified
 release_date: "2023-09"
+
+cover:
+  image: app-deep-live-cam.jpg
+  caption: "A frame from Deep-Live-Cam's own demo reel."
+  grade: false
+  credit: "Deep-Live-Cam demo reel"
+  source: "https://raw.githubusercontent.com/hacksider/Deep-Live-Cam/main/media/demo.gif"

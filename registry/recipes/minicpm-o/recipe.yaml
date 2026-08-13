@@ -31,3 +31,11 @@ docker:
   gpu: true
 status: community-verified
 release_date: "2026-02"
+
+cover:
+  image: app-minicpm-o.jpg
+  caption: "A video-understanding demo from MiniCPM-o's README."
+  fit: contain
+  grade: false
+  credit: "MiniCPM-o project artwork"
+  source: "https://raw.githubusercontent.com/OpenBMB/MiniCPM-o/main/assets/minicpmv4.6/video_play.png"

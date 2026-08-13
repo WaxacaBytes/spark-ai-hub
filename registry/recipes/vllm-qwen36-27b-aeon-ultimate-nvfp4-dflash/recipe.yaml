@@ -51,3 +51,11 @@ integration:
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"AEON-7/Qwen3.6-27B-AEON-Ultimate-Uncensored-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"What is 17 x 23? Show your work.\"}], \"max_tokens\": 2048, \"temperature\": 0}'"
 tokens_per_second: 21.5
+
+cover:
+  image: qwen-27b.jpg
+  caption: "The Qwen capybara writing SQL. Shared by Qwen models of 27B parameters."
+  fit: contain
+  grade: false
+  credit: "cfahlgren1/flux-qwen-capybara — a FLUX.1-dev LoRA recreating the Qwen capybara · FLUX.1-dev non-commercial licence"
+  source: "https://huggingface.co/cfahlgren1/flux-qwen-capybara"

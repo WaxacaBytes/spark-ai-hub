@@ -49,3 +49,10 @@ integration:
   model_id: "inkling-small"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"inkling-small\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+
+cover:
+  image: thinking-machines-murati.jpg
+  caption: "Mira Murati, founder of Thinking Machines Lab, on the steps of the 2026 Met Gala."
+  backdrop_fit: contain
+  credit: "Guests at the 2026 Met Gala 274.jpg · SWinxy · CC BY 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3AGuests%20at%20the%202026%20Met%20Gala%20274.jpg"

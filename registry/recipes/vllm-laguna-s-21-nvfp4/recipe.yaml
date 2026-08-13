@@ -49,3 +49,9 @@ integration:
   max_context: "262144"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"poolside/Laguna-S-2.1-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512}'"
 tokens_per_second: 23.5
+
+cover:
+  image: poolside-la-defense.jpg
+  caption: "Paris looking west toward La Défense, near poolside's Paris engineering base."
+  credit: "From Louvre to La Défense, Paris 2012.jpg · Alexander Baxevanis from London, UK · CC BY 2.0"
+  source: "https://commons.wikimedia.org/wiki/File%3AFrom%20Louvre%20to%20La%20D%C3%A9fense%2C%20Paris%202012.jpg"

@@ -49,3 +49,9 @@ integration:
   model_id: "hy3"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"hy3\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+
+cover:
+  image: tencent-towers.jpg
+  caption: "Tencent Seafront Towers in Shenzhen, Tencent's headquarters and the home of the Hunyuan team."
+  credit: "Tencent Seafront Towers, the Tencent HQ in Shenzhen (2026) - img 01.jpg · Chainwit. · CC BY 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ATencent%20Seafront%20Towers%2C%20the%20Tencent%20HQ%20in%20Shenzhen%20%282026%29%20-%20img%2001.jpg"

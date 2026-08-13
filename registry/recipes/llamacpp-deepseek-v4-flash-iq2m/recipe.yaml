@@ -49,3 +49,9 @@ integration:
   model_id: "deepseek-v4-flash-0731"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"deepseek-v4-flash-0731\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+
+cover:
+  image: deepseek-hangzhou.jpg
+  caption: "Qianjiang New City in Hangzhou at night — the city DeepSeek and its parent High-Flyer are based in."
+  credit: "Light show in Qianjiang New City 05.png · Y Chen · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ALight%20show%20in%20Qianjiang%20New%20City%2005.png"
