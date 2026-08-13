@@ -1,0 +1,55 @@
+name: "Nemotron-3.5 Lightning 30B-A3B NVFP4 + DSpark"
+slug: vllm-nemotron35-lightning-30b-a3b-nvfp4-dspark
+version: "1.0.0"
+description: "NVIDIA Nemotron-3.5 Lightning (30B total / 3B active) — a hybrid LatentMoE interleaving Mamba-2, MoE and attention layers, in native NVFP4 on vLLM 0.27.1, exactly as NVIDIA's '1x DGX Spark (GB10)' recipe prescribes: Marlin MoE backend, FlashInfer Mamba backend, FP8 KV cache and DSpark speculative decoding (3 draft tokens) from the paired 0.8B block drafter. 1M native context served at 256K. Reasoning, tool use and agentic coding (52.8% SWE-bench Verified); OpenAI-compatible API."
+author: "NVIDIA"
+source: "official"
+website: "https://build.nvidia.com/spark/vllm"
+upstream: "https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4-DSpark"
+category: llm
+logo: "/logos/nvidia.png"
+tags:
+  - llm
+  - moe
+  - mamba
+  - reasoning
+  - coding
+  - agentic
+  - tool-use
+  - vllm
+  - nvfp4
+  - speculative-decoding
+  - dspark
+  - nvidia-official
+requirements:
+  min_memory_gb: 40
+  recommended_memory_gb: 56
+  disk_gb: 40
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 15
+  gpu: true
+status: community-verified
+engine: "vLLM"
+params_b: 30
+active_params_b: 3
+arch: moe
+quantization: "NVFP4"
+weights_gb: 23.0
+release_date: "2026-08-11"
+requires_hf_token: false
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-08-12"
+tokens_per_second: 110.9
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4"
+  api_key: "not-needed"
+  max_context: "262144"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 1.0, \"top_p\": 0.95}'"

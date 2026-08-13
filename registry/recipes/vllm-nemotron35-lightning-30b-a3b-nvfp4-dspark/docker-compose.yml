@@ -1,0 +1,114 @@
+services:
+  vllm:
+    # nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4 is a `NemotronHForCausalLM`
+    # (model_type: nemotron_h) — a hybrid LatentMoE: interleaved Mamba-2 and MoE
+    # layers with a handful of attention layers, 30B total / 3B active, 6 experts
+    # per token. NVFP4 weights (~21.6 GB), 1M native context.
+    #
+    # Paired with nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4-DSpark
+    # (~1.35 GB, `Qwen3DSparkModel`), the semi-autoregressive block drafter NVIDIA
+    # recommends as the default for DGX Spark: it proposes a whole block of
+    # candidate tokens per forward pass from a parallel backbone.
+    #
+    # Image pinned to the version the model card names for its vLLM recipes,
+    # `vllm/vllm-openai:v0.27.1`. The plain `-aarch64` tag is the cu130/CUDA-13
+    # build, matching the Spark's CUDA 13 driver. v0.27.1 has the `nemotron_v3`
+    # reasoning parser and the `qwen3_coder` tool parser built in, so no parser
+    # plugin has to be fetched.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4'); snapshot_download('nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4-DSpark')"
+        FROM vllm/vllm-openai:v0.27.1-aarch64
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/vllm-nemotron35-lightning-30b-a3b-nvfp4-dspark:v0.27.1-aarch64
+    container_name: spark-ai-hub-vllm-nemotron35-lightning-30b-a3b-nvfp4-dspark
+    ports:
+      - "9001:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Offline-first: both checkpoints are baked into the image above, so launch
+      # never touches the network.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    # NVIDIA's own "1x DGX Spark (GB10)" vLLM recipe from the model card, with two
+    # Hub conventions applied: context capped at 256K (native is 1M) and
+    # --gpu-memory-utilization right-sized for the Spark instead of the card's
+    # 0.91, which would reserve ~116 GB for a model whose weights are 23 GB.
+    command:
+      - --model
+      - nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4
+      - --served-model-name
+      - nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --max-model-len
+      - "262144"
+      # GB10 has no FP4 tensor-core path for this checkpoint, so the card's
+      # hardware matrix routes the MoE through Marlin (W4A16) on DGX Spark.
+      - --moe-backend
+      - marlin
+      - --mamba-backend
+      - flashinfer
+      - --mamba-cache-mode
+      - align
+      - --kv-cache-dtype
+      - fp8
+      - --enable-prefix-caching
+      # DSpark block drafting, 3 speculative tokens — the card's DGX Spark value.
+      - --speculative_config.model
+      - nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4-DSpark
+      - --speculative_config.num_speculative_tokens
+      - "3"
+      - --reasoning-parser
+      - nemotron_v3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      # Bounds the batch the DSpark speculator is captured at. Left at vLLM's
+      # default, capture can ask the FlashInfer Mamba kernel for a batch wider
+      # than the Mamba state slots the KV budget affords, and the engine dies at
+      # startup with "run_selective_state_update_mtp ... state.size(0) must be
+      # >= batch". That made launches a coin flip: identical config booted at a
+      # 3.48x KV budget and crashed at 2.84x. 32 concurrent sequences is far
+      # more than a single Spark needs and makes startup deterministic.
+      - --max-num-seqs
+      - "32"
+      # Right-sized for the Spark, the one place this departs from the card's
+      # flag list. The card's 0.91 would reserve ~110 GB for a model whose
+      # weights are 19.5 GB: measured at 0.30, vLLM reported a 3.5M token KV
+      # cache — 13.45x concurrency at 262K, far past the point of usefulness on
+      # a single-user box. 0.21 keeps the full 256K context at ~3x concurrency,
+      # inside the Hub's 1.5x-5x band, and leaves the rest of the Spark's
+      # unified memory free for other apps.
+      #
+      # Measured and rejected: raising --max-num-batched-tokens to 16384 with
+      # --max-num-seqs 32 (to answer vLLM's "max_num_scheduled_tokens is set to
+      # 1536" warning) left decode speed unchanged, 108.0 vs 109.7 tok/s, while
+      # its activation memory pushed KV concurrency down to 1.45x. Not worth it.
+      - --gpu-memory-utilization
+      - "0.21"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
