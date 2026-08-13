@@ -54,8 +54,10 @@ services:
       - 0.0.0.0
       - --port
       - "8000"
+      # The card's validated context, served in full. The DSpark drafter is
+      # 1M-native too, so nothing gets truncated to match it.
       - --max-model-len
-      - "262144"
+      - "1048576"
       # GB10 has no FP4 tensor-core path for this checkpoint, so the card's
       # hardware matrix routes the MoE through Marlin (W4A16) on DGX Spark.
       - --moe-backend
@@ -88,18 +90,17 @@ services:
       - "32"
       # Right-sized for the Spark, the one place this departs from the card's
       # flag list. The card's 0.91 would reserve ~110 GB for a model whose
-      # weights are 19.5 GB: measured at 0.30, vLLM reported a 3.5M token KV
-      # cache — 13.45x concurrency at 262K, far past the point of usefulness on
-      # a single-user box. 0.21 keeps the full 256K context at ~3x concurrency,
-      # inside the Hub's 1.5x-5x band, and leaves the rest of the Spark's
-      # unified memory free for other apps.
+      # weights are 19.5 GB. 0.25 fits a 2.66M token KV cache — 2.54x
+      # concurrency at the full 1M context, inside the Hub's 1.5x-5x band — and
+      # leaves the rest of the Spark's unified memory free for other apps.
+      # Verified by retrieving a fact from the middle of a 588K token prompt.
       #
       # Measured and rejected: raising --max-num-batched-tokens to 16384 with
       # --max-num-seqs 32 (to answer vLLM's "max_num_scheduled_tokens is set to
       # 1536" warning) left decode speed unchanged, 108.0 vs 109.7 tok/s, while
       # its activation memory pushed KV concurrency down to 1.45x. Not worth it.
       - --gpu-memory-utilization
-      - "0.21"
+      - "0.25"
     deploy:
       resources:
         reservations:
