@@ -6,7 +6,7 @@ temperature 0, warmup discarded) but generic over the recipe slug: launch via
 the daemon API, poll the daemon for readiness, hit the OpenAI endpoint the Hub
 exposes, then stop via the daemon API.
 
-    python3 tests/benchmark_recipe.py vllm-ling3-tiny-fp8 [vllm-ling3-tiny-int4 ...]
+    python3 tests/benchmark_recipe.py vllm-ling3-tiny-bf16 [vllm-ling3-tiny-int4 ...]
 """
 
 import json
