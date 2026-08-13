@@ -3,6 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { formatParams } from '../components/RecipeCard'
+import { backdropFor, posterFor } from '../covers'
+import CoverInfoModal from '../components/CoverInfoModal'
 
 const DETAIL_TABS = [
   { id: 'details', label: 'Overview' },
@@ -46,6 +48,9 @@ function RecipeDetailPage({ slug }) {
   const previousRecipeRef = useRef(null)
   const previousPreferLogsRef = useRef(false)
   const [logoFailed, setLogoFailed] = useState(false)
+  const [posterFailed, setPosterFailed] = useState(false)
+  const [backdropFailed, setBackdropFailed] = useState(false)
+  const [showCoverInfo, setShowCoverInfo] = useState(false)
   const [launching, setLaunching] = useState(false)
   const [stopping, setStopping] = useState(false)
   const [activeTab, setActiveTab] = useState('details')
@@ -175,7 +180,38 @@ function RecipeDetailPage({ slug }) {
 
   return (
     <div className="flex flex-col h-full animate-fadeIn">
-      <div className="shrink-0 px-6 py-5 bg-surface-low/60 backdrop-blur-md border-b border-outline-dim">
+      <div className="relative shrink-0 overflow-hidden border-b border-outline-dim">
+        {/* This app's cover art: the wide backdrop behind the header and the
+            poster beside the logo, so every image in the catalog is visible
+            somewhere and not just the handful the hero happens to rotate. */}
+        {!backdropFailed && (
+          <img
+            src={backdropFor(recipe)}
+            alt=""
+            onError={() => setBackdropFailed(true)}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        )}
+        {/* Muted harder than the catalog hero: this header carries spec
+            badges and buttons that have to stay readable over the art. */}
+        <div className="absolute inset-0 bg-bg/60" />
+        <div className="absolute inset-0" style={{ background: 'var(--hero-overlay-left)' }} />
+        <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-bg to-transparent" />
+
+        <button
+          onClick={() => setShowCoverInfo(true)}
+          title="What is this picture?"
+          className="absolute bottom-3 right-4 z-10 flex items-center gap-1.5 rounded-full border border-glass-border bg-black/40 px-2.5 py-1 text-[11px] font-medium text-white/80 backdrop-blur-md cursor-pointer hover:bg-black/60 hover:text-white transition-all"
+        >
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="16" x2="12" y2="12" />
+            <line x1="12" y1="8" x2="12.01" y2="8" />
+          </svg>
+          About this image
+        </button>
+
+        <div className="relative px-6 py-5">
         <button
           onClick={goBack}
           className="flex items-center gap-1.5 text-text-muted hover:text-primary bg-transparent border-none cursor-pointer text-sm p-0 mb-4 transition-colors font-medium font-display"
@@ -187,13 +223,25 @@ function RecipeDetailPage({ slug }) {
         </button>
 
         <div className="flex items-center gap-5">
+          {!posterFailed && (
+            <img
+              src={posterFor(recipe)}
+              alt={`${recipe.name} cover`}
+              onError={() => setPosterFailed(true)}
+              className="hidden xl:block w-[104px] shrink-0 aspect-[2/3] rounded-xl object-cover ring-1 ring-glass-border shadow-2xl"
+            />
+          )}
+
           {logoUrl && !logoFailed ? (
             <img src={logoUrl} alt={recipe.name} className="w-20 h-20 rounded-2xl object-contain bg-surface-high p-2.5 shadow-lg shrink-0" onError={() => setLogoFailed(true)} />
           ) : (
             <div className="w-20 h-20 rounded-2xl bg-surface-high flex items-center justify-center text-4xl shrink-0">{recipe.icon || '◻'}</div>
           )}
 
-          <div className="flex-1 min-w-0">
+          {/* Floor the title column so the spec badges wrap instead of
+              squeezing a long name like "Inkling-Small 276B (UD-IQ2_M)"
+              into a four-line sliver. */}
+          <div className="flex-1 min-w-[260px]">
             <h1 className="text-2xl font-bold text-text tracking-tight m-0 font-display">{recipe.name}</h1>
             <p className="text-sm text-text-dim mt-0.5 m-0">{recipe.author}</p>
             <div className="flex items-center gap-2 mt-2 flex-wrap">
@@ -286,6 +334,7 @@ function RecipeDetailPage({ slug }) {
             )}
           </div>
         </div>
+        </div>
       </div>
 
       <div className="shrink-0 px-6 py-3 border-b border-outline-dim bg-surface-low/40">
@@ -374,6 +423,10 @@ function RecipeDetailPage({ slug }) {
             </div>
           </div>
         </div>
+      )}
+
+      {showCoverInfo && (
+        <CoverInfoModal recipe={recipe} onClose={() => setShowCoverInfo(false)} />
       )}
     </div>
   )

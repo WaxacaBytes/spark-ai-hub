@@ -228,6 +228,27 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: 0 4px 20px rgba(108, 92, 231, 0.3);
 }
 
+/* ─── Catalog shelves ─── */
+/* Poster tiles need room to lift on hover without the shelf clipping them,
+   so the scroller keeps vertical overflow visible while scrolling sideways. */
+.row-scroller {
+  overflow-y: visible;
+  scrollbar-width: none;
+  padding-top: 4px;
+}
+.row-scroller::-webkit-scrollbar { display: none; }
+
+.poster-card {
+  transition: transform 0.25s ease;
+}
+.poster-card:hover {
+  transform: translateY(-4px);
+  z-index: 2;
+}
+.poster-card:hover > div:first-child {
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+}
+
 /* ─── Terminal/log styling ─── */
 .log-terminal {
   background: #08080F;

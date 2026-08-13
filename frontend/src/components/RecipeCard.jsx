@@ -64,7 +64,10 @@ export default function RecipeCard({ recipe, hideCategories = false }) {
 
         {/* Content */}
         <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-sm text-text leading-tight truncate m-0 font-display">
+          {/* Wraps to two lines rather than truncating — names like
+              "Nemotron-3.5 Lightning 30B-A3B NVFP4 + DSpark" lose their
+              meaning the moment the tail is cut off. */}
+          <h3 className="font-semibold text-sm text-text leading-tight line-clamp-2 break-words m-0 font-display" title={recipe.name}>
             {recipe.name}
           </h3>
           <p className="text-[11px] text-text-dim mt-0.5 m-0">{recipe.author}</p>

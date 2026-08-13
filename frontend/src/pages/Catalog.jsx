@@ -1,42 +1,10 @@
-import { useState, useMemo, useRef } from 'react'
+import { useMemo, useState } from 'react'
 import { useStore } from '../store'
 import RecipeCard from '../components/RecipeCard'
-
-const BANNERS = {
-  'vllm-qwen35-08b':      { img: '/banners/wide/qwen-beach.png', layout: 'wide' },
-  'vllm-qwen35-2b':       { img: '/banners/wide/qwen-beach.png', layout: 'wide' },
-  'vllm-qwen35-4b':       { img: '/banners/wide/qwen-basketball.png', layout: 'wide' },
-  'vllm-qwen35-9b':       { img: '/banners/wide/qwen-driving.png', layout: 'wide' },
-  'vllm-qwen3.5-27b':     { img: '/banners/wide/qwen-driving.png', layout: 'wide' },
-  'vllm-qwen35-27b-int4': { img: '/banners/wide/qwen-driving.png', layout: 'wide' },
-  'vllm-qwen35-35b-a3b':  { img: '/banners/wide/qwen-coder.png', layout: 'wide' },
-  'vllm-qwen35-122b-a10b':{ img: '/banners/wide/qwen-coder.png', layout: 'wide' },
-  'vllm-gemma4-e2b':      { img: '/banners/wide/gemma-small.webp', layout: 'wide' },
-  'vllm-gemma4-e4b':      { img: '/banners/wide/gemma-small.webp', layout: 'wide' },
-  'vllm-gemma4-e4b-fp8':  { img: '/banners/wide/gemma-small.webp', layout: 'wide' },
-  'vllm-gemma4-26b-a4b':  { img: '/banners/wide/gemma-large.webp', layout: 'wide' },
-  'vllm-gemma4-26b-a4b-fp8': { img: '/banners/wide/gemma-large.webp', layout: 'wide' },
-  'vllm-gemma4-31b':      { img: '/banners/wide/gemma-large.webp', layout: 'wide' },
-  'vllm-gemma4-31b-fp8':  { img: '/banners/wide/gemma-large.webp', layout: 'wide' },
-  'llamacpp-deepseek-v4-flash-q3km': { img: '/banners/wide/deepseek-v4-flash.svg', layout: 'wide' },
-  'ollama-openwebui':      { img: '/banners/wide/ollama-openwebui.png', layout: 'wide' },
-  'comfyui':               { img: '/banners/wide/comfyui-spark.jpg', layout: 'wide' },
-  'facefusion':            { img: '/banners/wide/facefusion-spark.png', layout: 'wide' },
-  'hunyuan3d':             { img: '/banners/wide/hunyuan3d-spark.png', layout: 'wide' },
-  'trellis2':              { img: '/banners/wide/trellis2-spark.png', layout: 'wide' },
-  'anythingllm':           { img: '/banners/wide/anythingllm.png', layout: 'wide' },
-  'flowise':               { img: '/banners/wide/flowise.png', layout: 'wide' },
-  'langflow':              { img: '/banners/wide/langflow.png', layout: 'wide' },
-  'localai':               { img: '/banners/wide/localai.png', layout: 'wide' },
-}
-
-function getBanner(slug) {
-  if (BANNERS[slug]) return BANNERS[slug]
-  for (const [prefix, conf] of Object.entries(BANNERS)) {
-    if (slug.startsWith(prefix)) return conf
-  }
-  return null
-}
+import PosterCard from '../components/PosterCard'
+import CardRow from '../components/CardRow'
+import Hero from '../components/Hero'
+import { vendorKey, vendorLabel } from '../covers'
 
 const CATEGORIES = [
   { id: 'all', label: 'All' },
@@ -47,14 +15,8 @@ const CATEGORIES = [
   { id: 'multi-modal', label: 'Multi-Modal' },
 ]
 
-const SOURCE_SECTIONS = [
-  { id: 'spark-ai-hub', label: 'Spark-Optimized', subtitle: 'Built & tested for DGX Spark', icon: 'spark' },
-  { id: 'official', label: 'Official Apps', subtitle: 'Published by original developers', icon: 'official' },
-  { id: 'vllm', label: 'Ready-to-Serve Models', subtitle: 'Curated models for DGX Spark. Served on port 9001, one at a time', icon: 'models' },
-]
-
-// Sort modes for the "Ready-to-Serve Models" section. Each `key` returns a
-// number to sort descending; null/undefined values always sink to the bottom.
+// Sort modes for the model shelves. Each `key` returns a number to sort
+// descending; null/undefined values always sink to the bottom.
 const MODEL_SORTS = [
   { id: 'release', label: 'Newest', key: null },
   { id: 'params', label: 'Params', key: (r) => r.params_b },
@@ -80,23 +42,25 @@ function makeComparator(sort) {
   }
 }
 
+function isModel(recipe) {
+  return recipe.slug.startsWith('vllm-')
+    || recipe.slug.startsWith('llamacpp-')
+    || recipe.slug.startsWith('atlas-')
+}
+
 function getSectionId(recipe) {
   if ((recipe.source || 'community') === 'spark-ai-hub') return 'spark-ai-hub'
-  if (recipe.slug.startsWith('vllm-') || recipe.slug.startsWith('llamacpp-') || recipe.slug.startsWith('atlas-')) return 'vllm'
+  if (isModel(recipe)) return 'models'
   return 'official'
 }
 
 export default function Catalog({ search = '' }) {
   const recipes = useStore((s) => s.recipes)
-  const selectRecipe = useStore((s) => s.selectRecipe)
-  const installRecipe = useStore((s) => s.installRecipe)
   const openConnect = useStore((s) => s.openConnect)
   const [category, setCategory] = useState('all')
   const [modelSortId, setModelSortId] = useState('release')
 
-  const heroIndex = useRef(Math.floor(Math.random() * 1000))
-
-  const filtered = recipes.filter((r) => {
+  const filtered = useMemo(() => recipes.filter((r) => {
     const recipeCategories = Array.isArray(r.categories) && r.categories.length > 0
       ? r.categories
       : [r.category]
@@ -106,111 +70,104 @@ export default function Catalog({ search = '' }) {
       if (!r.name.toLowerCase().includes(q) && !r.tags.some((t) => t.includes(q))) return false
     }
     return true
-  })
+  }), [recipes, category, search])
 
-  const grouped = useMemo(() => {
-    const modelSort = MODEL_SORTS.find((s) => s.id === modelSortId)
-    return SOURCE_SECTIONS.map((section) => ({
-      ...section,
-      recipes: filtered
-        .filter((r) => getSectionId(r) === section.id)
-        .sort(section.id === 'vllm' ? makeComparator(modelSort) : byRelease),
-    })).filter((section) => section.recipes.length > 0)
-  }, [filtered, modelSortId])
+  const comparator = useMemo(
+    () => makeComparator(MODEL_SORTS.find((s) => s.id === modelSortId)),
+    [modelSortId],
+  )
 
-  const recipesWithBanners = recipes.filter((r) => getBanner(r.slug))
-  const featured = recipesWithBanners.length > 0
-    ? recipesWithBanners[heroIndex.current % recipesWithBanners.length]
-    : null
-  const bannerConf = featured ? getBanner(featured.slug) : null
+  const shelves = useMemo(() => {
+    const pick = (id) => filtered.filter((r) => getSectionId(r) === id)
+
+    // "Jump back in" collects anything already on disk, running first.
+    const active = filtered
+      .filter((r) => r.running || r.starting || r.installed)
+      .sort((a, b) => Number(b.running || b.starting) - Number(a.running || a.starting)
+        || byRelease(a, b))
+
+    // Models are split per vendor — one 60-tile shelf would be unusable.
+    const byVendor = new Map()
+    for (const r of pick('models')) {
+      const key = vendorKey(r)
+      if (!byVendor.has(key)) byVendor.set(key, [])
+      byVendor.get(key).push(r)
+    }
+    const vendorShelves = [...byVendor.entries()]
+      .map(([key, items]) => ({ key, items: items.sort(comparator) }))
+      .sort((a, b) => b.items.length - a.items.length || a.key.localeCompare(b.key))
+
+    return {
+      active,
+      spark: pick('spark-ai-hub').sort(byRelease),
+      official: pick('official').sort(byRelease),
+      vendorShelves,
+    }
+  }, [filtered, comparator])
+
+  // Hero picks: whatever is running, then the freshest Spark-optimized apps
+  // and models, capped at five so the dots stay meaningful.
+  const heroPicks = useMemo(() => {
+    const seen = new Set()
+    const out = []
+    const push = (r) => {
+      if (r && !seen.has(r.slug)) { seen.add(r.slug); out.push(r) }
+    }
+    recipes.filter((r) => r.running || r.starting).sort(byRelease).forEach(push)
+    recipes.filter((r) => getSectionId(r) === 'spark-ai-hub').sort(byRelease).slice(0, 3).forEach(push)
+    recipes.filter(isModel).sort(byRelease).slice(0, 3).forEach(push)
+    return out.slice(0, 5)
+  }, [recipes])
+
+  const isBrowsing = !search && category === 'all'
+
+  const sortControl = (
+    <div className="flex items-center gap-1 rounded-xl border border-outline-dim bg-surface-high p-0.5">
+      <span className="px-2 font-label text-[10px] text-text-dim">Sort</span>
+      {MODEL_SORTS.map((s) => (
+        <button
+          key={s.id}
+          onClick={() => setModelSortId(s.id)}
+          className={`cursor-pointer rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all ${
+            modelSortId === s.id ? 'bg-primary text-primary-on' : 'bg-transparent text-text-muted hover:text-text'
+          }`}
+        >
+          {s.label}
+        </button>
+      ))}
+    </div>
+  )
+
+  const connectButton = (
+    <button
+      onClick={openConnect}
+      title="Connect a coding agent to the served model"
+      className="flex cursor-pointer items-center gap-2.5 rounded-xl border border-outline-dim bg-surface-high py-1.5 pl-2.5 pr-3.5 text-xs font-semibold text-text-muted transition-all hover:border-text-dim hover:text-text"
+    >
+      <span className="flex -space-x-1.5">
+        <AgentChip><ClaudeMark className="h-3 w-3 text-[#D97757]" /></AgentChip>
+        <AgentChip><img src="/logos/openai.png" alt="Codex" className="h-3.5 w-3.5 object-contain" /></AgentChip>
+        <AgentChip><img src="/logos/qwen.png" alt="Qwen Code" className="h-3.5 w-3.5 object-contain" /></AgentChip>
+        <AgentChip><TerminalMark className="h-3 w-3 text-text-muted" /></AgentChip>
+      </span>
+      Connect to a coding agent
+    </button>
+  )
 
   return (
-    <div className="pb-12">
-      {/* ─── Hero Banner ─── */}
-      {featured && bannerConf && !search && category === 'all' && (
-        <div
-          className="mx-6 mt-6 rounded-2xl overflow-hidden cursor-pointer relative group h-[280px]"
-          onClick={() => selectRecipe(featured.slug)}
-        >
-          <img
-            src={bannerConf.img}
-            alt=""
-            className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-          />
-          <div className="absolute inset-0" style={{ background: 'var(--hero-overlay-left)' }} />
-          <div className="absolute inset-0" style={{ background: 'var(--hero-overlay-bottom)' }} />
+    <div className="pb-14">
+      {isBrowsing && heroPicks.length > 0 && <Hero picks={heroPicks} />}
 
-          <div className="relative h-full flex items-center gap-6 px-10">
-            {featured.logo ? (
-              <img
-                src={featured.logo}
-                alt={featured.name}
-                className="w-20 h-20 rounded-2xl object-contain bg-surface/70 backdrop-blur-md p-3 shadow-2xl shrink-0 border border-glass-border"
-              />
-            ) : (
-              <div className="w-20 h-20 rounded-2xl bg-surface/70 backdrop-blur-md flex items-center justify-center text-4xl shrink-0 border border-glass-border">
-                {featured.icon || '◻'}
-              </div>
-            )}
-
-            <div className="flex-1 min-w-0">
-              <span className="inline-block text-[10px] font-bold font-label text-primary-on bg-primary px-2.5 py-0.5 rounded-full uppercase tracking-wider mb-2">
-                {featured.running || featured.starting ? 'Now Running' : 'Featured'}
-              </span>
-              <h1 className="text-3xl font-bold text-text tracking-tight font-display m-0 drop-shadow-md">
-                {featured.name}
-              </h1>
-              <p className="text-text-muted text-sm leading-relaxed max-w-md line-clamp-2 m-0 mt-1 drop-shadow-sm">
-                {featured.description}
-              </p>
-              <div className="mt-4 flex items-center gap-3">
-                {featured.running && featured.ready ? (
-                  <a
-                    href={`http://${location.hostname}:${featured.ui?.port ?? 8080}${featured.ui?.path ?? '/'}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="btn-primary px-6 py-2 text-sm font-bold no-underline inline-block"
-                  >
-                    Open ↗
-                  </a>
-                ) : !featured.installed && !featured.starting ? (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); installRecipe(featured.slug) }}
-                    className="btn-primary px-6 py-2 text-sm font-bold"
-                  >
-                    Install
-                  </button>
-                ) : (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); selectRecipe(featured.slug) }}
-                    className="btn-primary px-6 py-2 text-sm font-bold"
-                  >
-                    View Details
-                  </button>
-                )}
-                <button
-                  onClick={(e) => { e.stopPropagation(); selectRecipe(featured.slug) }}
-                  className="px-5 py-2 bg-surface/40 backdrop-blur text-text text-sm font-medium border border-glass-border rounded-xl cursor-pointer hover:bg-surface/60 transition-all"
-                >
-                  Learn More
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─── Category Filters ─── */}
-      <div className="px-6 pt-6 pb-2 flex gap-2 overflow-x-auto">
+      {/* ─── Category filters ─── */}
+      <div className={`flex gap-2 overflow-x-auto px-6 pb-2 ${isBrowsing ? 'pt-2' : 'pt-6'}`}>
         {CATEGORIES.map((c) => (
           <button
             key={c.id}
             onClick={() => setCategory(c.id)}
-            className={`shrink-0 px-4 py-2 rounded-full text-sm font-medium cursor-pointer transition-all duration-200 border ${
+            className={`shrink-0 cursor-pointer rounded-full border px-4 py-2 text-sm font-medium transition-all duration-200 ${
               category === c.id
-                ? 'bg-primary text-primary-on border-primary shadow-md shadow-primary/15'
-                : 'bg-transparent text-text-muted border-outline hover:text-text hover:border-text-dim'
+                ? 'border-primary bg-primary text-primary-on shadow-md shadow-primary/15'
+                : 'border-outline bg-transparent text-text-muted hover:border-text-dim hover:text-text'
             }`}
           >
             {c.label}
@@ -218,74 +175,95 @@ export default function Catalog({ search = '' }) {
         ))}
       </div>
 
-      {/* ─── App Sections ─── */}
-      <div className="px-6 pt-4 space-y-10">
-        {grouped.map((section) => (
-          <div key={section.id} className="animate-fadeIn">
-            <div className="mb-4 flex flex-wrap items-center gap-2">
-              <SectionIcon kind={section.icon} />
-              <div>
-                <h2 className="text-lg font-bold text-text tracking-tight font-display m-0">
-                  {section.label}
-                </h2>
-                <p className="text-xs text-text-dim mt-0.5 m-0">{section.subtitle}</p>
-              </div>
-              {section.id === 'vllm' && (
-                <div className="ml-auto shrink-0 flex items-center gap-1 rounded-xl bg-surface-high border border-outline-dim p-0.5">
-                  <span className="text-[10px] font-label text-text-dim px-2">Sort</span>
-                  {MODEL_SORTS.map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => setModelSortId(s.id)}
-                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer transition-all ${
-                        modelSortId === s.id
-                          ? 'bg-primary text-primary-on'
-                          : 'bg-transparent text-text-muted hover:text-text'
-                      }`}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
+      {/* Search and category filters collapse the shelves into a plain grid —
+          scanning results sideways is worse than scanning them down. */}
+      {!isBrowsing ? (
+        <ResultsGrid recipes={filtered} sortControl={sortControl} search={search} />
+      ) : (
+        <div className="space-y-9 pt-4">
+          {shelves.active.length > 0 && (
+            <CardRow title="Jump back in" subtitle="Installed on this Spark">
+              {shelves.active.map((r) => <PosterCard key={r.slug} recipe={r} />)}
+            </CardRow>
+          )}
+
+          {shelves.spark.length > 0 && (
+            <CardRow title="Spark-Optimized" subtitle="Built & tested for DGX Spark">
+              {shelves.spark.map((r) => <PosterCard key={r.slug} recipe={r} />)}
+            </CardRow>
+          )}
+
+          {shelves.official.length > 0 && (
+            <CardRow title="Official Apps" subtitle="Published by the original developers">
+              {shelves.official.map((r) => <PosterCard key={r.slug} recipe={r} />)}
+            </CardRow>
+          )}
+
+          {shelves.vendorShelves.length > 0 && (
+            <div className="space-y-7">
+              <div className="flex flex-wrap items-end gap-x-3 gap-y-2 px-6">
+                <div>
+                  <h2 className="m-0 font-display text-xl font-bold tracking-tight text-text">
+                    Ready-to-Serve Models
+                  </h2>
+                  <p className="m-0 mt-0.5 text-xs text-text-dim">
+                    Curated for DGX Spark. Served on port 9001, one at a time.
+                  </p>
                 </div>
-              )}
-              {section.id === 'vllm' && (
-                <button
-                  onClick={openConnect}
-                  title="Connect a coding agent to the served model"
-                  className="shrink-0 flex items-center gap-2.5 pl-2.5 pr-3.5 py-1.5 rounded-xl bg-surface-high text-text-muted border border-outline-dim text-xs font-semibold cursor-pointer hover:text-text hover:border-text-dim transition-all"
-                >
-                  <span className="flex -space-x-1.5">
-                    <AgentChip><ClaudeMark className="w-3 h-3 text-[#D97757]" /></AgentChip>
-                    <AgentChip><img src="/logos/openai.png" alt="Codex" className="w-3.5 h-3.5 object-contain" /></AgentChip>
-                    <AgentChip><img src="/logos/qwen.png" alt="Qwen Code" className="w-3.5 h-3.5 object-contain" /></AgentChip>
-                    <AgentChip><TerminalMark className="w-3 h-3 text-text-muted" /></AgentChip>
-                  </span>
-                  Connect to a coding agent
-                </button>
-              )}
-            </div>
-            <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
-              {section.recipes.map((r) => (
-                <RecipeCard key={r.slug} recipe={r} hideCategories={section.id === 'vllm'} />
+                <div className="ml-auto flex flex-wrap items-center gap-2">
+                  {sortControl}
+                  {connectButton}
+                </div>
+              </div>
+
+              {shelves.vendorShelves.map(({ key, items }) => (
+                <CardRow key={key} title={vendorLabel(key)} subtitle={`${items.length} build${items.length > 1 ? 's' : ''}`}>
+                  {items.map((r) => <PosterCard key={r.slug} recipe={r} />)}
+                </CardRow>
               ))}
             </div>
-          </div>
-        ))}
-        {grouped.length === 0 && (
-          <div className="text-center py-20 text-text-dim animate-fadeIn">
-            <div className="text-4xl mb-3">🔍</div>
-            <div className="text-base font-semibold font-display">No apps found</div>
-            <div className="text-sm mt-1">Try a different search or category</div>
-          </div>
-        )}
+          )}
+
+          {shelves.active.length === 0 && shelves.spark.length === 0
+            && shelves.official.length === 0 && shelves.vendorShelves.length === 0 && <Empty />}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ResultsGrid({ recipes, sortControl, search }) {
+  const sorted = useMemo(() => [...recipes].sort(byRelease), [recipes])
+  if (sorted.length === 0) return <Empty />
+  return (
+    <div className="px-6 pt-4">
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <h2 className="m-0 font-display text-base font-bold tracking-tight text-text">
+          {sorted.length} {sorted.length === 1 ? 'result' : 'results'}
+          {search && <span className="text-text-dim font-normal"> for “{search}”</span>}
+        </h2>
+        <div className="ml-auto">{sortControl}</div>
       </div>
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
+        {sorted.map((r) => <RecipeCard key={r.slug} recipe={r} />)}
+      </div>
+    </div>
+  )
+}
+
+function Empty() {
+  return (
+    <div className="animate-fadeIn py-20 text-center text-text-dim">
+      <div className="mb-3 text-4xl">🔍</div>
+      <div className="font-display text-base font-semibold">No apps found</div>
+      <div className="mt-1 text-sm">Try a different search or category</div>
     </div>
   )
 }
 
 function AgentChip({ children }) {
   return (
-    <span className="w-5 h-5 rounded-full bg-white ring-1 ring-outline-dim flex items-center justify-center overflow-hidden">
+    <span className="flex h-5 w-5 items-center justify-center overflow-hidden rounded-full bg-white ring-1 ring-outline-dim">
       {children}
     </span>
   )
@@ -310,46 +288,6 @@ function TerminalMark({ className }) {
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-label="CLI agents">
       <path d="M5 8l4 4-4 4" />
       <line x1="12" y1="16" x2="18" y2="16" />
-    </svg>
-  )
-}
-
-function SectionIcon({ kind }) {
-  const shared = {
-    className: 'w-5 h-5 text-text-muted',
-    viewBox: '0 0 24 24',
-    fill: 'none',
-    stroke: 'currentColor',
-    strokeWidth: '1.8',
-    strokeLinecap: 'round',
-    strokeLinejoin: 'round',
-  }
-
-  if (kind === 'spark') {
-    return (
-      <svg {...shared}>
-        <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8Z" />
-      </svg>
-    )
-  }
-
-  if (kind === 'official') {
-    return (
-      <svg {...shared}>
-        <circle cx="12" cy="12" r="9" />
-        <path d="m8.5 12 2.5 2.5L15.5 10" />
-      </svg>
-    )
-  }
-
-  return (
-    <svg {...shared}>
-      <rect x="3" y="4" width="18" height="6" rx="2" />
-      <rect x="3" y="14" width="18" height="6" rx="2" />
-      <path d="M7 7h.01" />
-      <path d="M7 17h.01" />
-      <path d="M17 7h-4" />
-      <path d="M17 17h-4" />
     </svg>
   )
 }
