@@ -1,0 +1,106 @@
+services:
+  vllm:
+    # Qwen3.8-27B is a hybrid (Gated DeltaNet + gated full attention) dense VLM
+    # that reports itself as model_type=qwen3_5. Unsloth's Dynamic V3.0 NVFP4
+    # checkpoint is compressed-tensors "mixed-precision": nvfp4-pack-quantized
+    # MLPs plus FP8 attention/linear-attention projections and lm_head.
+    #
+    # Image: vLLM's named `qwen38-arm64-cu130` release tag — the build cut for
+    # Qwen3.8 support (v0.27.1 predates it). A named tag, not a `nightly-<sha>`:
+    # those get garbage-collected from Docker Hub within about a day, which
+    # would break a clean from-scratch reinstall.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('unsloth/Qwen3.8-27B-NVFP4')"
+        FROM vllm/vllm-openai:qwen38-arm64-cu130
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/vllm-qwen38-27b-nvfp4:qwen38-arm64-cu130
+    container_name: spark-ai-hub-vllm-qwen38-27b-nvfp4
+    ports:
+      - "9001:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # DGX Spark (GB10, sm_121a) flashinfer environment.
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      - CUTE_DSL_ARCH=sm_121a
+    ipc: host
+    # Flags follow the official vLLM recipe for Qwen3.8-27B (NVFP4, TP1) plus
+    # Unsloth's serving notes for this checkpoint. The checkpoint carries an
+    # fp8 kv_cache_scheme, so we serve fp8 KV on the flashinfer backend
+    # (flash_attn rejects fp8 KV on this platform).
+    command:
+      - --model
+      - unsloth/Qwen3.8-27B-NVFP4
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --trust-remote-code
+      - --dtype
+      - auto
+      - --kv-cache-dtype
+      - fp8
+      - --attention-backend
+      - flashinfer
+      - --gpu-memory-utilization
+      # ~22 GiB of NVFP4/FP8 weights + fp8 KV. Leaves headroom for other
+      # services on the 128 GiB GB10 while holding several full-context
+      # sessions (see KV concurrency verified at launch).
+      - "0.45"
+      - --max-model-len
+      - "262144"
+      - --max-num-seqs
+      - "4"
+      - --max-num-batched-tokens
+      - "8192"
+      - --enable-chunked-prefill
+      - --async-scheduling
+      - --enable-prefix-caching
+      # Video: hand frame sampling back to do_sample_frames+fps and allow
+      # multiple videos per prompt, per the model card.
+      - --media-io-kwargs
+      - '{"video": {"num_frames": -1}}'
+      - --limit-mm-per-prompt
+      - '{"video": 4}'
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      # The checkpoint ships the trained multi-token-prediction head
+      # (mtp_num_hidden_layers=1, weights in model_mtp.safetensors), so MTP
+      # speculative decoding lifts single-stream decode 1.7x on this Spark
+      # (mean acceptance length ~2.6-3.0 of 4). Unlike DFlash, MTP needs no
+      # flash_attn drafter, so it works with the fp8 KV cache.
+      # num_speculative_tokens=3 per vLLM's Qwen3.8-27B recipe; 2 measured a
+      # touch slower.
+      #
+      # Note: fp8 KV on FlashInfer downgrades cudagraph_mode to PIECEWISE under
+      # spec-decode. That is not a tuning miss — Qwen3.6-27B-NVFP4 hits the same
+      # path, and --attention-backend triton_attn is ignored while KV is fp8.
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":3}'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN

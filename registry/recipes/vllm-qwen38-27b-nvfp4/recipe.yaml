@@ -1,0 +1,58 @@
+name: "Qwen3.8-27B NVFP4"
+slug: vllm-qwen38-27b-nvfp4
+version: "1.0.0"
+description: "Qwen3.8-27B NVFP4 (Unsloth Dynamic V3.0) on vLLM with MTP speculative decoding. Qwen's newest dense 27B vision-language model — hybrid Gated DeltaNet + gated attention, thinking on by default with tunable reasoning_effort, 262K context — quantized to NVFP4 MLPs with FP8 attention and served with an fp8 KV cache on the flashinfer backend."
+author: "Alibaba Cloud + Unsloth + vLLM"
+source: "community"
+website: "https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4"
+upstream: "https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - reasoning
+  - coding
+  - agentic
+  - tool-use
+  - vllm
+  - qwen
+  - nvfp4
+  - speculative-decoding
+  - mtp
+logo: "/logos/qwen.png"
+requirements:
+  min_memory_gb: 45
+  recommended_memory_gb: 60
+  disk_gb: 32
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  gpu: true
+status: community-verified
+engine: "vLLM"
+params_b: 27
+arch: dense
+quantization: "NVFP4"
+weights_gb: 23.4
+release_date: "2026-08-12"
+requires_hf_token: true
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "unsloth/Qwen3.8-27B-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"unsloth/Qwen3.8-27B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 2048, \"temperature\": 1.0, \"top_p\": 0.95}'"
+
+tokens_per_second: 21.9
+
+cover:
+  image: qwen-27b.jpg
+  caption: "The Qwen capybara writing SQL. Shared by Qwen models of 27B parameters."
+  fit: contain
+  grade: false
+  credit: "cfahlgren1/flux-qwen-capybara — a FLUX.1-dev LoRA recreating the Qwen capybara · FLUX.1-dev non-commercial licence"
+  source: "https://huggingface.co/cfahlgren1/flux-qwen-capybara"
