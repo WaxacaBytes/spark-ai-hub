@@ -35,9 +35,10 @@ status: community-verified
 release_date: "2025-12"
 
 cover:
-  image: app-qwen-image.jpg
-  caption: "Qwen-Image 2512's showcase grid, from Alibaba's model card."
-  fit: contain
+  image: real-qwen-image.jpg
+  backdrop:
+    image: hero-qwen-image.jpg
+  caption: "An image Qwen-Image 2512 generated, from Alibaba's showcase."
   grade: false
-  credit: "Qwen-Image 2512 model-card artwork, Alibaba"
-  source: "https://qianwen-res.oss-accelerate-overseas.aliyuncs.com/Qwen-Image/image2512/image2512big.png"
+  credit: "Qwen-Image 2512 showcase, Alibaba"
+  source: "https://huggingface.co/Qwen/Qwen-Image-2512"

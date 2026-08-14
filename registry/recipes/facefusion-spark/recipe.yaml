@@ -32,8 +32,10 @@ status: official
 release_date: "2023-08"
 
 cover:
-  image: app-facefusion.jpg
-  caption: "FaceFusion's own project artwork."
+  image: real-facefusion.jpg
+  backdrop:
+    image: hero-facefusion.jpg
+  caption: "FaceFusion's own interface, mid-swap on its preview frame."
   grade: false
-  credit: "FaceFusion project artwork (from the Hub's original banner set)"
-  source: "https://github.com/facefusion/facefusion"
+  credit: "FaceFusion project preview"
+  source: "https://github.com/facefusion/facefusion/blob/master/.github/preview.png"

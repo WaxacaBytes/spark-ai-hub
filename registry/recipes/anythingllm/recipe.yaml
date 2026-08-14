@@ -31,9 +31,10 @@ status: official
 release_date: "2023-06"
 
 cover:
-  image: app-anythingllm.jpg
-  caption: "AnythingLLM's own project artwork."
-  fit: contain
+  image: real-anythingllm.jpg
+  backdrop:
+    image: hero-anythingllm.jpg
+  caption: "AnythingLLM answering from its own documents, sources listed alongside."
   grade: false
-  credit: "AnythingLLM project artwork (from the Hub's original banner set)"
+  credit: "AnythingLLM demo reel, Mintplex Labs"
   source: "https://github.com/Mintplex-Labs/anything-llm"

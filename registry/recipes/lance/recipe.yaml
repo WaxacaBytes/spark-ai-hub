@@ -38,9 +38,10 @@ release_date: "2026-05"
 requires_hf_token: false
 
 cover:
-  image: app-lance.jpg
-  caption: "Lance logo art, from ByteDance Research's model card."
-  fit: contain
+  image: real-lance.jpg
+  backdrop:
+    image: hero-lance.jpg
+  caption: "Eight clips Lance generated, from ByteDance Research's own preview set."
   grade: false
-  credit: "Lance logo art, ByteDance Research"
-  source: "https://huggingface.co/bytedance-research/Lance/resolve/main/assets/logo/lance-logo.webp"
+  credit: "Lance text-to-video previews, ByteDance Research"
+  source: "https://huggingface.co/bytedance-research/Lance/tree/main/assets/text-to-video/previews"

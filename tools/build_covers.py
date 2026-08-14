@@ -68,7 +68,14 @@ FREE_LICENSE = ("cc0", "cc by", "cc-by", "public domain", "pd-", "gfdl")
 
 @dataclass
 class Declared:
-    """A cover as declared by one or more recipes."""
+    """A cover as declared by one or more recipes.
+
+    A card and a hero are different shapes and want different pictures: the
+    card is a tall crop with the title across its foot, the hero a wide band
+    with the title set into its left third. A recipe may therefore declare a
+    second image just for the hero, framed for that band — see `backdrop:` in
+    read_declarations(). Leave it out and both shapes come from `image`.
+    """
     image: str
     caption: str = ""
     fit: str = "cover"
@@ -79,11 +86,29 @@ class Declared:
     credit: str = ""
     source: str = ""
     tint: str = DEFAULT_TINT
+    backdrop_image: str = ""
+    backdrop_focus_x: float = None
+    backdrop_focus_y: float = None
     used_by: list = None
 
     @property
     def stem(self) -> str:
         return Path(self.image).stem
+
+    def source_for(self, kind: str) -> str:
+        """The file each shape renders from."""
+        return self.backdrop_image or self.image if kind == "backdrop" else self.image
+
+    def focus_for(self, kind: str) -> tuple[float, float]:
+        if kind != "backdrop":
+            return self.focus_x, self.focus_y
+        # A hero framed on its own only inherits the card's focus when it has
+        # not set its own; a shared file keeps one framing for both.
+        fx = self.backdrop_focus_x
+        fy = self.backdrop_focus_y
+        if self.backdrop_image:
+            return (0.5 if fx is None else fx), (0.5 if fy is None else fy)
+        return (self.focus_x if fx is None else fx), (self.focus_y if fy is None else fy)
 # ─────────────────────────── commons fetch ───────────────────────────
 
 def _api(url: str):
@@ -257,17 +282,25 @@ def read_declarations() -> dict[str, Declared]:
         if stem in found:
             found[stem].used_by.append(slug)
             continue
+        # An optional `backdrop:` block gives the hero its own picture and
+        # framing:  backdrop: {image: hero-lance.jpg, fit: cover, focus_y: 0.4}
+        back = cover.get("backdrop") or {}
+        if isinstance(back, str):                       # backdrop: hero-x.jpg
+            back = {"image": back}
         found[stem] = Declared(
             image=image,
             caption=cover.get("caption", ""),
             fit=cover.get("fit", "cover"),
-            backdrop_fit=cover.get("backdrop_fit", ""),
+            backdrop_fit=back.get("fit", cover.get("backdrop_fit", "")),
             focus_x=float(cover.get("focus_x", 0.5)),
             focus_y=float(cover.get("focus_y", 0.5)),
             grade=bool(cover.get("grade", True)),
             credit=cover.get("credit", ""),
             source=cover.get("source", ""),
             tint=cover.get("tint", DEFAULT_TINT),
+            backdrop_image=back.get("image", ""),
+            backdrop_focus_x=(float(back["focus_x"]) if "focus_x" in back else None),
+            backdrop_focus_y=(float(back["focus_y"]) if "focus_y" in back else None),
             used_by=[slug],
         )
     return found
@@ -277,7 +310,9 @@ def read_declarations() -> dict[str, Declared]:
 
 def render(dec: Declared, size, scrim: str) -> Image.Image:
     """Render one declared source into `size`, graded and scrimmed for text."""
-    im = Image.open(SOURCES / dec.image).convert("RGB")
+    kind = "poster" if scrim == "bottom" else "backdrop"
+    im = Image.open(SOURCES / dec.source_for(kind)).convert("RGB")
+    fx, fy = dec.focus_for(kind)
     w, h = size
     fit = dec.fit if scrim == "bottom" else (dec.backdrop_fit or dec.fit)
 
@@ -297,7 +332,7 @@ def render(dec: Declared, size, scrim: str) -> Image.Image:
         im = plate
     else:
         im = cover_crop(im, size, "center", 1.0,
-                        shift=(dec.focus_x - 0.5, dec.focus_y - 0.5))
+                        shift=(fx - 0.5, fy - 0.5))
 
     seed = abs(hash(dec.stem)) % 9999
     if dec.grade:
@@ -373,7 +408,8 @@ def main() -> None:
         sys.exit(f"not declared by any recipe: {', '.join(unknown)}\n"
                  "run with --list to see valid names")
 
-    missing_src = [d.image for d in decs.values() if not (SOURCES / d.image).is_file()]
+    wanted = {f for d in decs.values() for f in (d.image, d.backdrop_image) if f}
+    missing_src = [f for f in wanted if not (SOURCES / f).is_file()]
     if missing_src:
         sys.exit(f"missing source images in {SOURCES.relative_to(ROOT)}: "
                  f"{', '.join(sorted(missing_src))}")

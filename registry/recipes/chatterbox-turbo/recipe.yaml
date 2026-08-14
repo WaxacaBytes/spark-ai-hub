@@ -33,9 +33,10 @@ status: official
 release_date: "2025-06"
 
 cover:
-  image: app-chatterbox.jpg
-  caption: "Resemble AI's Chatterbox Multilingual key art, from the project's README."
-  fit: contain
+  image: real-chatterbox.jpg
+  backdrop:
+    image: hero-chatterbox.jpg
+  caption: "Chatterbox key art, published by Resemble AI."
   grade: false
-  credit: "Resemble AI project artwork"
-  source: "https://raw.githubusercontent.com/resemble-ai/chatterbox/master/Chatterbox-Multilingual.png"
+  credit: "Chatterbox Turbo key art, Resemble AI"
+  source: "https://github.com/resemble-ai/chatterbox/blob/master/Chatterbox-Turbo.jpg"

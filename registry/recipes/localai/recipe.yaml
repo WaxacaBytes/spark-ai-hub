@@ -32,9 +32,10 @@ status: official
 release_date: "2023-05"
 
 cover:
-  image: app-localai.jpg
-  caption: "LocalAI's own project artwork."
-  fit: contain
+  image: real-localai.jpg
+  backdrop:
+    image: hero-localai.jpg
+  caption: "LocalAI's model gallery, browsing what it can pull."
   grade: false
-  credit: "LocalAI project artwork (from the Hub's original banner set)"
-  source: "https://github.com/mudler/LocalAI"
+  credit: "LocalAI documentation screenshot, mudler"
+  source: "https://github.com/mudler/LocalAI/blob/master/docs/assets/images/screenshots/screenshot_gallery.png"

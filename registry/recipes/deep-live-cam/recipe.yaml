@@ -33,8 +33,10 @@ status: community-verified
 release_date: "2023-09"
 
 cover:
-  image: app-deep-live-cam.jpg
-  caption: "A frame from Deep-Live-Cam's own demo reel."
+  image: real-deep-live-cam.jpg
+  backdrop:
+    image: hero-deep-live-cam.jpg
+  caption: "A frame from Deep-Live-Cam's own streamer demo reel."
   grade: false
-  credit: "Deep-Live-Cam demo reel"
-  source: "https://raw.githubusercontent.com/hacksider/Deep-Live-Cam/main/media/demo.gif"
+  credit: "Deep-Live-Cam demo reel, hacksider"
+  source: "https://github.com/hacksider/Deep-Live-Cam/blob/main/media/streamers.gif"

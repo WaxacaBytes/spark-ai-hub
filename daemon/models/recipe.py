@@ -30,6 +30,20 @@ class RecipeIntegration(BaseModel):
     curl_example: str = ""
 
 
+class RecipeBackdrop(BaseModel):
+    """A second picture, framed for the wide hero band.
+
+    The card is a tall crop with its title across the foot; the hero is a
+    2.56:1 band with the title set into its left third. One picture rarely
+    suits both, so a recipe may name a hero of its own here. Omit it and the
+    hero is cropped from `RecipeCover.image` as before.
+    """
+    image: str = ""
+    fit: str = ""
+    focus_x: float | None = None
+    focus_y: float | None = None
+
+
 class RecipeCover(BaseModel):
     """Cover art, declared by the recipe rather than mapped in code.
 
@@ -49,6 +63,7 @@ class RecipeCover(BaseModel):
     credit: str = ""             # "File · Author · CC BY 4.0", for CC sources
     source: str = ""             # URL the image came from
     grade: bool = True           # apply the cinematic colour grade
+    backdrop: RecipeBackdrop | None = None   # optional hero-only picture
 
 
 class Recipe(BaseModel):

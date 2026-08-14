@@ -31,9 +31,10 @@ status: official
 release_date: "2023-10"
 
 cover:
-  image: app-openwebui.jpg
-  caption: "The Open WebUI chat interface, which this recipe pairs with Ollama."
-  fit: contain
+  image: real-openwebui.jpg
+  backdrop:
+    image: hero-openwebui.jpg
+  caption: "Open WebUI's own chat interface, mid-conversation."
   grade: false
-  credit: "Open WebUI project artwork (from the Hub's original banner set)"
-  source: "https://github.com/open-webui/open-webui"
+  credit: "Open WebUI documentation screenshot"
+  source: "https://docs.openwebui.com/"

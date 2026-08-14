@@ -33,8 +33,10 @@ status: community-verified
 release_date: "2026-03"
 
 cover:
-  image: app-spatialedit.jpg
-  caption: "A camera-control edit from SpatialEdit's repository."
+  image: real-spatialedit.jpg
+  backdrop:
+    image: hero-spatialedit.jpg
+  caption: "One car rotated through eight viewpoints, from SpatialEdit's task figure."
   grade: false
-  credit: "SpatialEdit project artwork"
-  source: "https://raw.githubusercontent.com/EasonXiao-888/SpatialEdit/main/assets/application/camera/output.png"
+  credit: "SpatialEdit task figure, EasonXiao-888"
+  source: "https://github.com/EasonXiao-888/SpatialEdit/blob/main/assets/task_definition.png"

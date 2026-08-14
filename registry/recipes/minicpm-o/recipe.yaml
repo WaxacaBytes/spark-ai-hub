@@ -33,9 +33,10 @@ status: community-verified
 release_date: "2026-02"
 
 cover:
-  image: app-minicpm-o.jpg
-  caption: "A video-understanding demo from MiniCPM-o's README."
-  fit: contain
+  image: real-minicpm-o.jpg
+  backdrop:
+    image: hero-minicpm-o.jpg
+  caption: "A question MiniCPM-o answers by reading the photograph, from OpenBMB's demo."
   grade: false
-  credit: "MiniCPM-o project artwork"
-  source: "https://raw.githubusercontent.com/OpenBMB/MiniCPM-o/main/assets/minicpmv4.6/video_play.png"
+  credit: "MiniCPM-o reasoning demo, OpenBMB"
+  source: "https://github.com/OpenBMB/MiniCPM-o/blob/main/assets/minicpmo4_5/en_cot.png"

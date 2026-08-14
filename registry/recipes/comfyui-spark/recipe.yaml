@@ -36,9 +36,10 @@ status: official
 release_date: "2023-01"
 
 cover:
-  image: app-comfyui.jpg
-  caption: "A ComfyUI node graph — the app's own interface."
-  fit: contain
+  image: real-comfyui.jpg
+  backdrop:
+    image: hero-comfyui.jpg
+  caption: "A real ComfyUI graph, screenshotted from the copy running on this Spark."
   grade: false
-  credit: "ComfyUI project artwork (from the Hub's original banner set)"
-  source: "https://github.com/comfyanonymous/ComfyUI"
+  credit: "ComfyUI running locally"
+  source: "https://www.comfy.org/"

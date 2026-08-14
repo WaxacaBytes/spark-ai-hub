@@ -31,9 +31,10 @@ status: official
 release_date: "2023-02"
 
 cover:
-  image: app-langflow.jpg
-  caption: "Langflow's own project artwork."
-  fit: contain
+  image: real-langflow.jpg
+  backdrop:
+    image: hero-langflow.jpg
+  caption: "A Langflow canvas wiring tools into an agent."
   grade: false
-  credit: "Langflow project artwork (from the Hub's original banner set)"
-  source: "https://github.com/langflow-ai/langflow"
+  credit: "Langflow documentation screenshot, Langflow AI"
+  source: "https://github.com/langflow-ai/langflow/blob/main/docs/static/img/agent-example-add-tools.png"

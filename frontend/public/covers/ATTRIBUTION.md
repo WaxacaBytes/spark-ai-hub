@@ -8,50 +8,6 @@ from freely licensed Wikimedia Commons files (colour-graded, cropped
 and darkened); the rest is artwork published by the projects the
 covers stand for.
 
-- **app-acestep.jpg** — ACE-Step project artwork  
-  https://raw.githubusercontent.com/ACE-Step/ACE-Step-1.5/main/assets/application_map.png
-- **app-anythingllm.jpg** — AnythingLLM project artwork (from the Hub's original banner set)  
-  https://github.com/Mintplex-Labs/anything-llm
-- **app-chatterbox.jpg** — Resemble AI project artwork  
-  https://raw.githubusercontent.com/resemble-ai/chatterbox/master/Chatterbox-Multilingual.png
-- **app-comfyui.jpg** — ComfyUI project artwork (from the Hub's original banner set)  
-  https://github.com/comfyanonymous/ComfyUI
-- **app-deep-live-cam.jpg** — Deep-Live-Cam demo reel  
-  https://raw.githubusercontent.com/hacksider/Deep-Live-Cam/main/media/demo.gif
-- **app-facefusion.jpg** — FaceFusion project artwork (from the Hub's original banner set)  
-  https://github.com/facefusion/facefusion
-- **app-firered.jpg** — FireRed Image Edit showcase  
-  https://github.com/FireRedTeam/FireRed-Image-Edit/raw/main/assets/showcase_portrait.jpg
-- **app-flowise.jpg** — Flowise project artwork (from the Hub's original banner set)  
-  https://github.com/FlowiseAI/Flowise
-- **app-foundation1.jpg** — Foundation-1 model-card banner, RoyalCities  
-  https://huggingface.co/RoyalCities/Foundation-1/resolve/main/Charts/banner.PNG
-- **app-hunyuan3d.jpg** — Hunyuan3D project artwork (from the Hub's original banner set)  
-  https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1
-- **app-lance.jpg** — Lance logo art, ByteDance Research  
-  https://huggingface.co/bytedance-research/Lance/resolve/main/assets/logo/lance-logo.webp
-- **app-langflow.jpg** — Langflow project artwork (from the Hub's original banner set)  
-  https://github.com/langflow-ai/langflow
-- **app-localai.jpg** — LocalAI project artwork (from the Hub's original banner set)  
-  https://github.com/mudler/LocalAI
-- **app-minicpm-o.jpg** — MiniCPM-o project artwork  
-  https://raw.githubusercontent.com/OpenBMB/MiniCPM-o/main/assets/minicpmv4.6/video_play.png
-- **app-onyx.jpg** — Onyx product demo  
-  https://github.com/onyx-dot-app/onyx/releases/download/v3.0.0/Onyx.gif
-- **app-openwebui.jpg** — Open WebUI project artwork (from the Hub's original banner set)  
-  https://github.com/open-webui/open-webui
-- **app-pixal3d.jpg** — Pixal3D teaser, TencentARC  
-  https://raw.githubusercontent.com/TencentARC/Pixal3D/master/assets/teaser.png
-- **app-qwen-angles.jpg** — Multiple-Angles LoRA animation grid, fal  
-  https://huggingface.co/fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA/resolve/main/all_animations_combined.gif
-- **app-qwen-image.jpg** — Qwen-Image 2512 model-card artwork, Alibaba  
-  https://qianwen-res.oss-accelerate-overseas.aliyuncs.com/Qwen-Image/image2512/image2512big.png
-- **app-spatialedit.jpg** — SpatialEdit project artwork  
-  https://raw.githubusercontent.com/EasonXiao-888/SpatialEdit/main/assets/application/camera/output.png
-- **app-trellis2.jpg** — TRELLIS project artwork (from the Hub's original banner set)  
-  https://github.com/microsoft/TRELLIS
-- **app-voicebox.jpg** — Voicebox site artwork  
-  https://voicebox.sh/og.webp
 - **bytedance-beijing-night.jpg** — Beijing skyline from northeast 4th ring road.jpg · Picrazy2 · CC BY-SA 4.0  
   https://commons.wikimedia.org/wiki/File%3ABeijing%20skyline%20from%20northeast%204th%20ring%20road.jpg
 - **deepseek-hangzhou.jpg** — Light show in Qianjiang New City 05.png · Y Chen · CC BY-SA 4.0  
@@ -106,6 +62,50 @@ covers stand for.
   https://huggingface.co/cfahlgren1/flux-qwen-capybara
 - **qwen-9b.jpg** — cfahlgren1/flux-qwen-capybara — a FLUX.1-dev LoRA recreating the Qwen capybara · FLUX.1-dev non-commercial licence  
   https://huggingface.co/cfahlgren1/flux-qwen-capybara
+- **real-acestep.jpg** — ACE Studio artwork, ACE-Step  
+  https://github.com/ACE-Step/ACE-Step-1.5/blob/main/assets/acestudio_logo.png
+- **real-anythingllm.jpg** — AnythingLLM demo reel, Mintplex Labs  
+  https://github.com/Mintplex-Labs/anything-llm
+- **real-chatterbox.jpg** — Chatterbox Turbo key art, Resemble AI  
+  https://github.com/resemble-ai/chatterbox/blob/master/Chatterbox-Turbo.jpg
+- **real-comfyui.jpg** — ComfyUI running locally  
+  https://www.comfy.org/
+- **real-deep-live-cam.jpg** — Deep-Live-Cam demo reel, hacksider  
+  https://github.com/hacksider/Deep-Live-Cam/blob/main/media/streamers.gif
+- **real-facefusion.jpg** — FaceFusion project preview  
+  https://github.com/facefusion/facefusion/blob/master/.github/preview.png
+- **real-firered.jpg** — FireRed Image Edit showcase, FireRed Team  
+  https://github.com/FireRedTeam/FireRed-Image-Edit
+- **real-flowise.jpg** — Flowise agentflow demo, FlowiseAI  
+  https://github.com/FlowiseAI/Flowise/blob/main/images/flowise_agentflow.gif
+- **real-foundation1.jpg** — Foundation-1 banner, RoyalCities  
+  https://huggingface.co/RoyalCities/Foundation-1
+- **real-hunyuan3d.jpg** — Hunyuan3D 2.1 teaser, Tencent  
+  https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1/blob/main/assets/images/teaser.jpg
+- **real-lance.jpg** — Lance text-to-video previews, ByteDance Research  
+  https://huggingface.co/bytedance-research/Lance/tree/main/assets/text-to-video/previews
+- **real-langflow.jpg** — Langflow documentation screenshot, Langflow AI  
+  https://github.com/langflow-ai/langflow/blob/main/docs/static/img/agent-example-add-tools.png
+- **real-localai.jpg** — LocalAI documentation screenshot, mudler  
+  https://github.com/mudler/LocalAI/blob/master/docs/assets/images/screenshots/screenshot_gallery.png
+- **real-minicpm-o.jpg** — MiniCPM-o reasoning demo, OpenBMB  
+  https://github.com/OpenBMB/MiniCPM-o/blob/main/assets/minicpmo4_5/en_cot.png
+- **real-onyx.jpg** — Onyx product demo, Onyx  
+  https://github.com/onyx-dot-app/onyx
+- **real-openwebui.jpg** — Open WebUI documentation screenshot  
+  https://docs.openwebui.com/
+- **real-pixal3d.jpg** — Pixal3D teaser, TencentARC  
+  https://github.com/TencentARC/Pixal3D/blob/master/assets/teaser.png
+- **real-qwen-angles.jpg** — Multiple-Angles LoRA demo, fal  
+  https://huggingface.co/fal/Qwen-Image-Edit-2511-Multiple-Angles-LoRA
+- **real-qwen-image.jpg** — Qwen-Image 2512 showcase, Alibaba  
+  https://huggingface.co/Qwen/Qwen-Image-2512
+- **real-spatialedit.jpg** — SpatialEdit task figure, EasonXiao-888  
+  https://github.com/EasonXiao-888/SpatialEdit/blob/main/assets/task_definition.png
+- **real-trellis2.jpg** — TRELLIS.2 teaser, Microsoft  
+  https://github.com/microsoft/TRELLIS.2/blob/main/assets/teaser.webp
+- **real-voicebox.jpg** — Voicebox site artwork, Jamie Pine  
+  https://voicebox.sh/
 - **tencent-towers.jpg** — Tencent Seafront Towers, the Tencent HQ in Shenzhen (2026) - img 01.jpg · Chainwit. · CC BY 4.0  
   https://commons.wikimedia.org/wiki/File%3ATencent%20Seafront%20Towers%2C%20the%20Tencent%20HQ%20in%20Shenzhen%20%282026%29%20-%20img%2001.jpg
 - **thinking-machines-murati.jpg** — Guests at the 2026 Met Gala 274.jpg · SWinxy · CC BY 4.0  

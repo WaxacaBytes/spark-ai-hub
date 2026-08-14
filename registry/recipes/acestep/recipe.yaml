@@ -33,9 +33,10 @@ status: community-verified
 release_date: "2026-02"
 
 cover:
-  image: app-acestep.jpg
-  caption: "ACE-Step's application map, from the project's own README."
-  fit: contain
+  image: real-acestep.jpg
+  backdrop:
+    image: hero-acestep.jpg
+  caption: "ACE Studio's wordmark — a music model has no picture of its output."
   grade: false
-  credit: "ACE-Step project artwork"
-  source: "https://raw.githubusercontent.com/ACE-Step/ACE-Step-1.5/main/assets/application_map.png"
+  credit: "ACE Studio artwork, ACE-Step"
+  source: "https://github.com/ACE-Step/ACE-Step-1.5/blob/main/assets/acestudio_logo.png"

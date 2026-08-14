@@ -53,7 +53,7 @@ integration:
 tokens_per_second: 98.5
 
 cover:
-  image: google-sign.jpg
-  caption: "The Google sign on Charleston Road, Mountain View, at the edge of the Googleplex."
-  credit: "Mountain View (CA, USA), Charleston Road, Google-Schild -- 2022 -- 2896.jpg · Dietmar Rabich · CC BY-SA 4.0"
-  source: "https://commons.wikimedia.org/wiki/File%3AMountain%20View%20%28CA%2C%20USA%29%2C%20Charleston%20Road%2C%20Google-Schild%20--%202022%20--%202896.jpg"
+  image: google-io-stage.jpg
+  caption: "Sundar Pichai alone on the stage at Google I/O 2017."
+  credit: "Sundar Pichai at Google IO 2017 Keynote.jpg · Steven Zimmerman · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ASundar%20Pichai%20at%20Google%20IO%202017%20Keynote.jpg"

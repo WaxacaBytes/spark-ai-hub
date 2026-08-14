@@ -33,9 +33,10 @@ status: community-verified
 release_date: "2026-01"
 
 cover:
-  image: app-voicebox.jpg
-  caption: "Voicebox's own site artwork."
-  fit: contain
+  image: real-voicebox.jpg
+  backdrop:
+    image: hero-voicebox.jpg
+  caption: "Voicebox's own product art and interface."
   grade: false
-  credit: "Voicebox site artwork"
-  source: "https://voicebox.sh/og.webp"
+  credit: "Voicebox site artwork, Jamie Pine"
+  source: "https://voicebox.sh/"

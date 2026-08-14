@@ -31,9 +31,10 @@ status: official
 release_date: "2023-05"
 
 cover:
-  image: app-flowise.jpg
-  caption: "A Flowise flow canvas — the app's own interface."
-  fit: contain
+  image: real-flowise.jpg
+  backdrop:
+    image: hero-flowise.jpg
+  caption: "A Flowise agentflow: intent detection routed to three agents."
   grade: false
-  credit: "Flowise project artwork (from the Hub's original banner set)"
-  source: "https://github.com/FlowiseAI/Flowise"
+  credit: "Flowise agentflow demo, FlowiseAI"
+  source: "https://github.com/FlowiseAI/Flowise/blob/main/images/flowise_agentflow.gif"
