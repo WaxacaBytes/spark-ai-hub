@@ -55,7 +55,7 @@ integration:
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 1.0, \"top_p\": 0.95}'"
 
 cover:
-  image: nvidia-hq.jpg
-  caption: "NVIDIA's headquarters on San Tomas Expressway in Santa Clara, California."
-  credit: "2788-2888 San Tomas Expwy.jpg · Coolcaesar · CC BY-SA 4.0"
-  source: "https://commons.wikimedia.org/wiki/File%3A2788-2888%20San%20Tomas%20Expwy.jpg"
+  image: nvidia-dgx-spark.jpg
+  caption: "The NVIDIA DGX Spark itself — the machine this build is tuned for."
+  credit: "Nvidia DGX Spark oblique view dllu.jpg · Daniel Lu (User:dllu) · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ANvidia%20DGX%20Spark%20oblique%20view%20dllu.jpg"

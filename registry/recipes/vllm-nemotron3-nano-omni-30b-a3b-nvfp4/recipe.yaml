@@ -52,7 +52,7 @@ integration:
 tokens_per_second: 55.1
 
 cover:
-  image: nvidia-hq.jpg
-  caption: "NVIDIA's headquarters on San Tomas Expressway in Santa Clara, California."
-  credit: "2788-2888 San Tomas Expwy.jpg · Coolcaesar · CC BY-SA 4.0"
-  source: "https://commons.wikimedia.org/wiki/File%3A2788-2888%20San%20Tomas%20Expwy.jpg"
+  image: nvidia-ces-blackwell.jpg
+  caption: "Jensen Huang unveiling RTX Blackwell at NVIDIA's CES 2025 keynote in Las Vegas."
+  credit: "Jensen Huang - RTX Blackwell - Nvidia Keynote - CES 2025 Las Vegas (2).jpg · Pronoia · CC0"
+  source: "https://commons.wikimedia.org/wiki/File%3AJensen%20Huang%20-%20RTX%20Blackwell%20-%20Nvidia%20Keynote%20-%20CES%202025%20Las%20Vegas%20%282%29.jpg"

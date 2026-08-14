@@ -36,8 +36,16 @@ covers stand for.
   https://commons.wikimedia.org/wiki/File%3ASeattle%20I-5%20skyline%20dllu.jpg
 - **minimax-cray.jpg** — Some cabinets of the Cray XE6 Blue Waters supercomputer.JPG · Stevek ncsa · CC BY-SA 3.0  
   https://commons.wikimedia.org/wiki/File%3ASome%20cabinets%20of%20the%20Cray%20XE6%20Blue%20Waters%20supercomputer.JPG
-- **nvidia-gpu-cluster.jpg** — CSIRO ScienceImage 11313 The CSIRO GPU cluster at the data centre.jpg · division, CSIRO · CC BY 3.0  
-  https://commons.wikimedia.org/wiki/File%3ACSIRO%20ScienceImage%2011313%20The%20CSIRO%20GPU%20cluster%20at%20the%20data%20centre.jpg
+- **nvidia-ces-blackwell.jpg** — Jensen Huang - RTX Blackwell - Nvidia Keynote - CES 2025 Las Vegas (2).jpg · Pronoia · CC0  
+  https://commons.wikimedia.org/wiki/File%3AJensen%20Huang%20-%20RTX%20Blackwell%20-%20Nvidia%20Keynote%20-%20CES%202025%20Las%20Vegas%20%282%29.jpg
+- **nvidia-dgx-b200.jpg** — Nvidia DGX-B200-HGX.jpg · Pokiiri · CC BY-SA 4.0  
+  https://commons.wikimedia.org/wiki/File%3ANvidia%20DGX-B200-HGX.jpg
+- **nvidia-dgx-gb200.jpg** — Nvidia DGX GB200.jpg · Pokiiri · CC BY-SA 4.0  
+  https://commons.wikimedia.org/wiki/File%3ANvidia%20DGX%20GB200.jpg
+- **nvidia-dgx-spark.jpg** — Nvidia DGX Spark oblique view dllu.jpg · Daniel Lu (User:dllu) · CC BY-SA 4.0  
+  https://commons.wikimedia.org/wiki/File%3ANvidia%20DGX%20Spark%20oblique%20view%20dllu.jpg
+- **nvidia-gtc-keynote.jpg** — GTC Taiwan 2016 - 36708371085.jpg · NVIDIA Taiwan · CC BY 2.0  
+  https://commons.wikimedia.org/wiki/File%3AGTC%20Taiwan%202016%20-%2036708371085.jpg
 - **nvidia-hq.jpg** — 2788-2888 San Tomas Expwy.jpg · Coolcaesar · CC BY-SA 4.0  
   https://commons.wikimedia.org/wiki/File%3A2788-2888%20San%20Tomas%20Expwy.jpg
 - **openai-1515-third.jpg** — 1515 Third Street.jpg · Coolcaesar · CC BY 4.0  
@@ -113,4 +121,4 @@ covers stand for.
 - **zai-shanghai-bund.jpg** — Shanghai bund – Panorama (Greg Zaal via Poly Haven).jpg · Greg Zaal · CC0  
   https://commons.wikimedia.org/wiki/File%3AShanghai%20bund%20%E2%80%93%20Panorama%20%28Greg%20Zaal%20via%20Poly%20Haven%29.jpg
 
-_52 of 52 covers carry a third-party credit._
+_56 of 56 covers carry a third-party credit._

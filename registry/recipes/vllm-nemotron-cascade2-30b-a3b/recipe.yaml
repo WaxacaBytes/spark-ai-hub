@@ -47,7 +47,7 @@ integration:
 tokens_per_second: 28.04
 
 cover:
-  image: nvidia-hq.jpg
-  caption: "NVIDIA's headquarters on San Tomas Expressway in Santa Clara, California."
-  credit: "2788-2888 San Tomas Expwy.jpg · Coolcaesar · CC BY-SA 4.0"
-  source: "https://commons.wikimedia.org/wiki/File%3A2788-2888%20San%20Tomas%20Expwy.jpg"
+  image: nvidia-gtc-keynote.jpg
+  caption: "The keynote hall at NVIDIA's GPU Technology Conference."
+  credit: "GTC Taiwan 2016 - 36708371085.jpg · NVIDIA Taiwan · CC BY 2.0"
+  source: "https://commons.wikimedia.org/wiki/File%3AGTC%20Taiwan%202016%20-%2036708371085.jpg"

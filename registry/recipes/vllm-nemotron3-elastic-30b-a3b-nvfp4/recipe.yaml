@@ -49,7 +49,7 @@ integration:
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/NVIDIA-Nemotron-Labs-3-Elastic-30B-A3B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
 
 cover:
-  image: nvidia-hq.jpg
-  caption: "NVIDIA's headquarters on San Tomas Expressway in Santa Clara, California."
-  credit: "2788-2888 San Tomas Expwy.jpg · Coolcaesar · CC BY-SA 4.0"
-  source: "https://commons.wikimedia.org/wiki/File%3A2788-2888%20San%20Tomas%20Expwy.jpg"
+  image: nvidia-dgx-b200.jpg
+  caption: "An NVIDIA DGX B200 HGX baseboard — eight Blackwell GPUs on one tray."
+  credit: "Nvidia DGX-B200-HGX.jpg · Pokiiri · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ANvidia%20DGX-B200-HGX.jpg"

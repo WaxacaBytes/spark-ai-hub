@@ -48,7 +48,7 @@ integration:
 tokens_per_second: 23.3
 
 cover:
-  image: nvidia-gpu-cluster.jpg
-  caption: "A GPU cluster in a data centre — the hardware NVIDIA's largest models are trained on."
-  credit: "CSIRO ScienceImage 11313 The CSIRO GPU cluster at the data centre.jpg · division, CSIRO · CC BY 3.0"
-  source: "https://commons.wikimedia.org/wiki/File%3ACSIRO%20ScienceImage%2011313%20The%20CSIRO%20GPU%20cluster%20at%20the%20data%20centre.jpg"
+  image: nvidia-dgx-gb200.jpg
+  caption: "An NVIDIA DGX GB200 rack — the class of machine NVIDIA's largest models are trained on."
+  credit: "Nvidia DGX GB200.jpg · Pokiiri · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ANvidia%20DGX%20GB200.jpg"
