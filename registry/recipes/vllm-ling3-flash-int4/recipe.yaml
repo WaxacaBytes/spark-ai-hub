@@ -54,7 +54,7 @@ integration:
 tokens_per_second: 36.0
 
 cover:
-  image: inclusion-hangzhou.jpg
-  caption: "Hangzhou at night seen from the West Lake — Ant Group, and its inclusionAI lab, are headquartered here."
-  credit: "View of the night time Hangzhou skyline from the West Lake.JPG · JesseW900 · CC BY-SA 4.0"
-  source: "https://commons.wikimedia.org/wiki/File%3AView%20of%20the%20night%20time%20Hangzhou%20skyline%20from%20the%20West%20Lake.JPG"
+  image: inclusion-ant-a-space.jpg
+  caption: "Ant A Space in Hangzhou — Ant Group's campus, and home of its inclusionAI research lab."
+  credit: "Ant A Space, Hangzhou, 2021-12-02.jpg · Siyuwj · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3AAnt%20A%20Space%2C%20Hangzhou%2C%202021-12-02.jpg"

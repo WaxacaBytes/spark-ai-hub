@@ -24,10 +24,10 @@ covers stand for.
   https://commons.wikimedia.org/wiki/File%3ASundar%20Pichai%20at%20Google%20IO%202017%20Keynote.jpg
 - **google-sign.jpg** — Mountain View (CA, USA), Charleston Road, Google-Schild -- 2022 -- 2896.jpg · Dietmar Rabich · CC BY-SA 4.0  
   https://commons.wikimedia.org/wiki/File%3AMountain%20View%20%28CA%2C%20USA%29%2C%20Charleston%20Road%2C%20Google-Schild%20--%202022%20--%202896.jpg
-- **inclusion-hangzhou.jpg** — View of the night time Hangzhou skyline from the West Lake.JPG · JesseW900 · CC BY-SA 4.0  
-  https://commons.wikimedia.org/wiki/File%3AView%20of%20the%20night%20time%20Hangzhou%20skyline%20from%20the%20West%20Lake.JPG
-- **inclusion-pudong.jpg** — There's the Pudong skyline again (36273761462).jpg · shankar s. from Dubai, united arab emirates · CC BY 2.0  
-  https://commons.wikimedia.org/wiki/File%3AThere%27s%20the%20Pudong%20skyline%20again%20%2836273761462%29.jpg
+- **inclusion-alipay-hq.jpg** — 201608 Alipay Mansion.jpg · MNXANL · CC BY-SA 3.0  
+  https://commons.wikimedia.org/wiki/File%3A201608%20Alipay%20Mansion.jpg
+- **inclusion-ant-a-space.jpg** — Ant A Space, Hangzhou, 2021-12-02.jpg · Siyuwj · CC BY-SA 4.0  
+  https://commons.wikimedia.org/wiki/File%3AAnt%20A%20Space%2C%20Hangzhou%2C%202021-12-02.jpg
 - **meta-golden-gate.jpg** — Golden Gate Bridge and San Francisco skyline from Hawk Hill at Blue Hour dllu.jpg · Daniel L. Lu (user:dllu) · CC BY-SA 4.0  
   https://commons.wikimedia.org/wiki/File%3AGolden%20Gate%20Bridge%20and%20San%20Francisco%20skyline%20from%20Hawk%20Hill%20at%20Blue%20Hour%20dllu.jpg
 - **microsoft-building-92.jpg** — Building92microsoft.jpg · Coolcaesar · CC BY-SA 4.0  
