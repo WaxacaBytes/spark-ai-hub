@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-// A horizontally scrolling shelf with arrow controls that hide when there is
-// nothing further to scroll to.
-export default function CardRow({ title, subtitle, actions, children }) {
+// A shelf of cards. By default it scrolls horizontally with arrow controls that
+// hide when there is nothing further to scroll to; with `wrap` it lays every
+// card out on a wrapping grid instead, so nothing is hidden off-screen.
+export default function CardRow({ title, subtitle, actions, wrap = false, children }) {
   const scroller = useRef(null)
   const [atStart, setAtStart] = useState(true)
   const [atEnd, setAtEnd] = useState(true)
@@ -29,7 +30,7 @@ export default function CardRow({ title, subtitle, actions, children }) {
     el.scrollBy({ left: dir * Math.max(el.clientWidth * 0.8, 200), behavior: 'smooth' })
   }
 
-  const canScroll = !(atStart && atEnd)
+  const canScroll = !wrap && !(atStart && atEnd)
 
   return (
     <section className="group/row">
@@ -47,18 +48,22 @@ export default function CardRow({ title, subtitle, actions, children }) {
         )}
       </div>
 
-      <div className="relative">
-        <div
-          ref={scroller}
-          onScroll={sync}
-          className="row-scroller flex gap-3 overflow-x-auto scroll-smooth px-6 pb-2"
-        >
-          {children}
+      {wrap ? (
+        <div className="flex flex-wrap gap-3 px-6 pb-2">{children}</div>
+      ) : (
+        <div className="relative">
+          <div
+            ref={scroller}
+            onScroll={sync}
+            className="row-scroller flex gap-3 overflow-x-auto scroll-smooth px-6 pb-2"
+          >
+            {children}
+          </div>
+          {/* Edge fades hint that the shelf continues. */}
+          {!atStart && <div className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-bg to-transparent" />}
+          {!atEnd && <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-bg to-transparent" />}
         </div>
-        {/* Edge fades hint that the shelf continues. */}
-        {!atStart && <div className="pointer-events-none absolute inset-y-0 left-0 w-10 bg-gradient-to-r from-bg to-transparent" />}
-        {!atEnd && <div className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-bg to-transparent" />}
-      </div>
+      )}
     </section>
   )
 }

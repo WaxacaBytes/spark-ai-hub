@@ -262,19 +262,19 @@ export default function Catalog({ search = '' }) {
       ) : (
         <div className="space-y-9 pt-4">
           {shelves.active.length > 0 && (
-            <CardRow title="Jump back in" subtitle="Installed on this Spark">
+            <CardRow title="Jump back in" subtitle="Installed on this Spark" wrap>
               {shelves.active.map((r) => <PosterCard key={r.slug} recipe={r} />)}
             </CardRow>
           )}
 
           {shelves.spark.length > 0 && (
-            <CardRow title="Spark-Optimized" subtitle="Built & tested for DGX Spark">
+            <CardRow title="Spark-Optimized" subtitle="Built & tested for DGX Spark" wrap>
               {shelves.spark.map((r) => <PosterCard key={r.slug} recipe={r} />)}
             </CardRow>
           )}
 
           {shelves.official.length > 0 && (
-            <CardRow title="Official Apps" subtitle="Published by the original developers">
+            <CardRow title="Official Apps" subtitle="Published by the original developers" wrap>
               {shelves.official.map((r) => <PosterCard key={r.slug} recipe={r} />)}
             </CardRow>
           )}
