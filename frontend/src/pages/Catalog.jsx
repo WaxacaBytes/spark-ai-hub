@@ -15,13 +15,60 @@ const CATEGORIES = [
   { id: 'multi-modal', label: 'Multi-Modal' },
 ]
 
-// Sort modes for the model shelves. Each `key` returns a number to sort
-// descending; null/undefined values always sink to the bottom.
+// Every sort mode draws shelves. "AI Lab" (the default) shelves by vendor;
+// the rest rank all models against each other and shelve them into bands of
+// the sorted value, so the rows themselves read top-to-bottom in rank order.
+// `key` returns a number to sort descending — null/undefined always sinks.
+
+// Builds a band labeller from descending [floor, label] pairs.
+function bands(defs, unknown) {
+  return (value) => {
+    if (value == null) return unknown
+    for (const [floor, label] of defs) {
+      if (value >= floor) return label
+    }
+    return defs[defs.length - 1][1]
+  }
+}
+
+// Quarters for the current year, then whole years — month-by-month shelves
+// would leave a dozen rows holding two tiles each.
+function releaseBand(value) {
+  if (!value) return 'Undated'
+  const [year, month] = value.split('-')
+  if (year !== String(new Date().getFullYear())) return year
+  return `Q${Math.floor((Number(month) - 1) / 3) + 1} ${year}`
+}
+
 const MODEL_SORTS = [
-  { id: 'release', label: 'Newest', key: null },
-  { id: 'params', label: 'Params', key: (r) => r.params_b },
-  { id: 'size', label: 'Size on disk', key: (r) => r.weights_gb },
-  { id: 'speed', label: 'Speed', key: (r) => r.tokens_per_second },
+  { id: 'lab', label: 'AI Lab', key: null },
+  {
+    id: 'release',
+    label: 'Newest',
+    key: null,
+    band: (r) => releaseBand(r.release_date),
+  },
+  {
+    id: 'params',
+    label: 'Params',
+    key: (r) => r.params_b,
+    band: (r) => bands([[100, '100B+'], [30, '30–100B'], [10, '10–30B'], [0, 'Under 10B']],
+      'Size unlisted')(r.params_b),
+  },
+  {
+    id: 'size',
+    label: 'Size on disk',
+    key: (r) => r.weights_gb,
+    band: (r) => bands([[80, '80 GB+'], [50, '50–80 GB'], [20, '20–50 GB'], [0, 'Under 20 GB']],
+      'Unmeasured')(r.weights_gb),
+  },
+  {
+    id: 'speed',
+    label: 'Speed',
+    key: (r) => r.tokens_per_second,
+    band: (r) => bands([[100, '100+ tok/s'], [50, '50–100 tok/s'], [25, '25–50 tok/s'],
+      [10, '10–25 tok/s'], [0, 'Under 10 tok/s']], 'Not benchmarked')(r.tokens_per_second),
+  },
 ]
 
 function byRelease(a, b) {
@@ -30,7 +77,14 @@ function byRelease(a, b) {
   return (a.name || '').localeCompare(b.name || '')
 }
 
+// Used where the lab shelves cannot be drawn (the search/filter results grid).
+function byLab(a, b) {
+  return vendorLabel(vendorKey(a)).localeCompare(vendorLabel(vendorKey(b)))
+    || byRelease(a, b)
+}
+
 function makeComparator(sort) {
+  if (sort?.id === 'lab') return byLab
   if (!sort?.key) return byRelease
   return (a, b) => {
     const av = sort.key(a)
@@ -58,7 +112,7 @@ export default function Catalog({ search = '' }) {
   const recipes = useStore((s) => s.recipes)
   const openConnect = useStore((s) => s.openConnect)
   const [category, setCategory] = useState('all')
-  const [modelSortId, setModelSortId] = useState('release')
+  const [modelSortId, setModelSortId] = useState('lab')
 
   const filtered = useMemo(() => recipes.filter((r) => {
     const recipeCategories = Array.isArray(r.categories) && r.categories.length > 0
@@ -72,10 +126,9 @@ export default function Catalog({ search = '' }) {
     return true
   }), [recipes, category, search])
 
-  const comparator = useMemo(
-    () => makeComparator(MODEL_SORTS.find((s) => s.id === modelSortId)),
-    [modelSortId],
-  )
+  const modelSort = MODEL_SORTS.find((s) => s.id === modelSortId) || MODEL_SORTS[0]
+  const comparator = useMemo(() => makeComparator(modelSort), [modelSort])
+  const groupByLab = modelSort.id === 'lab'
 
   const shelves = useMemo(() => {
     const pick = (id) => filtered.filter((r) => getSectionId(r) === id)
@@ -86,24 +139,45 @@ export default function Catalog({ search = '' }) {
       .sort((a, b) => Number(b.running || b.starting) - Number(a.running || a.starting)
         || byRelease(a, b))
 
-    // Models are split per vendor — one 60-tile shelf would be unusable.
+    // On the "AI Lab" sort, models are split per vendor. Every other sort
+    // ranks the whole catalog in one shelf instead — ordering inside a lab
+    // answers the wrong question when you asked for the fastest model.
+    const models = pick('models')
     const byVendor = new Map()
-    for (const r of pick('models')) {
+    for (const r of models) {
       const key = vendorKey(r)
       if (!byVendor.has(key)) byVendor.set(key, [])
       byVendor.get(key).push(r)
     }
     const vendorShelves = [...byVendor.entries()]
-      .map(([key, items]) => ({ key, items: items.sort(comparator) }))
+      .map(([key, items]) => ({ key, items: items.sort(byRelease) }))
       .sort((a, b) => b.items.length - a.items.length || a.key.localeCompare(b.key))
+
+    // Ranked modes reuse the shelf layout, banded by value. The catalog is
+    // already in rank order and the bands are monotonic, so first-seen order
+    // gives the rows their ranking for free (and sinks any unknowns last).
+    const ranked = [...models].sort(comparator)
+    const bandShelves = []
+    if (modelSort.band) {
+      const byBand = new Map()
+      for (const r of ranked) {
+        const key = modelSort.band(r)
+        if (!byBand.has(key)) {
+          byBand.set(key, { key, items: [] })
+          bandShelves.push(byBand.get(key))
+        }
+        byBand.get(key).items.push(r)
+      }
+    }
 
     return {
       active,
       spark: pick('spark-ai-hub').sort(byRelease),
       official: pick('official').sort(byRelease),
       vendorShelves,
+      bandShelves,
     }
-  }, [filtered, comparator])
+  }, [filtered, comparator, modelSort])
 
   // Hero picks: whatever is running, then the freshest Spark-optimized apps
   // and models, capped at five so the dots stay meaningful.
@@ -178,7 +252,7 @@ export default function Catalog({ search = '' }) {
       {/* Search and category filters collapse the shelves into a plain grid —
           scanning results sideways is worse than scanning them down. */}
       {!isBrowsing ? (
-        <ResultsGrid recipes={filtered} sortControl={sortControl} search={search} />
+        <ResultsGrid recipes={filtered} comparator={comparator} sortControl={sortControl} search={search} />
       ) : (
         <div className="space-y-9 pt-4">
           {shelves.active.length > 0 && (
@@ -216,8 +290,12 @@ export default function Catalog({ search = '' }) {
                 </div>
               </div>
 
-              {shelves.vendorShelves.map(({ key, items }) => (
-                <CardRow key={key} title={vendorLabel(key)} subtitle={`${items.length} build${items.length > 1 ? 's' : ''}`}>
+              {(groupByLab ? shelves.vendorShelves : shelves.bandShelves).map(({ key, items }) => (
+                <CardRow
+                  key={key}
+                  title={groupByLab ? vendorLabel(key) : key}
+                  subtitle={`${items.length} build${items.length > 1 ? 's' : ''}`}
+                >
                   {items.map((r) => <PosterCard key={r.slug} recipe={r} />)}
                 </CardRow>
               ))}
@@ -232,8 +310,8 @@ export default function Catalog({ search = '' }) {
   )
 }
 
-function ResultsGrid({ recipes, sortControl, search }) {
-  const sorted = useMemo(() => [...recipes].sort(byRelease), [recipes])
+function ResultsGrid({ recipes, comparator, sortControl, search }) {
+  const sorted = useMemo(() => [...recipes].sort(comparator), [recipes, comparator])
   if (sorted.length === 0) return <Empty />
   return (
     <div className="px-6 pt-4">
