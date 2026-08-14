@@ -252,7 +252,13 @@ export default function Catalog({ search = '' }) {
       {/* Search and category filters collapse the shelves into a plain grid —
           scanning results sideways is worse than scanning them down. */}
       {!isBrowsing ? (
-        <ResultsGrid recipes={filtered} comparator={comparator} sortControl={sortControl} search={search} />
+        <ResultsGrid
+          recipes={filtered}
+          comparator={comparator}
+          highlight={groupByLab ? null : modelSort.id}
+          sortControl={sortControl}
+          search={search}
+        />
       ) : (
         <div className="space-y-9 pt-4">
           {shelves.active.length > 0 && (
@@ -296,7 +302,13 @@ export default function Catalog({ search = '' }) {
                   title={groupByLab ? vendorLabel(key) : key}
                   subtitle={`${items.length} build${items.length > 1 ? 's' : ''}`}
                 >
-                  {items.map((r) => <PosterCard key={r.slug} recipe={r} />)}
+                  {items.map((r) => (
+                    <PosterCard
+                      key={r.slug}
+                      recipe={r}
+                      highlight={groupByLab ? null : modelSort.id}
+                    />
+                  ))}
                 </CardRow>
               ))}
             </div>
@@ -310,7 +322,7 @@ export default function Catalog({ search = '' }) {
   )
 }
 
-function ResultsGrid({ recipes, comparator, sortControl, search }) {
+function ResultsGrid({ recipes, comparator, highlight, sortControl, search }) {
   const sorted = useMemo(() => [...recipes].sort(comparator), [recipes, comparator])
   if (sorted.length === 0) return <Empty />
   return (
@@ -323,7 +335,7 @@ function ResultsGrid({ recipes, comparator, sortControl, search }) {
         <div className="ml-auto">{sortControl}</div>
       </div>
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
-        {sorted.map((r) => <RecipeCard key={r.slug} recipe={r} />)}
+        {sorted.map((r) => <RecipeCard key={r.slug} recipe={r} highlight={highlight} />)}
       </div>
     </div>
   )

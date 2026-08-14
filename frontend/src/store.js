@@ -1,5 +1,15 @@
 import { create } from 'zustand'
 
+// Ready-to-serve models all bind the same port and the same GPU, so only one
+// can run at a time; anything else conflicts only when it wants the same port.
+const isModelSlug = (slug) => /^(vllm|llamacpp|atlas)-/.test(slug || '')
+
+function conflictsWith(target, other) {
+  if (isModelSlug(target.slug) && isModelSlug(other.slug)) return true
+  const port = target.ui?.port
+  return port != null && other.ui?.port === port
+}
+
 const getInitialTheme = () => {
   const saved = localStorage.getItem('spark-ai-hub-theme')
   if (saved === 'light' || saved === 'dark') return saved
@@ -27,6 +37,9 @@ export const useStore = create((set, get) => ({
   // When non-null, a global modal prompts for an HF token before the
   // pending action (`install` or `launch`) on the given slug proceeds.
   hfTokenRequest: null,
+  // When non-null, a global modal asks to stop what is already running
+  // before launching: { slug, blockers: [slug] }.
+  launchRequest: null,
   // "Connect a device" panel: reachable Hub addresses + copy-paste commands.
   connectOpen: false,
   connectInfo: null,
@@ -355,6 +368,45 @@ export const useStore = create((set, get) => ({
     }
     poll()
   },
+
+  // Launch from a catalog tile: check the gated-asset token the way the detail
+  // page does, then confirm before evicting whatever is already running.
+  requestLaunch: async (slug) => {
+    const recipe = get().recipes.find((r) => r.slug === slug)
+    if (!recipe) return
+    if (recipe.requires_hf_token) {
+      try {
+        const res = await fetch('/api/system/hf-token')
+        const { has_token } = await res.json()
+        if (!has_token) {
+          set({ hfTokenRequest: { slug, action: 'launch' } })
+          return
+        }
+      } catch (e) {
+        console.warn('HF token check failed, proceeding anyway:', e)
+      }
+    }
+    const blockers = get().recipes
+      .filter((r) => r.slug !== slug && (r.running || r.starting) && conflictsWith(recipe, r))
+      .map((r) => r.slug)
+    if (blockers.length > 0) {
+      set({ launchRequest: { slug, blockers } })
+      return
+    }
+    await get().launchRecipe(slug)
+  },
+
+  confirmLaunch: async () => {
+    const req = get().launchRequest
+    if (!req) return
+    set({ launchRequest: null })
+    for (const blocker of req.blockers) {
+      await get().stopRecipe(blocker)
+    }
+    await get().launchRecipe(req.slug)
+  },
+
+  cancelLaunch: () => set({ launchRequest: null }),
 
   launchRecipe: async (slug) => {
     const override = { starting: true, running: false, ready: false }

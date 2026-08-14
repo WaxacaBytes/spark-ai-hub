@@ -5,6 +5,7 @@ import { useMetrics } from './hooks/useMetrics'
 import ThemeToggle from './components/ThemeToggle'
 import HfTokenModal from './components/HfTokenModal'
 import ConnectModal from './components/ConnectModal'
+import LaunchConflictModal from './components/LaunchConflictModal'
 import Catalog from './pages/Catalog'
 import Running from './pages/Running'
 import System from './pages/System'
@@ -180,6 +181,7 @@ export default function App() {
       </div>
       <HfTokenModal />
       <ConnectModal />
+      <LaunchConflictModal />
     </div>
   )
 }

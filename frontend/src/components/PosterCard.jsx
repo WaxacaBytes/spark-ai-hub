@@ -5,13 +5,35 @@ import { useThemedLogo } from '../hooks/useThemedLogo'
 import { posterFor } from '../covers'
 import { formatParams } from './RecipeCard'
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+function formatMonth(date) {
+  if (!date) return null
+  const [year, month] = date.split('-')
+  return month ? `${MONTHS[Number(month) - 1]} ${year}` : year
+}
+
+// The fact the catalog is currently sorted by. It is promoted out of the spec
+// chips into the corner badge, so the value you are ranking on is readable
+// without having to read the tile.
+const HIGHLIGHTS = {
+  release: { label: 'Released', value: (r) => formatMonth(r.release_date) },
+  params: { label: 'Params', value: (r) => (r.params_b != null ? formatParams(r) : null) },
+  size: { label: 'On disk', value: (r) => (r.weights_gb != null ? `${r.weights_gb} GB` : null) },
+  speed: { label: 'Speed', value: (r) => (r.tokens_per_second != null ? `${r.tokens_per_second} tok/s` : null) },
+}
+
+// Tokens/sec keeps its own corner slot whatever the catalog is sorted by —
+// it is the one number that decides whether a build is usable day to day.
+
 // A poster tile for the catalog rows. The name is allowed to wrap to two
 // lines and is never truncated mid-word — long builds like
 // "Nemotron-3.5 Lightning 30B-A3B NVFP4 + DSpark" have to stay readable.
-export default function PosterCard({ recipe }) {
+export default function PosterCard({ recipe, highlight = null }) {
   const installing = useStore((s) => s.installing)
   const updating = useStore((s) => s.updating)
   const installRecipe = useStore((s) => s.installRecipe)
+  const requestLaunch = useStore((s) => s.requestLaunch)
   const [artFailed, setArtFailed] = useState(false)
   const [logoFailed, setLogoFailed] = useState(false)
 
@@ -29,13 +51,24 @@ export default function PosterCard({ recipe }) {
           ? { label: 'Installed', dot: 'bg-text-dim' }
           : null
 
-  // A short spec line: the two or three facts that actually differentiate
-  // one build of a model from another.
+  // The facts that actually differentiate one build of a model from another.
+  // They are chips rather than a dim run-on line: at 196px a dot-joined line
+  // truncates, and truncating is what buried them.
   const specs = [
-    recipe.params_b != null && formatParams(recipe),
-    recipe.quantization,
-    recipe.weights_gb != null && `${recipe.weights_gb} GB`,
-  ].filter(Boolean)
+    recipe.params_b != null && { id: 'params', text: formatParams(recipe) },
+    recipe.quantization && { id: 'quant', text: recipe.quantization },
+    recipe.weights_gb != null && { id: 'size', text: `${recipe.weights_gb} GB` },
+    recipe.tokens_per_second != null && { id: 'speed', text: `${recipe.tokens_per_second} tok/s` },
+    highlight === 'release' && { id: 'release', text: formatMonth(recipe.release_date) },
+  ].filter((s) => s && s.text)
+
+  const badge = HIGHLIGHTS[highlight]
+  const badgeValue = badge?.value(recipe)
+  const speed = recipe.tokens_per_second
+  const speedLeads = highlight === 'speed'
+  // Whatever the corner already states is dropped from the chips — printing
+  // tok/s twice on one tile is noise, not emphasis.
+  const chips = specs.filter((s) => s.id !== highlight && !(s.id === 'speed' && speed != null))
 
   return (
     <Link
@@ -70,11 +103,43 @@ export default function PosterCard({ recipe }) {
           </span>
         )}
 
-        {recipe.tokens_per_second != null && (
-          <span className="absolute right-2.5 top-2.5 rounded-full bg-primary/90 px-2 py-1 text-[10px] font-bold font-label text-primary-on">
-            {recipe.tokens_per_second} tok/s
-          </span>
-        )}
+        <div className="absolute right-2.5 top-2.5 flex flex-col items-end gap-1">
+          {/* The sorted metric, unless that metric is speed — the pill below
+              already carries speed, and louder. */}
+          {badgeValue && !speedLeads && (
+            <span className="flex flex-col items-end rounded-lg bg-primary px-2 py-1 shadow-lg shadow-black/25 ring-1 ring-black/10">
+              <span className="font-label text-[8px] font-bold uppercase tracking-wider text-primary-on/75">
+                {badge.label}
+              </span>
+              <span className="font-display text-[14px] font-extrabold leading-tight text-primary-on">
+                {badgeValue}
+              </span>
+            </span>
+          )}
+
+          {speed != null && (
+            <span
+              className={`flex flex-col items-end gap-1 rounded-lg px-2 py-1 shadow-lg shadow-black/25 ${
+                speedLeads
+                  ? 'bg-primary ring-1 ring-black/10'
+                  : 'bg-black/55 ring-1 ring-white/15 backdrop-blur-md'
+              }`}
+            >
+              {speedLeads && (
+                <span className="font-label text-[8px] font-bold uppercase tracking-wider text-primary-on/75">
+                  Speed
+                </span>
+              )}
+              <span
+                className={speedLeads
+                  ? 'font-display text-[14px] font-extrabold leading-tight text-primary-on'
+                  : 'font-label text-[10px] font-bold leading-none text-primary'}
+              >
+                {speed} tok/s
+              </span>
+            </span>
+          )}
+        </div>
 
         {/* Title + hover action share one bottom-anchored stack, so the
             button slides in *under* the name instead of covering it. */}
@@ -88,10 +153,17 @@ export default function PosterCard({ recipe }) {
           <h3 className="m-0 font-display text-[13px] font-bold leading-snug text-white line-clamp-2 break-words drop-shadow">
             {recipe.name}
           </h3>
-          {specs.length > 0 && (
-            <p className="m-0 mt-1 truncate font-label text-[10px] text-white/65">
-              {specs.join(' · ')}
-            </p>
+          {chips.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {chips.map((s) => (
+                <span
+                  key={s.id}
+                  className="rounded-md bg-white/20 px-1.5 py-0.5 font-label text-[10px] font-bold text-white backdrop-blur-sm"
+                >
+                  {s.text}
+                </span>
+              ))}
+            </div>
           )}
 
           <div className="grid grid-rows-[0fr] opacity-0 transition-all duration-200 group-hover:mt-2 group-hover:grid-rows-[1fr] group-hover:opacity-100">
@@ -112,6 +184,13 @@ export default function PosterCard({ recipe }) {
                   className="btn-primary w-full py-1.5 text-[11px] font-bold"
                 >
                   Install
+                </button>
+              ) : recipe.installed && !recipe.running && !recipe.starting && !isBusy ? (
+                <button
+                  onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestLaunch(recipe.slug) }}
+                  className="btn-primary w-full py-1.5 text-[11px] font-bold"
+                >
+                  Launch
                 </button>
               ) : (
                 <span className="block w-full rounded-xl bg-white/15 py-1.5 text-center text-[11px] font-semibold text-white backdrop-blur">

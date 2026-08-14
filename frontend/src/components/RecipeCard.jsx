@@ -10,9 +10,17 @@ export function formatParams(recipe) {
   return recipe.active_params_b != null ? `${total}-A${b(recipe.active_params_b)}B` : total
 }
 
+// The chip holding the value the list is sorted by is filled in, so the fact
+// you are ranking on stands out from the specs around it.
+function chipClass(active) {
+  return active
+    ? 'text-[10px] font-label font-bold text-primary-on bg-primary px-2 py-0.5 rounded-full'
+    : 'text-[10px] font-label text-text-muted bg-surface-high px-2 py-0.5 rounded-full'
+}
+
 // `hideCategories` is set for the Ready-to-Serve Models section, where every
 // card is an LLM and the category chip carries no information.
-export default function RecipeCard({ recipe, hideCategories = false }) {
+export default function RecipeCard({ recipe, hideCategories = false, highlight = null }) {
   const installing = useStore((s) => s.installing)
   const updating = useStore((s) => s.updating)
   const installRecipe = useStore((s) => s.installRecipe)
@@ -92,18 +100,23 @@ export default function RecipeCard({ recipe, hideCategories = false }) {
               </span>
             )}
             {recipe.params_b != null && (
-              <span className="text-[10px] font-label text-text-muted bg-surface-high px-2 py-0.5 rounded-full">
+              <span className={chipClass(highlight === 'params')}>
                 {formatParams(recipe)}
               </span>
             )}
             {recipe.quantization && (
-              <span className="text-[10px] font-label text-text-muted bg-surface-high px-2 py-0.5 rounded-full">{recipe.quantization}</span>
+              <span className={chipClass(false)}>{recipe.quantization}</span>
             )}
             {recipe.weights_gb != null && (
-              <span className="text-[10px] font-label text-text-muted bg-surface-high px-2 py-0.5 rounded-full">{recipe.weights_gb} GB</span>
+              <span className={chipClass(highlight === 'size')}>{recipe.weights_gb} GB</span>
             )}
             {recipe.tokens_per_second != null && (
-              <span className="text-[10px] font-label text-primary bg-primary/10 px-2 py-0.5 rounded-full">{recipe.tokens_per_second} tok/s</span>
+              <span className={highlight === 'speed'
+                ? chipClass(true)
+                : 'text-[10px] font-label text-primary bg-primary/10 px-2 py-0.5 rounded-full'}
+              >
+                {recipe.tokens_per_second} tok/s
+              </span>
             )}
           </div>
         </div>
