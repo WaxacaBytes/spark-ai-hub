@@ -98,6 +98,7 @@ function makeComparator(sort) {
 
 function isModel(recipe) {
   return recipe.slug.startsWith('vllm-')
+    || recipe.slug.startsWith('sglang-')
     || recipe.slug.startsWith('llamacpp-')
     || recipe.slug.startsWith('atlas-')
 }
