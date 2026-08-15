@@ -181,6 +181,32 @@ async def _stream_proc(cmd: list[str], cwd: str, env: dict | None = None) -> Asy
     yield "", proc.returncode
 
 
+async def _prune_build_cache() -> str:
+    """Drop BuildKit's copy of whatever a build downloaded.
+
+    Weights are baked into the image, so once a build finishes the builder's
+    cache holds a second copy of the same bytes — outside the image, where
+    `docker rmi` cannot reach it. Left alone it doubles the disk cost of every
+    build-type install, and an uninstalled recipe strands its weights there
+    forever, invisible to the Hub. That is exactly the "cache outlives the
+    thing it belongs to" failure the manifest forbids, so the Hub trades a
+    re-download on reinstall for the promise that removing an app removes
+    every byte it consumed. Records still in use by a concurrent build are
+    in-use and survive the prune.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "docker", "builder", "prune", "-a", "-f",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    out, _ = await proc.communicate()
+    text = (out or b"").decode(errors="replace").strip()
+    for line in reversed(text.splitlines()):
+        if line.lower().startswith("total:"):
+            return line.strip()
+    return "reclaimed 0B"
+
+
 async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
@@ -205,8 +231,9 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
     yield f"[spark-ai-hub] Starting install for {slug}..."
 
     # Install acquires the app artifact and nothing else: weights are baked
-    # into the image at build time, so there is no separate download phase and
-    # nothing is written outside the image.
+    # into the image at build time, so there is no separate download phase.
+    # A build does leave a second copy in BuildKit's cache, which is pruned
+    # below once the image holds them.
     if build_recipe:
         cmd = _compose_cmd(slug, recipe_dir) + ["build"]
     else:
@@ -223,6 +250,10 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
     if rc != 0:
         yield f"[spark-ai-hub] Install failed with exit code {rc}"
         return
+
+    if build_recipe:
+        yield "[spark-ai-hub] Pruning build cache (the image now holds the weights)..."
+        yield f"[spark-ai-hub] Build cache {await _prune_build_cache()}"
 
     db = await get_db()
     try:
@@ -279,6 +310,8 @@ async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
         await proc.wait()
 
         if proc.returncode == 0:
+            yield "[spark-ai-hub] Pruning build cache (the image now holds the weights)..."
+            yield f"[spark-ai-hub] Build cache {await _prune_build_cache()}"
             yield f"[spark-ai-hub] {slug} rebuilt successfully!"
         else:
             yield f"[spark-ai-hub] Rebuild failed with exit code {proc.returncode}"
@@ -440,6 +473,10 @@ async def remove_recipe(slug: str) -> str:
                 stderr=asyncio.subprocess.PIPE,
             )
             await vol_proc.communicate()
+        # The image is gone, but a build-type recipe also left its weights in
+        # BuildKit's cache, which `docker rmi` never touches. Drop it so the
+        # uninstall really does free every byte the recipe consumed.
+        await _prune_build_cache()
         db = await get_db()
         try:
             await db.execute("DELETE FROM installed_recipes WHERE slug = ?", (slug,))
