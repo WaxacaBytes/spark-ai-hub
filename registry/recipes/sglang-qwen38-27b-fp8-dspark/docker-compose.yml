@@ -1,0 +1,114 @@
+services:
+  sglang:
+    # Qwen3.8-27B **FP8** on SGLang with the DSpark block drafter.
+    #
+    # This is the pairing RadixArk actually trained: the DSpark model card
+    # names `Qwen/Qwen3.8-27B-FP8` as its target and draws auxiliary features
+    # from target layers 4/16/28/40/52, so the drafter sees exactly the hidden
+    # states it was fitted against. Acceptance is measurably better here than
+    # against an NVFP4 target (4.0 vs 3.9 on GSM8K-style prompts).
+    #
+    # It is NOT the fast option. Qwen's official FP8 weights are ~1.3x the
+    # bytes of the NVFP4 checkpoint, and decode on a Spark is bandwidth-bound,
+    # so the better acceptance does not pay for the heavier weights. Pick this
+    # recipe when you want Qwen's own FP8 numerics; pick
+    # `sglang-qwen38-27b-nvfp4-dspark` when you want speed.
+    #
+    # Image: `lmsysorg/sglang:qwen38-27b` — the named per-model tag from the
+    # SGLang cookbook (arm64 manifest present), never a rolling `dev` tag.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: baked into the image
+        # below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3.8-27B-FP8'); snapshot_download('RadixArk/Qwen3.8-27B-DSpark')"
+        FROM lmsysorg/sglang:qwen38-27b
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/sglang-qwen38-27b-fp8-dspark:qwen38-27b
+    container_name: spark-ai-hub-sglang-qwen38-27b-fp8-dspark
+    ports:
+      - "9001:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Offline-first: both checkpoints are baked into the image above, so
+      # launch never touches the network.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    shm_size: 32gb
+    command:
+      - sglang
+      - serve
+      - --model-path
+      - Qwen/Qwen3.8-27B-FP8
+      - --served-model-name
+      - Qwen/Qwen3.8-27B-FP8
+      - --trust-remote-code
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      # SM121 (GB10) has no trtllm_mha path; flashinfer is the cookbook's
+      # backend for every Blackwell SM120/SM121 card.
+      - --attention-backend
+      - flashinfer
+      # DGX Spark cell: 8192-token prefill chunks and no prefill CUDA graph.
+      - --chunked-prefill-size
+      - "8192"
+      - --disable-prefill-cuda-graph
+      # FP8 weights are ~5 GB heavier than the NVFP4 checkpoint, so the static
+      # pool needs more room than the 0.50 its sibling recipe uses.
+      - --mem-fraction-static
+      - "0.55"
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      # Speculative decoding. Both speculators ship in this image. Measured on
+      # this Spark against the FP8 target:
+      #
+      #                      catalog mix   GSM8K-style   acceptance
+      #   EAGLE tree 4/2/8      17.3          20.9          4.11
+      #   DSPARK block 7        15.3          23.4          4.00
+      #
+      # EAGLE is the default because it wins the catalog mix, the same result
+      # as on the NVFP4 sibling recipe. DSpark still wins math/agentic coding,
+      # and it is the pairing this checkpoint was trained for; swap the four
+      # flags below for:
+      #   - --speculative-algorithm
+      #   - "DSPARK"
+      #   - --speculative-draft-model-path
+      #   - "RadixArk/Qwen3.8-27B-DSpark"
+      #   - --speculative-dspark-block-size
+      #   - "7"
+      #   - --speculative-draft-model-quantization
+      #   - "unquant"
+      # (block size 7 is the trained verify width; `unquant` keeps the 1.36B
+      # draft in BF16, as the model card requires.)
+      - --speculative-algorithm
+      - "EAGLE"
+      - --speculative-num-steps
+      - "4"
+      - --speculative-eagle-topk
+      - "2"
+      - --speculative-num-draft-tokens
+      - "8"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN

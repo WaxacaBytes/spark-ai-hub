@@ -563,7 +563,7 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
             <div className="space-y-4 pt-5 border-t border-outline-dim">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.16em] text-text-dim font-label">API Integration</div>
-                {(recipe.tags?.includes('vllm') || recipe.tags?.includes('atlas')) && (
+                {(recipe.tags?.includes('vllm') || recipe.tags?.includes('sglang') || recipe.tags?.includes('atlas')) && (
                   <div className="text-[10px] text-text-muted mt-1">Ready-to-serve models are served on port 9001</div>
                 )}
               </div>
@@ -579,7 +579,7 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
                     value={recipe.integration.curl_example.replace(/<SPARK_IP>/g, location.hostname)}
                   />
                 )}
-                {(recipe.tags?.includes('vllm') || recipe.tags?.includes('llama-cpp') || recipe.tags?.includes('atlas')) && (
+                {(recipe.tags?.includes('vllm') || recipe.tags?.includes('sglang') || recipe.tags?.includes('llama-cpp') || recipe.tags?.includes('atlas')) && (
                   <BenchmarkBlock
                     value={`python3 - <<'EOF'
 import time, urllib.request, json

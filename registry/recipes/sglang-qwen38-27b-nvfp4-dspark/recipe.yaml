@@ -1,0 +1,56 @@
+name: "Qwen3.8-27B NVFP4 (SGLang)"
+slug: sglang-qwen38-27b-nvfp4-dspark
+version: "1.0.0"
+description: "Qwen3.8-27B NVFP4 served by SGLang with EAGLE tree speculative decoding — the same dense 27B hybrid Gated DeltaNet vision-language model as the vLLM recipe (thinking on by default, 262K context, vision and tool calling live), but about 24% faster on this Spark. LMSYS's DSpark block drafter is included in the image and is a one-flag switch, though tree drafting off the in-checkpoint MTP head measured faster here."
+author: "Alibaba Cloud + RadixArk + LMSYS SGLang"
+source: "community"
+website: "https://docs.sglang.io/cookbook/autoregressive/Qwen/Qwen3.8-27B"
+upstream: "https://huggingface.co/RadixArk/Qwen3.8-27B-NVFP4"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - reasoning
+  - coding
+  - agentic
+  - tool-use
+  - sglang
+  - qwen
+  - nvfp4
+  - speculative-decoding
+logo: "/logos/qwen.png"
+requirements:
+  min_memory_gb: 60
+  recommended_memory_gb: 70
+  disk_gb: 48
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  gpu: true
+status: community-verified
+engine: "SGLang"
+params_b: 27
+arch: dense
+quantization: "NVFP4"
+weights_gb: 21.9
+release_date: "2026-08-12"
+tokens_per_second: 27.5
+requires_hf_token: false
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "RadixArk/Qwen3.8-27B-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"RadixArk/Qwen3.8-27B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 2048, \"temperature\": 1.0, \"top_p\": 0.95}'"
+
+cover:
+  image: qwen-27b.jpg
+  caption: "The Qwen capybara writing SQL. Shared by Qwen models of 27B parameters."
+  fit: contain
+  grade: false
+  credit: "cfahlgren1/flux-qwen-capybara — a FLUX.1-dev LoRA recreating the Qwen capybara · FLUX.1-dev non-commercial licence"
+  source: "https://huggingface.co/cfahlgren1/flux-qwen-capybara"
