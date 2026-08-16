@@ -8,12 +8,14 @@ the Hub.
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import shutil
 import subprocess
 import tempfile
 import time
+import urllib.parse
 from typing import Any
 
 import aiohttp
@@ -55,6 +57,104 @@ async def _fetch_current_model() -> str | None:
         _MODEL_CACHE["name"] = name
         _MODEL_CACHE["fetched_at"] = now
     return name
+
+
+# Capabilities ---------------------------------------------------------------
+#
+# OpenAI's /v1/models object carries no capability information, and neither
+# vLLM nor SGLang add any — they only extend it with max_model_len. Clients that
+# need to know whether a model can see images or call tools are therefore left
+# guessing from the model name, which is unreliable and goes stale with every
+# new model family.
+#
+# The Hub already knows the answer: every recipe is hand-tagged. So the proxy
+# annotates each /v1/models entry with the capabilities of the recipe that is
+# actually serving the upstream port. This mirrors how Ollama reports
+# capabilities from /api/show, in the one place an OpenAI-compatible client can
+# reach. Unknown fields are ignored by OpenAI-shaped clients, so this is
+# additive for anything that does not look for it.
+
+_TAG_CAPABILITIES = {
+    "vision": "vision",
+    "multimodal": "vision",
+    "video": "video",
+    "tool-use": "tools",
+    "reasoning": "thinking",
+}
+
+_CAPABILITY_CACHE: dict[str, Any] = {"caps": None, "fetched_at": 0.0}
+_CAPABILITY_CACHE_TTL = 30.0  # seconds; recipes change far less often than models
+
+
+async def _running_slugs() -> set[str]:
+    """Slugs of every running Hub compose project, from one docker call."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "ps", "--format", '{{.Label "com.docker.compose.project"}}',
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await proc.communicate()
+    except Exception:
+        return set()
+    prefix = "spark-ai-hub-"
+    return {
+        line[len(prefix):]
+        for line in stdout.decode().split()
+        if line.startswith(prefix)
+    }
+
+
+async def _serving_capabilities() -> list[str]:
+    """Capabilities of the recipe answering on the upstream port.
+
+    Always includes "completion"; the rest come from the recipe's tags. An
+    empty list means the Hub genuinely does not know, and clients should treat
+    the model as text-only rather than assume.
+    """
+    now = time.time()
+    if _CAPABILITY_CACHE["caps"] is not None and (now - _CAPABILITY_CACHE["fetched_at"]) < _CAPABILITY_CACHE_TTL:
+        return _CAPABILITY_CACHE["caps"]
+
+    caps: list[str] = []
+    try:
+        from daemon.services.registry_service import get_recipes
+
+        upstream_port = urllib.parse.urlsplit(settings.upstream_openai_url).port
+        running = await _running_slugs()
+        for slug in running:
+            recipe = get_recipes().get(slug)
+            if recipe is None or recipe.ui.port != upstream_port:
+                continue
+            found = {"completion"}
+            for tag in recipe.tags:
+                if capability := _TAG_CAPABILITIES.get(tag):
+                    found.add(capability)
+            caps = sorted(found)
+            break
+    except Exception:
+        caps = []
+
+    _CAPABILITY_CACHE["caps"] = caps
+    _CAPABILITY_CACHE["fetched_at"] = now
+    return caps
+
+
+async def _annotate_models(payload: bytes) -> bytes:
+    """Attach `capabilities` to every entry of a /v1/models response."""
+    try:
+        body = json.loads(payload)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return payload
+    items = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(items, list) or not items:
+        return payload
+    caps = await _serving_capabilities()
+    if not caps:
+        return payload
+    for item in items:
+        if isinstance(item, dict):
+            item.setdefault("capabilities", caps)
+    return json.dumps(body).encode()
 
 
 def _no_model_running() -> JSONResponse:
@@ -223,6 +323,8 @@ async def proxy(path: str, request: Request):
             request.method, url, data=raw_body, headers=headers, params=params
         ) as r:
             content = await r.read()
+            if request.method == "GET" and path.strip("/") == "models" and r.status == 200:
+                content = await _annotate_models(content)
             resp_headers = _filter_headers(r.headers)
             return Response(
                 content=content,
