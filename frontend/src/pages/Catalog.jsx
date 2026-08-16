@@ -3,8 +3,7 @@ import { useStore } from '../store'
 import RecipeCard from '../components/RecipeCard'
 import PosterCard from '../components/PosterCard'
 import CardRow from '../components/CardRow'
-import ModelGroup from '../components/ModelGroup'
-import ModelTable from '../components/ModelTable'
+import ModelList, { ModelBlock } from '../components/ModelList'
 import Hero from '../components/Hero'
 import { vendorKey, vendorLabel } from '../covers'
 import { groupModels } from '../models'
@@ -144,11 +143,17 @@ export default function Catalog({ search = '' }) {
   const shelves = useMemo(() => {
     const pick = (id) => filtered.filter((r) => getSectionId(r) === id)
 
-    // "Jump back in" collects anything already on disk, running first.
+    // "Jump back in" collects anything already on disk, running first. Model
+    // builds and apps split: a shelf of installed models was the worst case
+    // for poster art in the whole UI — three of its twelve tiles were the same
+    // capybara, differing only by the engine and quantization a poster cannot
+    // show — while installed apps do have art of their own worth showing.
     const active = filtered
       .filter((r) => r.running || r.starting || r.installed)
       .sort((a, b) => Number(b.running || b.starting) - Number(a.running || a.starting)
         || byRelease(a, b))
+    const activeModels = active.filter(isModel)
+    const activeApps = active.filter((r) => !isModel(r))
 
     // Models are collapsed to one entry per model — Qwen3.6-27B is a single
     // choice with seven builds under it, not seven entries competing for the
@@ -187,7 +192,8 @@ export default function Catalog({ search = '' }) {
     }
 
     return {
-      active,
+      activeModels,
+      activeApps,
       spark: pick('spark-ai-hub').sort(byRelease),
       official: pick('official').sort(byRelease),
       vendorShelves,
@@ -277,9 +283,23 @@ export default function Catalog({ search = '' }) {
         />
       ) : (
         <div className="space-y-9 pt-4">
-          {shelves.active.length > 0 && (
-            <CardRow title="Jump back in" subtitle="Installed on this Spark" wrap>
-              {shelves.active.map((r) => <PosterCard key={r.slug} recipe={r} />)}
+          {shelves.activeModels.length > 0 && (
+            <CardRow
+              title="Jump back in"
+              subtitle="Installed on this Spark · one model serves port 9001 at a time"
+              wrap
+            >
+              <ModelList items={shelves.activeModels} variant="installed" />
+            </CardRow>
+          )}
+
+          {shelves.activeApps.length > 0 && (
+            <CardRow
+              title={shelves.activeModels.length > 0 ? 'Installed apps' : 'Jump back in'}
+              subtitle="Installed on this Spark"
+              wrap
+            >
+              {shelves.activeApps.map((r) => <PosterCard key={r.slug} recipe={r} />)}
             </CardRow>
           )}
 
@@ -326,7 +346,7 @@ export default function Catalog({ search = '' }) {
                       <div className="w-full" style={{ columnWidth: '470px', columnGap: '12px' }}>
                         {items.map((g) => (
                           <div key={g.key} className="mb-3 break-inside-avoid">
-                            <ModelGroup group={g} />
+                            <ModelBlock group={g} />
                           </div>
                         ))}
                       </div>
@@ -340,15 +360,16 @@ export default function Catalog({ search = '' }) {
                       wrap
                     >
                       <div className="w-full">
-                        <ModelTable items={items} highlight={modelSort.id} />
+                        <ModelList items={items} variant="ranked" highlight={modelSort.id} />
                       </div>
                     </CardRow>
                   ))}
             </div>
           )}
 
-          {shelves.active.length === 0 && shelves.spark.length === 0
-            && shelves.official.length === 0 && shelves.vendorShelves.length === 0 && <Empty />}
+          {shelves.activeModels.length === 0 && shelves.activeApps.length === 0
+            && shelves.spark.length === 0 && shelves.official.length === 0
+            && shelves.vendorShelves.length === 0 && <Empty />}
         </div>
       )}
     </div>
