@@ -112,6 +112,8 @@ class Recipe(BaseModel):
     requires_hf_token: bool = False
     runtime_env_path: str = ""
     tokens_per_second: float | None = None
+    context_tokens: int | None = None     # served context window; read off the
+                                          # compose command when not declared
 
     # runtime state (not from yaml)
     installed: bool = False
