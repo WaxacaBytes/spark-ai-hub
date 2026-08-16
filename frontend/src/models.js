@@ -41,6 +41,25 @@ function commonPrefix(names) {
   return end > 0 ? first.slice(0, end).join(' ') : names[0]
 }
 
+// ── Naming ────────────────────────────────────────────────────────────
+// Two ways of not printing the same fact twice. `buildLabel` drops what the
+// group heading above the row already says; `displayName` drops what the Quant
+// column beside it already says. Both exist to buy room for what is left.
+
+// The full model name, minus the quantization the Quant column carries.
+// Matched on a whole token with `-` counting as part of the word — otherwise
+// "INT4" would eat the tail of "GPTQ-Int4".
+export function displayName(recipe) {
+  const quant = recipe.quantization
+  if (!quant) return recipe.name
+  const token = quant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return (recipe.name || '')
+    .replace(new RegExp(`(?<![\\w-])\\(?${token}\\)?(?![\\w-])`, 'i'), '')
+    .replace(/\(\s*\)/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim() || recipe.name
+}
+
 // What this build is, with the part every sibling shares taken away: "NVFP4
 // DFlash". A build whose name *is* the group name is the plain one, and is
 // labelled by its quantization instead of left blank.

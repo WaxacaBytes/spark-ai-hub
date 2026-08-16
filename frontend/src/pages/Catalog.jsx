@@ -3,8 +3,7 @@ import { useStore } from '../store'
 import RecipeCard from '../components/RecipeCard'
 import PosterCard from '../components/PosterCard'
 import CardRow from '../components/CardRow'
-import ModelGroup from '../components/ModelGroup'
-import ModelTable from '../components/ModelTable'
+import ModelList, { ModelBlock, InstalledStrip } from '../components/ModelList'
 import Hero from '../components/Hero'
 import { vendorKey, vendorLabel } from '../covers'
 import { groupModels } from '../models'
@@ -144,7 +143,10 @@ export default function Catalog({ search = '' }) {
   const shelves = useMemo(() => {
     const pick = (id) => filtered.filter((r) => getSectionId(r) === id)
 
-    // "Jump back in" collects anything already on disk, running first.
+    // "Jump back in" collects everything already on disk, running first. It
+    // stays one shelf covering models and apps alike: it is short access to
+    // what is installed, and splitting it in two made you scroll past both to
+    // reach the catalog.
     const active = filtered
       .filter((r) => r.running || r.starting || r.installed)
       .sort((a, b) => Number(b.running || b.starting) - Number(a.running || a.starting)
@@ -278,8 +280,12 @@ export default function Catalog({ search = '' }) {
       ) : (
         <div className="space-y-9 pt-4">
           {shelves.active.length > 0 && (
-            <CardRow title="Jump back in" subtitle="Installed on this Spark" wrap>
-              {shelves.active.map((r) => <PosterCard key={r.slug} recipe={r} />)}
+            <CardRow
+              title="Jump back in"
+              subtitle="Installed on this Spark · one model serves port 9001 at a time"
+              wrap
+            >
+              <InstalledStrip items={shelves.active} />
             </CardRow>
           )}
 
@@ -326,7 +332,7 @@ export default function Catalog({ search = '' }) {
                       <div className="w-full" style={{ columnWidth: '470px', columnGap: '12px' }}>
                         {items.map((g) => (
                           <div key={g.key} className="mb-3 break-inside-avoid">
-                            <ModelGroup group={g} />
+                            <ModelBlock group={g} />
                           </div>
                         ))}
                       </div>
@@ -340,7 +346,7 @@ export default function Catalog({ search = '' }) {
                       wrap
                     >
                       <div className="w-full">
-                        <ModelTable items={items} highlight={modelSort.id} />
+                        <ModelList items={items} variant="ranked" highlight={modelSort.id} />
                       </div>
                     </CardRow>
                   ))}
