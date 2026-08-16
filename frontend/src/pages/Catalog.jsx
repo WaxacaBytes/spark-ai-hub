@@ -3,8 +3,11 @@ import { useStore } from '../store'
 import RecipeCard from '../components/RecipeCard'
 import PosterCard from '../components/PosterCard'
 import CardRow from '../components/CardRow'
+import ModelGroup from '../components/ModelGroup'
+import ModelTable from '../components/ModelTable'
 import Hero from '../components/Hero'
 import { vendorKey, vendorLabel } from '../covers'
+import { groupModels } from '../models'
 
 const CATEGORIES = [
   { id: 'all', label: 'All' },
@@ -130,6 +133,13 @@ export default function Catalog({ search = '' }) {
   const modelSort = MODEL_SORTS.find((s) => s.id === modelSortId) || MODEL_SORTS[0]
   const comparator = useMemo(() => makeComparator(modelSort), [modelSort])
   const groupByLab = modelSort.id === 'lab'
+  // Which build of a model leads its row. A ranking sort answers that itself;
+  // "AI Lab" and "Newest" do not, and there the fastest build leads — that is
+  // the one you would have picked anyway.
+  const buildComparator = useMemo(
+    () => (modelSort.key ? comparator : makeComparator(MODEL_SORTS.find((s) => s.id === 'speed'))),
+    [modelSort, comparator],
+  )
 
   const shelves = useMemo(() => {
     const pick = (id) => filtered.filter((r) => getSectionId(r) === id)
@@ -140,28 +150,33 @@ export default function Catalog({ search = '' }) {
       .sort((a, b) => Number(b.running || b.starting) - Number(a.running || a.starting)
         || byRelease(a, b))
 
+    // Models are collapsed to one entry per model — Qwen3.6-27B is a single
+    // choice with seven builds under it, not seven entries competing for the
+    // same slot in your attention. A group ranks and bands by its best build.
+    const groups = groupModels(pick('models'), comparator, buildComparator)
+
     // On the "AI Lab" sort, models are split per vendor. Every other sort
     // ranks the whole catalog in one shelf instead — ordering inside a lab
     // answers the wrong question when you asked for the fastest model.
-    const models = pick('models')
     const byVendor = new Map()
-    for (const r of models) {
-      const key = vendorKey(r)
+    for (const g of groups) {
+      const key = vendorKey(g.lead)
       if (!byVendor.has(key)) byVendor.set(key, [])
-      byVendor.get(key).push(r)
+      byVendor.get(key).push(g)
     }
     const vendorShelves = [...byVendor.entries()]
-      .map(([key, items]) => ({ key, items: items.sort(byRelease) }))
+      .map(([key, items]) => ({ key, items: [...items].sort((a, b) => byRelease(a.lead, b.lead)) }))
       .sort((a, b) => b.items.length - a.items.length || a.key.localeCompare(b.key))
 
-    // Ranked modes reuse the shelf layout, banded by value. The catalog is
+    // Ranked modes band individual *builds*, not models. Banding a model by
+    // its best build put four sub-40 tok/s rows under a "100+ tok/s" heading;
+    // a band heading has to be true of every row beneath it. The catalog is
     // already in rank order and the bands are monotonic, so first-seen order
-    // gives the rows their ranking for free (and sinks any unknowns last).
-    const ranked = [...models].sort(comparator)
+    // gives the shelves their ranking for free (and sinks unknowns last).
     const bandShelves = []
     if (modelSort.band) {
       const byBand = new Map()
-      for (const r of ranked) {
+      for (const r of [...pick('models')].sort(comparator)) {
         const key = modelSort.band(r)
         if (!byBand.has(key)) {
           byBand.set(key, { key, items: [] })
@@ -178,7 +193,7 @@ export default function Catalog({ search = '' }) {
       vendorShelves,
       bandShelves,
     }
-  }, [filtered, comparator, modelSort])
+  }, [filtered, comparator, buildComparator, modelSort])
 
   // Hero picks: whatever is running, then the freshest Spark-optimized apps
   // and models, capped at five so the dots stay meaningful.
@@ -297,21 +312,38 @@ export default function Catalog({ search = '' }) {
                 </div>
               </div>
 
-              {(groupByLab ? shelves.vendorShelves : shelves.bandShelves).map(({ key, items }) => (
-                <CardRow
-                  key={key}
-                  title={groupByLab ? vendorLabel(key) : key}
-                  subtitle={`${items.length} build${items.length > 1 ? 's' : ''}`}
-                >
-                  {items.map((r) => (
-                    <PosterCard
-                      key={r.slug}
-                      recipe={r}
-                      highlight={groupByLab ? null : modelSort.id}
-                    />
+              {/* Two shapes for two questions. Browsing by lab, you are
+                  choosing a model, so builds sit grouped under theirs. On a
+                  ranked sort you are comparing builds, so they are one flat
+                  list in rank order. Either way every build is on screen. */}
+              {groupByLab
+                ? shelves.vendorShelves.map(({ key, items }) => (
+                    <CardRow key={key} title={vendorLabel(key)} subtitle={shelfSubtitle(items)} wrap>
+                      {/* Columns, not a grid: the blocks are different heights
+                          because models have different numbers of builds, and
+                          a grid reserves the tallest block's height for its
+                          whole row — leaving holes the size of a block. */}
+                      <div className="w-full" style={{ columnWidth: '470px', columnGap: '12px' }}>
+                        {items.map((g) => (
+                          <div key={g.key} className="mb-3 break-inside-avoid">
+                            <ModelGroup group={g} />
+                          </div>
+                        ))}
+                      </div>
+                    </CardRow>
+                  ))
+                : shelves.bandShelves.map(({ key, items }) => (
+                    <CardRow
+                      key={key}
+                      title={key}
+                      subtitle={`${items.length} build${items.length > 1 ? 's' : ''}`}
+                      wrap
+                    >
+                      <div className="w-full">
+                        <ModelTable items={items} highlight={modelSort.id} />
+                      </div>
+                    </CardRow>
                   ))}
-                </CardRow>
-              ))}
             </div>
           )}
 
@@ -321,6 +353,14 @@ export default function Catalog({ search = '' }) {
       )}
     </div>
   )
+}
+
+// "6 models · 19 builds" — the second number is the one the old shelves showed,
+// and on its own it overstated how many things there are to choose between.
+function shelfSubtitle(groups) {
+  const builds = groups.reduce((n, g) => n + g.items.length, 0)
+  const models = `${groups.length} model${groups.length > 1 ? 's' : ''}`
+  return builds === groups.length ? models : `${models} · ${builds} builds`
 }
 
 function ResultsGrid({ recipes, comparator, highlight, sortControl, search }) {
