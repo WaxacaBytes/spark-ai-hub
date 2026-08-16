@@ -167,10 +167,11 @@ class Model:
     """The model the Hub is currently serving — sah's equivalent of Ollama's
     LaunchModel, built from one `/v1/models` entry.
 
-    Capabilities come from the Hub only. sah used to guess vision/video support
-    from the model name with a regex; that guess was wrong for every model
-    family released after it was written, so it is gone. Until the Hub reports
-    capabilities, every model is configured as text-only, which is the
+    Capabilities come from the Hub only, as the `capabilities` array the proxy
+    attaches to each /v1/models entry from the running recipe's tags. sah used
+    to guess vision/video support from the model name with a regex; that guess
+    was wrong for every model family released after it was written, so it is
+    gone. A Hub that reports nothing leaves every model text-only, which is the
     conservative direction: a client that thinks a model is text-only still
     works, one that wrongly thinks it has vision sends payloads that error.
     """
