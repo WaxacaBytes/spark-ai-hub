@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """sah — Spark AI Hub launcher.
 
-One command on each laptop. `sah opencode` launches OpenCode wired to
-whatever LLM the Hub is currently serving. `sah codex` does the same for
-Codex. `sah env` / `sah info` print connection details for any other
-OpenAI-compatible client (Zed, Cursor, Continue, Chatbox, etc.).
+One command per coding agent. `sah opencode` launches OpenCode wired to
+whatever LLM the Hub is currently serving; `sah codex` does the same for Codex.
+`sah env` / `sah info` print connection details for any other OpenAI-compatible
+client (Zed, Cursor, Continue, Chatbox, ...).
 
-Hub URL discovery, in order: --hub flag, $SAH_HUB, ~/.config/sah/hub,
-http://192.168.3.16:9000 (default).
+The integration set and the way each client is wired mirror Ollama's launcher
+(github.com/ollama/ollama, cmd/launch/) so that a client working with
+`ollama launch <x>` works with `sah <x>`. Ollama's design is followed even
+where sah previously did something of its own; the handful of deliberate
+divergences are each commented with the reason at the point of divergence.
+
+Hub URL discovery, in order: $SAH_HUB, ~/.config/sah/hub, http://localhost:9000.
 """
 from __future__ import annotations
 
@@ -26,9 +31,9 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-# tomllib is stdlib only on Python 3.11+. Fall back to the `tomli` backport,
-# or to None (validation becomes a no-op) so sah still runs on older Pythons
-# such as the one shipped with Synology DSM.
+# tomllib is stdlib only on Python 3.11+. Fall back to the `tomli` backport, or
+# to None (validation becomes a no-op) so sah still runs on older Pythons such
+# as the one shipped with Synology DSM.
 try:
     import tomllib
 except ModuleNotFoundError:  # pragma: no cover
@@ -41,18 +46,26 @@ DEFAULT_HUB = "http://localhost:9000"
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "sah"
 CONFIG_FILE = CONFIG_DIR / "hub"
 
+# The provider id sah registers inside each client's config. Kept identical
+# across clients so a config is recognisable as sah-owned at a glance.
+PROVIDER = "sah"
+PROVIDER_NAME = "Spark AI Hub"
+API_KEY = "sah"
+
 _hub_cache: str | None = None
 
 
+# ---------------------------------------------------------------- hub discovery
+
+
 def _hub_candidates() -> list[str]:
-    """Ordered Hub URLs to try. $SAH_HUB wins; otherwise every non-empty line
-    of the config file (stable name first, IP last — written at install time)."""
+    """Ordered Hub URLs to try. $SAH_HUB wins; otherwise every non-empty line of
+    the config file (stable name first, IP last — written at install time)."""
     if v := os.environ.get("SAH_HUB"):
         return [v.rstrip("/")]
     if CONFIG_FILE.is_file():
         urls = [ln.strip().rstrip("/") for ln in CONFIG_FILE.read_text().splitlines()]
-        urls = [u for u in urls if u]
-        if urls:
+        if urls := [u for u in urls if u]:
             return urls
     return [DEFAULT_HUB]
 
@@ -65,11 +78,10 @@ def _is_alive(base: str, timeout: float = 1.5) -> bool:
     streaming), whereas a stale address times out. An HTTP probe would give
     false negatives under load and wrongly fall through to a dead address.
 
-    We resolve every address ourselves and try IPv4 first with a short
-    per-address timeout. mDNS names can resolve to a mix of IPv4, IPv6 and
-    (on the server itself) docker-bridge addresses; the Hub binds 0.0.0.0
-    (IPv4), so trying IPv4 first avoids a stray IPv6 record eating the whole
-    budget and causing a false "dead" verdict."""
+    IPv4 is tried first: mDNS names can resolve to a mix of IPv4, IPv6 and
+    docker-bridge addresses, and the Hub binds 0.0.0.0, so a stray IPv6 record
+    would otherwise eat the whole budget and produce a false "dead" verdict.
+    """
     parts = urllib.parse.urlsplit(base)
     host = parts.hostname
     if not host:
@@ -111,8 +123,7 @@ def hub_url() -> str:
         if _is_alive(base):
             _hub_cache = base
             return base
-    # Nothing answered — return the most stable candidate for sane messages.
-    _hub_cache = candidates[0]
+    _hub_cache = candidates[0]  # nothing answered — most stable candidate
     return _hub_cache
 
 
@@ -120,9 +131,71 @@ def api_base() -> str:
     return f"{hub_url()}/v1"
 
 
-def current_model() -> str | None:
-    info = current_model_info()
-    return info.get("id") if info else None
+def resolved_api_base() -> str:
+    """api_base() with an mDNS `.local` hostname replaced by its IPv4 address.
+
+    DIVERGENCE (environment, not preference): Ollama's server is on localhost,
+    so it never faces name resolution. sah's Hub is across a LAN and its
+    candidate list leads with a stable name. Some clients ship their own
+    resolver that does not speak mDNS and simply report the Hub as unreachable.
+
+    Only `.local` is substituted. A Tailscale MagicDNS name, a Cloudflare
+    tunnel hostname, a plain DNS name or a literal address is left exactly as
+    written: those resolve anywhere, and replacing a tunnel hostname with an
+    address would break both TLS SNI and the tunnel's Host-header routing.
+    """
+    base = api_base()
+    parts = urllib.parse.urlsplit(base)
+    host = parts.hostname
+    if not host or not host.lower().endswith(".local"):
+        return base
+    try:
+        infos = socket.getaddrinfo(host, parts.port, family=socket.AF_INET, proto=socket.IPPROTO_TCP)
+    except OSError:
+        return base
+    if not infos:
+        return base
+    ip = infos[0][4][0]
+    netloc = f"{ip}:{parts.port}" if parts.port else ip
+    return urllib.parse.urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+
+
+# ------------------------------------------------------------------- the model
+
+
+class Model:
+    """The model the Hub is currently serving — sah's equivalent of Ollama's
+    LaunchModel, built from one `/v1/models` entry.
+
+    Capabilities come from the Hub only. sah used to guess vision/video support
+    from the model name with a regex; that guess was wrong for every model
+    family released after it was written, so it is gone. Until the Hub reports
+    capabilities, every model is configured as text-only, which is the
+    conservative direction: a client that thinks a model is text-only still
+    works, one that wrongly thinks it has vision sends payloads that error.
+    """
+
+    def __init__(self, info: dict):
+        self.info = info
+        self.name: str = info["id"]
+        try:
+            self.context_length = int(info.get("max_model_len") or 0)
+        except (TypeError, ValueError):
+            self.context_length = 0
+        caps = info.get("capabilities")
+        self.capabilities: tuple[str, ...] = tuple(caps) if isinstance(caps, list) else ()
+
+    def has(self, capability: str) -> bool:
+        return capability in self.capabilities
+
+    def context(self, default: int = 128000) -> int:
+        return self.context_length or default
+
+    def max_output(self, cap: int = 65536) -> int:
+        return min(self.context(), cap)
+
+    def input_modalities(self) -> list[str]:
+        return ["text", "image"] if self.has("vision") else ["text"]
 
 
 def current_model_info() -> dict | None:
@@ -135,1607 +208,1721 @@ def current_model_info() -> dict | None:
     return items[0] if items else None
 
 
-def require_model() -> str:
-    m = current_model()
-    if not m:
+def require_model() -> Model:
+    info = current_model_info()
+    if not info:
         sys.exit(
             f"No model is running on {hub_url()}.\n"
             f"Launch one from the Spark AI Hub web UI first."
         )
-    return m
+    return Model(info)
 
 
-# ---------- commands ----------
-
-INTEGRATIONS = [
-    {
-        "name": "opencode",
-        "kind": "CLI",
-        "binary": "opencode",
-        "mode": "persistent",
-        "launch": "sah opencode",
-        "install": "sah opencode --install",
-        "status": "sah opencode --status",
-        "restore": "sah opencode --restore",
-    },
-    {
-        "name": "codex",
-        "kind": "CLI",
-        "binary": "codex",
-        "mode": "persistent",
-        "launch": "sah codex",
-        "install": "sah codex --install",
-        "status": "sah codex --status",
-        "restore": "sah codex --restore",
-    },
-    {
-        "name": "hermes",
-        "kind": "CLI",
-        "binary": "hermes",
-        "mode": "persistent",
-        "launch": "sah hermes",
-        "install": "sah hermes --install",
-        "status": "sah hermes --status",
-        "restore": "sah hermes --restore",
-    },
-    {
-        "name": "hermes-desktop",
-        "kind": "Desktop",
-        "binary": "hermes",
-        "mode": "persistent",
-        "launch": "sah hermes-desktop",
-        "install": "sah hermes-desktop --install",
-        "status": "sah hermes-desktop --status",
-        "restore": "sah hermes-desktop --restore",
-    },
-    {
-        "name": "qwen",
-        "kind": "CLI",
-        "binary": "qwen",
-        "mode": "persistent",
-        "launch": "sah qwen",
-        "install": "sah qwen --install",
-        "status": "sah qwen --status",
-        "restore": "sah qwen --restore",
-    },
-    {
-        "name": "openclaw",
-        "kind": "CLI",
-        "binary": "openclaw",
-        "mode": "persistent",
-        "launch": "sah openclaw",
-        "install": "sah openclaw --install",
-        "status": "sah openclaw --status",
-        "restore": "sah openclaw --restore",
-    },
-    {
-        "name": "pi",
-        "kind": "CLI",
-        "binary": "pi",
-        "mode": "persistent",
-        "launch": "sah pi",
-        "install": "sah pi --install",
-        "status": "sah pi --status",
-        "restore": "sah pi --restore",
-    },
-    {
-        "name": "claude",
-        "kind": "CLI",
-        "binary": "claude",
-        "mode": "persistent",
-        "launch": "sah claude",
-        "install": "sah claude --install",
-        "status": "sah claude --status",
-        "restore": "sah claude --restore",
-    },
-    {
-        "name": "claude-desktop",
-        "kind": "Desktop",
-        "binary": None,
-        "mode": "persistent",
-        "launch": "n/a",
-        "install": "sah claude-desktop --install",
-        "status": "sah claude-desktop --status",
-        "restore": "sah claude-desktop --restore",
-    },
-]
-
-
-def cmd_integrations(_args) -> None:
-    rows = []
-    for item in INTEGRATIONS:
-        binary = item["binary"]
-        available = "n/a" if not binary else ("yes" if shutil.which(binary) else "missing")
-        rows.append(
-            {
-                **item,
-                "available": available,
-            }
-        )
-    _print_table(
-        rows,
-        [
-            ("name", "Integration"),
-            ("kind", "Kind"),
-            ("available", "Installed"),
-            ("mode", "Mode"),
-            ("launch", "Launch"),
-            ("install", "Install"),
-            ("status", "Status"),
-            ("restore", "Restore"),
-        ],
-    )
+# --------------------------------------------------------------------- output
 
 
 _LABEL_W = 19  # one width for every "<label>: <value>" line printed by sah
 
 
-def _kv(label: str, value: str) -> None:
+def kv(label: str, value: str) -> None:
     print(f"{(label + ':').ljust(_LABEL_W)} {value}")
 
 
-def _print_wired(name: str, bin_name: str, config_path: Path, extras: tuple[tuple[str, str], ...] = ()) -> None:
-    print(f"{name} wired to Spark AI Hub.")
-    _kv("  Config", str(config_path))
-    for k, v in extras:
-        _kv(f"  {k}", v)
-    print(f"  Plain `{bin_name}` will use the Hub until you run: sah {bin_name} --restore")
-
-
-def _print_status(name: str, bin_name: str, config_path: Path, wired: bool, extras: tuple[tuple[str, str], ...] = ()) -> None:
-    _kv(f"{name} config", str(config_path))
-    _kv("SAH backup", "present" if _client_backup_path(bin_name).is_file() else "not present")
-    _kv(f"Plain {bin_name}", "wired to Spark AI Hub" if wired else "not wired to Spark AI Hub")
-    for k, v in extras:
-        _kv(k, v)
-
-
-def _print_table(rows: list[dict], columns: list[tuple[str, str]]) -> None:
+def print_table(rows: list[dict], columns: list[tuple[str, str]]) -> None:
     widths = {}
     for key, title in columns:
         widths[key] = max(len(title), *(len(str(row.get(key, ""))) for row in rows))
     print("  ".join(title.ljust(widths[key]) for key, title in columns))
-    print("  ".join("-" * widths[key] for key, _title in columns))
+    print("  ".join("-" * widths[key] for key, _ in columns))
     for row in rows:
-        print("  ".join(str(row.get(key, "")).ljust(widths[key]) for key, _title in columns))
+        print("  ".join(str(row.get(key, "")).ljust(widths[key]) for key, _ in columns))
 
 
-def _write_text_atomic(path: Path, text: str) -> None:
+# ------------------------------------------------------------- file utilities
+
+
+def write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
     tmp.write_text(text)
     tmp.replace(path)
 
 
-def _write_json_atomic(path: Path, data: dict) -> None:
-    _write_text_atomic(path, json.dumps(data, indent=2) + "\n")
+def write_json(path: Path, data: dict | list) -> None:
+    write_text(path, json.dumps(data, indent=2) + "\n")
 
 
-def cmd_info(_args) -> None:
-    active = hub_url()
-    m = current_model()
-    _kv("Hub", active)
-    others = [c for c in _hub_candidates() if c != active]
-    if others:
-        _kv("Fallback hubs", ", ".join(others))
-    _kv("OpenAI base", api_base())
-    _kv("Anthropic base", active)
-    _kv("API key", "sah  (any value works)")
-    _kv("Current model", m or "(none — launch one in the Hub)")
-
-
-def cmd_env(args) -> None:
-    base = hub_url() if args.anthropic else api_base()
-    if args.anthropic:
-        print(f"export ANTHROPIC_BASE_URL={base}")
-        print(f"export ANTHROPIC_AUTH_TOKEN=sah")
-    else:
-        print(f"export OPENAI_BASE_URL={base}")
-        print(f"export OPENAI_API_KEY=sah")
-
-
-def cmd_set_hub(args) -> None:
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    _write_text_atomic(CONFIG_FILE, args.url.rstrip("/") + "\n")
-    print(f"Hub set to {args.url}")
-
-
-def cmd_opencode(args) -> None:
-    if args.status:
-        _status_opencode_global()
-        return
-    if args.restore:
-        _restore_client_file("opencode", _opencode_config_path())
-        return
-    if not shutil.which("opencode"):
-        sys.exit("opencode not found in PATH. Install options: https://opencode.ai")
-    model = require_model()
-    config = _opencode_hub_config(model)
-    if args.install:
-        _install_opencode_global(model)
-        return
-    env = {**os.environ, "OPENCODE_CONFIG_CONTENT": json.dumps(config)}
-    os.execvpe("opencode", ["opencode", *_normalize_passthrough(args.passthrough)], env)
-
-
-def _opencode_config_path() -> Path:
-    return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "opencode" / "opencode.json"
-
-
-def _opencode_hub_config(model: str, base: dict | None = None) -> dict:
-    config = base if isinstance(base, dict) else {}
-    config["$schema"] = "https://opencode.ai/config.json"
-    model_cfg = {"name": model}
-    inputs = _opencode_input_modalities_for(model)
-    if len(inputs) > 1:
-        model_cfg["attachment"] = True
-        model_cfg["modalities"] = {"input": inputs, "output": ["text"]}
-    providers = config.get("provider") if isinstance(config.get("provider"), dict) else {}
-    providers["sah"] = {
-        "npm": "@ai-sdk/openai-compatible",
-        "name": "Spark AI Hub",
-        "options": {"baseURL": api_base()},
-        "models": {model: model_cfg},
-    }
-    config["provider"] = providers
-    config["model"] = f"sah/{model}"
-    return config
-
-
-def _install_opencode_global(model: str) -> None:
-    path = _opencode_config_path()
-    _backup_client_file_once("opencode", path)
-    config = _read_json(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _write_json_atomic(path, _opencode_hub_config(model, config))
-    _print_wired("OpenCode", "opencode", path)
-
-
-def _status_opencode_global() -> None:
-    path = _opencode_config_path()
-    config = _read_json(path)
-    provider = (config.get("provider") or {}).get("sah") if isinstance(config.get("provider"), dict) else None
-    wired = config.get("model", "").startswith("sah/") and isinstance(provider, dict)
-    _print_status("OpenCode", "opencode", path, wired)
-
-
-def _opencode_input_modalities_for(model: str) -> list[str]:
-    inputs = ["text"]
-    mods = _qwen_modalities_for(model)
-    if mods.get("image"):
-        inputs.append("image")
-    if mods.get("video"):
-        inputs.append("video")
-    if mods:
-        inputs.append("pdf")
-    return inputs
-
-
-def cmd_codex(args) -> None:
-    if args.status:
-        _status_codex_global()
-        return
-    if args.restore:
-        _restore_client_file("codex", _codex_config_path())
-        return
-    if not shutil.which("codex"):
-        sys.exit("codex not found in PATH. Install options: https://github.com/openai/codex")
-    info = current_model_info()
-    if not info:
-        sys.exit(
-            f"No model is running on {hub_url()}.\n"
-            f"Launch one from the Spark AI Hub web UI first."
-    )
-    model = info["id"]
-    if args.install:
-        _install_codex_global(model, info)
-        return
-    catalog_path = _write_codex_catalog(model, info)
-    env = {**os.environ, "OPENAI_API_KEY": "sah"}
-    extra = _normalize_passthrough(args.passthrough)
-    common = ["-m", model, *_codex_hub_config_args()]
-    if catalog_path:
-        common += ["-c", f'model_catalog_json="{catalog_path}"']
-    elif ctx := info.get("max_model_len"):
-        common += ["-c", f"model_context_window={int(ctx)}"]
-    if extra and extra[0] == "exec":
-        exec_args, prompt = _split_codex_exec_prompt(extra[1:])
-        if prompt is not None:
-            prompt = _augment_codex_pdf_text(prompt)
-            cmd = ["codex", "exec", *common, *exec_args, "-"]
-            sys.exit(subprocess.run(cmd, env=env, input=prompt, text=True).returncode)
-        cmd = ["codex", "exec", *common, *exec_args]
-    else:
-        cmd = ["codex", *common, *extra]
-    os.execvpe("codex", cmd, env)
-
-
-def _write_codex_catalog(model: str, info: dict) -> str | None:
-    """Fetch the catalog template from the Hub, repoint to the live model,
-    write to ~/.config/sah/codex-catalog.json. Returns the absolute path or None.
-    """
+def read_json(path: Path) -> dict:
+    if not path.is_file():
+        return {}
     try:
-        with urllib.request.urlopen(f"{hub_url()}/sah/codex-model-template.json", timeout=2) as r:
-            tpl = json.loads(r.read())
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-        return None
-    if not (tpl.get("models") and isinstance(tpl["models"], list)):
-        return None
-    entry = tpl["models"][0]
-    entry["slug"] = model
-    entry["display_name"] = model
-    entry["input_modalities"] = _codex_input_modalities_for(model)
-    if ctx := info.get("max_model_len"):
-        entry["context_window"] = int(ctx)
-        entry["max_context_window"] = int(ctx)
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    out = CONFIG_DIR / "codex-catalog.json"
-    _write_text_atomic(out, json.dumps(tpl))
-    return str(out)
+        return json.loads(path.read_text()) or {}
+    except json.JSONDecodeError:
+        return {}
 
 
-def _codex_config_path() -> Path:
-    return Path.home() / ".codex" / "config.toml"
+def rfc3339_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def _codex_hub_config_args() -> list[str]:
-    base = api_base().rstrip("/") + "/"
-    return [
-        "-c", 'model_provider="sah"',
-        "-c", 'forced_login_method="api"',
-        "-c", 'model_providers.sah.name="Spark AI Hub"',
-        "-c", f'model_providers.sah.base_url="{base}"',
-    ]
+# YAML ------------------------------------------------------------------------
+#
+# sah is stdlib-only (it installs via `curl | sh` onto any laptop), so there is
+# no YAML parser available. Files sah generates whole are emitted by _yaml_dump;
+# the one file sah has to merge into (Hermes' config.yaml) is edited as text.
 
 
-def _install_codex_global(model: str, info: dict) -> None:
-    cfg = _codex_config_path()
-    _backup_client_file_once("codex", cfg)
-    _ensure_codex_profile()
-    catalog_path = _write_codex_catalog(model, info)
-    text = cfg.read_text() if cfg.is_file() else ""
-    text = _set_toml_top_level_string(text, "model", model)
-    text = _set_toml_top_level_string(text, "model_provider", "sah")
-    text = _set_toml_top_level_string(text, "forced_login_method", "api")
-    if catalog_path:
-        text = _set_toml_top_level_string(text, "model_catalog_json", catalog_path)
-    elif ctx := info.get("max_model_len"):
-        text = _set_toml_top_level_value(text, "model_context_window", str(int(ctx)))
-    cfg.parent.mkdir(parents=True, exist_ok=True)
-    _validate_toml_text(text, cfg)
-    _write_text_atomic(cfg, text)
-    _print_wired("Codex", "codex", cfg)
+def _yaml_scalar(value) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    # A JSON string literal is a valid YAML double-quoted scalar, so quoting
+    # everything stops a model id like `on` or `1.5` being read back as a bool
+    # or a number.
+    return json.dumps(str(value))
 
 
-def _status_codex_global() -> None:
-    cfg = _codex_config_path()
-    text = cfg.read_text() if cfg.is_file() else ""
-    top = text.split("\n[", 1)[0]
-    wired = 'model_provider = "sah"' in top
-    _print_status("Codex", "codex", cfg, wired)
+def yaml_dump(data, indent: int = 0) -> str:
+    pad = "  " * indent
+    if isinstance(data, dict):
+        if not data:
+            return f"{pad}{{}}\n"
+        out = ""
+        for key, value in data.items():
+            if isinstance(value, (dict, list)):
+                out += f"{pad}{key}:" + (
+                    f"\n{yaml_dump(value, indent + 1)}" if value
+                    else (" {}\n" if isinstance(value, dict) else " []\n")
+                )
+            else:
+                out += f"{pad}{key}: {_yaml_scalar(value)}\n"
+        return out
+    if isinstance(data, list):
+        if not data:
+            return f"{pad}[]\n"
+        out = ""
+        for item in data:
+            if isinstance(item, (dict, list)):
+                if not item:
+                    out += f"{pad}- " + ("{}\n" if isinstance(item, dict) else "[]\n")
+                    continue
+                lines = yaml_dump(item, indent + 1).rstrip("\n").split("\n")
+                out += f"{pad}- {lines[0].lstrip()}\n"
+                for line in lines[1:]:
+                    out += f"{line}\n"
+            else:
+                out += f"{pad}- {_yaml_scalar(item)}\n"
+        return out
+    return f"{pad}{_yaml_scalar(data)}\n"
 
 
-def _set_toml_top_level_string(text: str, key: str, value: str) -> str:
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
-    return _set_toml_top_level_value(text, key, f'"{escaped}"')
+def _yaml_find(lines: list[str], key: str, indent: int, lo: int, hi: int) -> int | None:
+    head = re.compile(rf"^{' ' * indent}{re.escape(key)}\s*:")
+    for i in range(lo, hi):
+        if head.match(lines[i]):
+            return i
+    return None
 
 
-def _set_toml_top_level_value(text: str, key: str, value: str) -> str:
-    split = text.split("\n[", 1)
-    top = split[0]
-    rest = "\n[" + split[1] if len(split) > 1 else ""
-    pattern = re.compile(rf"(?m)^{re.escape(key)}\s*=.*$")
-    line = f"{key} = {value}"
-    if pattern.search(top):
-        top = pattern.sub(line, top)
-    else:
-        top = (top.rstrip() + "\n" + line + "\n").lstrip("\n")
-    return top + rest
+def _yaml_extent(lines: list[str], start: int, indent: int, hi: int) -> int:
+    """Index one past the last line belonging to the mapping opened at `start`."""
+    end = start + 1
+    while end < hi:
+        line = lines[end]
+        if line.strip() == "" or len(line) - len(line.lstrip()) > indent:
+            end += 1
+            continue
+        break
+    return end
 
 
-def _validate_toml_text(text: str, path: Path) -> None:
-    if tomllib is None:  # no TOML parser available (Python < 3.11, no tomli)
+def yaml_upsert(text: str, path: list[str], value) -> str:
+    """Set the mapping at `path` to `value`, preserving every sibling key at
+    every level. Only the nesting depths Hermes needs (1 and 2) are supported.
+    """
+    lines = text.splitlines()
+    lo, hi, indent = 0, len(lines), 0
+    for depth, key in enumerate(path):
+        last = depth == len(path) - 1
+        idx = _yaml_find(lines, key, indent, lo, hi)
+        block = yaml_dump({key: value}, indent // 2).rstrip("\n").splitlines()
+        if idx is None:
+            if last:
+                lines = lines[:hi] + block + lines[hi:]
+                break
+            # Parent missing: create it with the whole remaining path inside.
+            nested: dict = value
+            for part in reversed(path[depth + 1:]):
+                nested = {part: nested}
+            lines = lines[:hi] + yaml_dump({key: nested}, indent // 2).rstrip("\n").splitlines() + lines[hi:]
+            break
+        if not last:
+            # A parent written inline (`providers: {}`) has no indented block to
+            # descend into; appending children under it produces invalid YAML.
+            inline = lines[idx].partition(":")[2].split("#", 1)[0].strip()
+            if inline in ("{}", "null", "~"):
+                lines[idx] = f"{' ' * indent}{key}:"
+            elif inline:
+                # A populated inline mapping cannot be merged into as text.
+                nested: dict = value
+                for part in reversed(path[depth + 1:]):
+                    nested = {part: nested}
+                lines = lines[:idx] + yaml_dump({key: nested}, indent // 2).rstrip("\n").splitlines() + lines[idx + 1:]
+                break
+        end = _yaml_extent(lines, idx, indent, hi)
+        if last:
+            lines = lines[:idx] + block + lines[end:]
+            break
+        lo, hi, indent = idx + 1, end, indent + 2
+    out = "\n".join(lines)
+    return out if out.endswith("\n") else out + "\n"
+
+
+def yaml_has_key(text: str, key: str) -> bool:
+    return _yaml_find(text.splitlines(), key, 0, 0, len(text.splitlines())) is not None
+
+
+# TOML ------------------------------------------------------------------------
+#
+# Only the ChatGPT desktop app needs TOML editing: it reads the ROOT table of
+# ~/.codex/config.toml. `sah codex` writes a self-contained profile file it owns
+# outright (Ollama's design), so it needs generation, not editing.
+
+
+def toml_validate(text: str, path: Path) -> None:
+    if tomllib is None:
         return
     try:
         tomllib.loads(text)
-    except tomllib.TOMLDecodeError as exc:
-        sys.exit(f"Refusing to write invalid TOML to {path}: {exc}")
+    except Exception as exc:  # tomllib.TOMLDecodeError, or tomli's
+        sys.exit(f"refusing to write invalid TOML to {path}: {exc}")
 
 
-def _codex_input_modalities_for(model: str) -> list[str]:
-    inputs = ["text"]
-    mods = _qwen_modalities_for(model)
-    if mods.get("image"):
-        inputs.append("image")
-    return inputs
-
-
-_CODEX_EXEC_OPTIONS_WITH_VALUE = {
-    "-c", "--config",
-    "-i", "--image",
-    "-m", "--model",
-    "-p", "--profile",
-    "-s", "--sandbox",
-    "-C", "--cd",
-    "-o", "--output-last-message",
-    "--add-dir",
-    "--color",
-    "--local-provider",
-    "--output-schema",
-}
-
-
-def _split_codex_exec_prompt(args: list[str]) -> tuple[list[str], str | None]:
-    prompt_idx: int | None = None
-    skip_next = False
-    for idx, arg in enumerate(args):
-        if skip_next:
-            skip_next = False
+def toml_set_root(text: str, key: str, value: str) -> str:
+    """Set a root-table `key = value` (value already TOML-encoded)."""
+    lines = text.splitlines(keepends=True)
+    root_end = next((i for i, ln in enumerate(lines) if ln.lstrip().startswith("[")), len(lines))
+    assignment = f"{key} = {value}"
+    for i in range(root_end):
+        stripped = lines[i].strip()
+        if not stripped or stripped.startswith("#"):
             continue
-        if arg in _CODEX_EXEC_OPTIONS_WITH_VALUE:
-            skip_next = True
-            continue
-        if arg.startswith("-"):
-            continue
-        prompt_idx = idx
-    if prompt_idx is None:
-        return args, None
-    out = [*args[:prompt_idx], *args[prompt_idx + 1:]]
-    return out, args[prompt_idx]
+        if re.match(rf"{re.escape(key)}\s*=", stripped):
+            lines[i] = assignment + ("\n" if lines[i].endswith("\n") else "")
+            return "".join(lines)
+    head, tail = "".join(lines[:root_end]), "".join(lines[root_end:])
+    head = head.rstrip("\n")
+    if head:
+        head += "\n"
+    return head + assignment + "\n" + ("\n" + tail if tail else "")
 
 
-def _augment_codex_pdf_text(text: str) -> str:
-    """Codex has --image but no generic --file flag. For `codex exec` prompts
-    that mention local PDFs, append extracted text so the model can read them
-    without relying on a tool-call turn through the Responses API.
-    """
-    if ".pdf" not in text.lower():
+def toml_set_root_string(text: str, key: str, value: str) -> str:
+    return toml_set_root(text, key, json.dumps(str(value)))
+
+
+def toml_remove_root(text: str, key: str) -> str:
+    out, in_root = [], True
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("["):
+            in_root = False
+        if in_root and re.match(rf"{re.escape(key)}\s*=", stripped):
+            continue
+        out.append(line)
+    return "\n".join(out)
+
+
+def toml_upsert_section(text: str, header: str, lines: list[str]) -> str:
+    block = "\n".join([header, *lines]) + "\n"
+    idx = text.find(header)
+    if idx >= 0:
+        rest = text[idx + len(header):]
+        end = rest.find("\n[")
+        return text[:idx] + block + (rest[end + 1:] if end >= 0 else "")
+    if text and not text.endswith("\n"):
+        text += "\n"
+    return text + ("\n" if text else "") + block
+
+
+def toml_remove_section(text: str, header: str) -> str:
+    idx = text.find(header)
+    if idx < 0:
         return text
-    attachments = _pdf_attachments_for_text(text)
-    if not attachments:
-        return text
-    text = _replace_pdf_paths_for_codex(text)
-    return text.rstrip() + "\n\n" + "\n\n".join(attachments)
+    rest = text[idx + len(header):]
+    end = rest.find("\n[")
+    return text[:idx] + (rest[end + 1:] if end >= 0 else "")
 
 
-def _replace_pdf_paths_for_codex(text: str) -> str:
-    return re.sub(
-        r"(?<!\S)(?:'[^']+\.pdf'|\"[^\"]+\.pdf\"|\S+\.pdf)",
-        "the extracted PDF text below",
-        text,
-        flags=re.IGNORECASE,
-    )
+# ------------------------------------------------------------ backup / restore
 
 
-def _pdf_attachments_for_text(text: str) -> list[str]:
-    attachments: list[str] = []
-    seen: set[str] = set()
-    for raw in re.findall(r"(?<!\S)(?:'([^']+\.pdf)'|\"([^\"]+\.pdf)\"|(\S+\.pdf))", text, re.IGNORECASE):
-        path_text = next((p for p in raw if p), "")
-        path = Path(path_text).expanduser()
-        if not path.is_absolute():
-            path = (Path.cwd() / path).resolve()
-        key = str(path)
-        if key in seen or not path.is_file():
-            continue
-        seen.add(key)
-        pdf_text = _extract_pdf_text(path)
-        if pdf_text:
-            attachments.append(f"[Extracted PDF text]\n{pdf_text}")
-    return attachments
+def backup_path(label: str) -> Path:
+    return CONFIG_DIR / f"{label}-settings.backup.json"
 
 
-def _extract_pdf_text(path: Path) -> str:
-    if not shutil.which("pdftotext"):
-        return ""
-    try:
-        proc = subprocess.run(
-            ["pdftotext", "-layout", str(path), "-"],
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            timeout=30,
-        )
-    except subprocess.TimeoutExpired:
-        return ""
-    if proc.returncode != 0:
-        return ""
-    return proc.stdout.strip()
-
-
-def _ensure_codex_profile() -> None:
-    """Patch ~/.codex/config.toml with a [profiles.sah] section."""
-    codex_dir = Path.home() / ".codex"
-    codex_dir.mkdir(parents=True, exist_ok=True)
-    cfg = codex_dir / "config.toml"
-    base = api_base().rstrip("/") + "/"
-
-    sections = [
-        (
-            "[profiles.sah]",
-            [
-                f'openai_base_url = "{base}"',
-                'forced_login_method = "api"',
-                'model_provider = "sah"',
-            ],
-        ),
-        (
-            "[model_providers.sah]",
-            [
-                'name = "Spark AI Hub"',
-                f'base_url = "{base}"',
-            ],
-        ),
-    ]
-
-    text = cfg.read_text() if cfg.is_file() else ""
-    for header, lines in sections:
-        block = "\n".join([header, *lines]) + "\n"
-        idx = text.find(header)
-        if idx >= 0:
-            rest = text[idx + len(header):]
-            end = rest.find("\n[")
-            if end >= 0:
-                text = text[:idx] + block + rest[end + 1:]
-            else:
-                text = text[:idx] + block
-        else:
-            if text and not text.endswith("\n"):
-                text += "\n"
-            if text:
-                text += "\n"
-            text += block
-    _validate_toml_text(text, cfg)
-    _write_text_atomic(cfg, text)
-
-
-def cmd_hermes(args) -> None:
-    if args.status:
-        _status_hermes_global()
-        return
-    if args.restore:
-        _restore_client_file("hermes", _hermes_config_path())
-        return
-    if not shutil.which("hermes"):
-        sys.exit(
-            "hermes not found in PATH. Install options: "
-            "https://hermes-agent.nousresearch.com/docs/getting-started/installation/"
-        )
-    model = require_model()
-    if args.install:
-        _install_hermes_global(model)
-        return
-    hermes_home = _prepare_hermes_home(model)
-    env = {
-        **os.environ,
-        "HERMES_HOME": str(hermes_home),
-        "OPENAI_API_KEY": "sah",
-        "OPENAI_BASE_URL": api_base(),
-    }
-    extra = _normalize_passthrough(args.passthrough)
-    os.execvpe("hermes", ["hermes", *extra], env)
-
-
-def _prepare_hermes_home(model: str) -> Path:
-    """Build an isolated HERMES_HOME for `sah hermes` that mirrors the user's
-    real ~/.hermes/ via symlinks, with config.yaml materialized fresh.
-
-    Hermes reads model.base_url from config.yaml (no CLI flag overrides it),
-    so we need a sah-owned config. But the user's real ~/.hermes/ also holds
-    skills, sessions, memories, providers, personalities, etc. — symlinking
-    every other child through means ephemeral `sah hermes` still sees all of
-    that, only the model block is overridden to point at the Hub.
-    """
-    home = CONFIG_DIR / "hermes-home"
-    home.mkdir(parents=True, exist_ok=True)
-
-    real = Path.home() / ".hermes"
-    _mirror_state_dir(real, home, lambda name: name == "config.yaml")
-
-    real_cfg = real / "config.yaml"
-    base_text = real_cfg.read_text() if real_cfg.is_file() else ""
-    new_text = _replace_yaml_top_block(base_text, "model", _hermes_model_block(model))
-    _write_text_atomic(home / "config.yaml", new_text)
-    return home
-
-
-def _hermes_config_path() -> Path:
-    return Path.home() / ".hermes" / "config.yaml"
-
-
-def _hermes_model_block(model: str) -> str:
-    return (
-        f"model:\n"
-        f"  default: {model}\n"
-        f"  provider: custom\n"
-        f"  base_url: {api_base()}\n"
-    )
-
-
-def _replace_yaml_top_block(text: str, key: str, block: str) -> str:
-    """Replace the top-level YAML mapping `key:` block (key + indented children)
-    with `block` (which must start with `key:` and end with a newline). If the
-    key isn't present, prepend the block. Other top-level keys are preserved."""
-    lines = text.splitlines()
-    head = re.compile(rf"^{re.escape(key)}\s*:\s*(?:#.*)?$")
-    start = next((i for i, ln in enumerate(lines) if head.match(ln)), None)
-    if start is None:
-        prefix = block if text.endswith("\n") or not text else block
-        return prefix + text
-    end = start + 1
-    while end < len(lines) and (lines[end] == "" or lines[end][:1] in (" ", "\t")):
-        end += 1
-    new_lines = lines[:start] + block.rstrip("\n").splitlines() + lines[end:]
-    out = "\n".join(new_lines)
-    if not out.endswith("\n"):
-        out += "\n"
-    return out
-
-
-def _install_hermes_global(model: str) -> None:
-    path = _hermes_config_path()
-    _backup_client_file_once("hermes", path)
-    existing = path.read_text() if path.is_file() else ""
-    new_text = _replace_yaml_top_block(existing, "model", _hermes_model_block(model))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _write_text_atomic(path, new_text)
-    _print_wired("Hermes Agent", "hermes", path, extras=(("Model", model),))
-
-
-def _status_hermes_global() -> None:
-    path = _hermes_config_path()
-    text = path.read_text() if path.is_file() else ""
-    wired = f"base_url: {api_base()}" in text and "provider: custom" in text
-    _kv("Hermes config", str(path))
-    _kv("SAH backup", "present" if _client_backup_path("hermes").is_file() else "not present")
-    _kv("Plain hermes", "wired to Spark AI Hub" if wired else "not wired to Spark AI Hub")
-
-
-# ---------- hermes-desktop ----------
-#
-# Hermes Desktop is the same Hermes Agent driven through its `desktop`
-# subcommand, sharing ~/.hermes/config.yaml with `sah hermes`. So install /
-# restore / status reuse the hermes wiring untouched; only the launch
-# invocation differs: `hermes desktop`, with `--skip-build` auto-added when a
-# packaged desktop app is already installed. Mirrors Ollama's HermesDesktop
-# (cmd/launch/hermes.go), which embeds Hermes and reuses its Configure/Paths.
-
-_HERMES_DESKTOP_BUILD_FLAGS = ("--skip-build", "--source", "--build-only", "--help", "-h")
-
-
-def cmd_hermes_desktop(args) -> None:
-    if args.status:
-        _status_hermes_global()
-        return
-    if args.restore:
-        _restore_client_file("hermes", _hermes_config_path())
-        return
-    if not shutil.which("hermes"):
-        sys.exit(
-            "hermes not found in PATH. Install options: "
-            "https://hermes-agent.nousresearch.com/docs/getting-started/installation/"
-        )
-    model = require_model()
-    if args.install:
-        _install_hermes_global(model)
-        return
-    hermes_home = _prepare_hermes_home(model)
-    env = {
-        **os.environ,
-        "HERMES_HOME": str(hermes_home),
-        "OPENAI_API_KEY": "sah",
-        "OPENAI_BASE_URL": api_base(),
-    }
-    extra = _normalize_passthrough(args.passthrough)
-    launch_args = ["desktop"]
-    if _hermes_desktop_skip_build(extra):
-        launch_args.append("--skip-build")
-    os.execvpe("hermes", ["hermes", *launch_args, *extra], env)
-
-
-def _hermes_desktop_skip_build(extra: list[str]) -> bool:
-    """True when sah should pass --skip-build to `hermes desktop`: a packaged
-    desktop app already exists and the user didn't pass a build/help flag of
-    their own. Mirrors Ollama's HermesDesktop.shouldSkipDesktopBuild."""
-    for arg in extra:
-        if arg == "--":
-            break
-        if arg in _HERMES_DESKTOP_BUILD_FLAGS:
-            return False
-    return _hermes_desktop_packaged_app_exists()
-
-
-def _hermes_desktop_release_roots() -> list[str]:
-    """Install roots where Hermes packages its prebuilt desktop app, each joined
-    with apps/desktop/release. Mirrors Hermes' own install layout (see
-    hermesDesktopReleaseRoots in Ollama). Reads the real environment — call
-    before HERMES_HOME is overridden for the ephemeral launch."""
-    roots: list[str] = []
-
-    def add(path: str) -> None:
-        path = (path or "").strip()
-        if path:
-            roots.append(os.path.normpath(path))
-
-    add(os.environ.get("HERMES_INSTALL_DIR", ""))
-    if hh := os.environ.get("HERMES_HOME", "").strip():
-        add(os.path.join(hh, "hermes-agent"))
-
-    home = Path.home()
-    if sys.platform == "win32":
-        if lad := os.environ.get("LOCALAPPDATA", "").strip():
-            add(os.path.join(lad, "hermes", "hermes-agent"))
-        add(str(home / ".hermes" / "hermes-agent"))
-    else:
-        add(str(home / ".hermes" / "hermes-agent"))
-        if sys.platform.startswith("linux"):
-            add(os.path.join(os.sep, "usr", "local", "lib", "hermes-agent"))
-
-    seen: set[str] = set()
-    out: list[str] = []
-    for root in roots:
-        rel = os.path.join(root, "apps", "desktop", "release")
-        if rel in seen:
-            continue
-        seen.add(rel)
-        out.append(rel)
-    return out
-
-
-def _hermes_desktop_packaged_executables(release_root: str) -> list[str]:
-    if sys.platform == "darwin":
-        return [str(p) for p in Path(release_root).glob("mac*/Hermes.app/Contents/MacOS/Hermes")]
-    if sys.platform == "win32":
-        return [
-            os.path.join(release_root, "win-unpacked", "Hermes.exe"),
-            os.path.join(release_root, "win-ia32-unpacked", "Hermes.exe"),
-            os.path.join(release_root, "win-arm64-unpacked", "Hermes.exe"),
-        ]
-    return [
-        os.path.join(release_root, "linux-unpacked", "hermes"),
-        os.path.join(release_root, "linux-unpacked", "Hermes"),
-    ]
-
-
-def _hermes_desktop_packaged_app_exists() -> bool:
-    for root in _hermes_desktop_release_roots():
-        for candidate in _hermes_desktop_packaged_executables(root):
-            if os.path.exists(candidate):
-                return True
-    return False
-
-
-def cmd_qwen(args) -> None:
-    if args.status:
-        _status_qwen_global()
-        return
-    if args.restore:
-        _restore_qwen_global()
-        return
-    if not shutil.which("qwen"):
-        sys.exit("qwen not found in PATH. Install options: https://github.com/QwenLM/qwen-code")
-    model = require_model()
-    if args.install:
-        _install_qwen_global(model)
-        return
-    extra = _normalize_passthrough(args.passthrough)
-    # Thin-launcher pattern (matches sah claude/codex/etc.): set Hub env vars,
-    # pass connection flags, and exec. qwen reads its own config from the
-    # user's real ~/.qwen/ — non-invasive by default. Users who want
-    # persistent settings.json overrides (e.g. multimodal generationConfig
-    # for Qwen 3.5/3.6) use `sah qwen --install`.
-    env = {
-        **os.environ,
-        "OPENAI_API_KEY": "sah",
-        "OPENAI_BASE_URL": api_base(),
-        # qwen-code caps OpenAI-compatible providers at 8K output tokens
-        # (CAPPED_DEFAULT_MAX_TOKENS), truncating large WriteFile/Edit tool
-        # calls mid-content. Hub vLLM models serve 262K — lift the cap.
-        "QWEN_CODE_MAX_OUTPUT_TOKENS": os.environ.get(
-            "QWEN_CODE_MAX_OUTPUT_TOKENS", "65536"
-        ),
-        # Local Hub vLLM decodes slower than the hosted APIs qwen-code's
-        # default timeout assumes, so long turns abort mid-generation with
-        # "Request timeout". Lift the per-request timeout (ms) to match; the
-        # env override wins unless the user set one or a provider pins its own.
-        "QWEN_CODE_API_TIMEOUT_MS": os.environ.get(
-            "QWEN_CODE_API_TIMEOUT_MS", "1500000"
-        ),
-    }
-    cmd = [
-        "qwen",
-        "--auth-type", "openai",
-        "--openai-base-url", api_base(),
-        "--openai-api-key", "sah",
-        "--model", model,
-    ]
-    # For multimodal Hub models, qwen-code's text-only prior makes it refuse
-    # image/video reads even when the modality flag is set in settings.json.
-    # Inject a brief capability note via the upstream-supported flag instead
-    # of materializing a sandbox QWEN.md.
-    if _qwen_modalities_for(model):
-        cmd += ["--append-system-prompt", _QWEN_CAPABILITIES_NOTE]
-    cmd += extra
-    os.execvpe("qwen", cmd, env)
-
-
-
-_QWEN_CAPABILITIES_NOTE = """
-## Multimodal capabilities (Spark AI Hub)
-
-You are running on a Qwen 3.5/3.6 model served by Spark AI Hub. These models
-are natively multimodal: when the `read_file` tool returns image or video
-content, you can see and describe it directly. There is no separate "vision
-model" to delegate to, and you do not need ffmpeg/ffprobe to inspect a video's
-visual content.
-
-When the user asks you to read or describe an image or video file:
-- Just call `read_file` with the path. Do not refuse or claim to be text-only.
-- Do not suggest extracting frames, running ffprobe, or asking the user to
-  describe the file. Read it and answer.
-- Supported extensions include common images (png, jpg, jpeg, gif, webp, bmp)
-  and videos (mp4, mov, mkv, webm, avi).
-""".strip()
-
-
-def _qwen_modalities_for(model: str) -> dict:
-    """Return modality flags for a Hub model.
-
-    Qwen 3.5 / 3.6 instruct + VL families are natively multimodal (image +
-    video). qwen-code's built-in defaults only flag `qwen3.5-plus` / `qwen-vl-*`
-    as multimodal, so models served by the Hub (e.g. `Qwen/Qwen3.6-35B-A3B-FP8`)
-    fall through to the text-only `^qwen` fallback and image/video reads get
-    skipped client-side. Mark them multimodal here. Other models get an empty
-    map (text-only).
-    """
-    norm = model.lower().replace("_", "-").split("/")[-1]
-    if norm.startswith("qwen3.5") or norm.startswith("qwen3.6"):
-        return {"image": True, "video": True}
-    if "-vl-" in norm or norm.endswith("-vl") or "vision" in norm:
-        return {"image": True, "video": True}
-    return {}
-
-
-def _qwen_settings_path() -> Path:
-    return Path.home() / ".qwen" / "settings.json"
-
-
-def _qwen_backup_path() -> Path:
-    return CONFIG_DIR / "qwen-settings.backup.json"
-
-
-def _qwen_hub_settings(base: dict, model: str) -> dict:
-    base.setdefault("$version", 3)
-    env_block = base.get("env") if isinstance(base.get("env"), dict) else {}
-    env_block["OPENAI_API_KEY"] = "sah"
-    base["env"] = env_block
-
-    sec = base.get("security") if isinstance(base.get("security"), dict) else {}
-    auth = sec.get("auth") if isinstance(sec.get("auth"), dict) else {}
-    auth["selectedType"] = "openai"
-    sec["auth"] = auth
-    base["security"] = sec
-
-    model_block = base.get("model") if isinstance(base.get("model"), dict) else {}
-    model_block["name"] = model
-    base["model"] = model_block
-
-    providers = base.get("modelProviders") if isinstance(base.get("modelProviders"), dict) else {}
-    openai_list = providers.get("openai") if isinstance(providers.get("openai"), list) else []
-    entry = {
-        "id": model,
-        "name": f"Spark AI Hub · {model}",
-        "baseUrl": api_base(),
-        "envKey": "OPENAI_API_KEY",
-        "generationConfig": {"modalities": _qwen_modalities_for(model)},
-    }
-    openai_list = [p for p in openai_list if not (isinstance(p, dict) and p.get("id") == model)]
-    openai_list.insert(0, entry)
-    providers["openai"] = openai_list
-    base["modelProviders"] = providers
-    return base
-
-
-def _install_qwen_global(model: str) -> None:
-    settings_path = _qwen_settings_path()
-    backup_path = _qwen_backup_path()
+def backup_once(label: str, path: Path) -> None:
+    """Record a client config file before sah first rewrites it. The first
+    backup wins, so re-running --install never captures sah's own output."""
+    target = backup_path(label)
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    if not backup_path.is_file():
-        backup = {
-            "settings_path": str(settings_path),
-            "existed": settings_path.is_file(),
-            "content": settings_path.read_text() if settings_path.is_file() else "",
-        }
-        _write_json_atomic(backup_path, backup)
-
-    base: dict = {}
-    if settings_path.is_file():
-        try:
-            loaded = json.loads(settings_path.read_text())
-            if isinstance(loaded, dict):
-                base = loaded
-        except json.JSONDecodeError:
-            base = {}
-
-    settings_path.parent.mkdir(parents=True, exist_ok=True)
-    _write_json_atomic(settings_path, _qwen_hub_settings(base, model))
-    _print_wired("Qwen Code", "qwen", settings_path, extras=(("Model", model),))
-
-
-def _restore_qwen_global() -> None:
-    backup_path = _qwen_backup_path()
-    if not backup_path.is_file():
-        print("No Spark AI Hub Qwen Code backup found; nothing to restore.")
+    if target.is_file():
         return
-    try:
-        backup = json.loads(backup_path.read_text())
-    except json.JSONDecodeError:
-        sys.exit(f"Qwen Code backup is unreadable: {backup_path}")
-    settings_path = Path(backup.get("settings_path") or _qwen_settings_path())
-    if backup.get("existed"):
-        settings_path.parent.mkdir(parents=True, exist_ok=True)
-        _write_text_atomic(settings_path, backup.get("content") or "")
-    elif settings_path.is_file():
-        settings_path.unlink()
-    backup_path.unlink()
-    print("Qwen Code restored.")
-    print("  Plain `qwen` no longer uses the Spark AI Hub profile.")
-
-
-def _status_qwen_global() -> None:
-    settings_path = _qwen_settings_path()
-    backup_path = _qwen_backup_path()
-    settings = _read_json(settings_path)
-    model = (settings.get("model") or {}).get("name") if isinstance(settings.get("model"), dict) else None
-    providers = settings.get("modelProviders") if isinstance(settings.get("modelProviders"), dict) else {}
-    openai_list = providers.get("openai") if isinstance(providers.get("openai"), list) else []
-    wired = any(
-        isinstance(p, dict) and p.get("id") == model and p.get("baseUrl") == api_base()
-        for p in openai_list
-    )
-    # Qwen has its own backup path, so render the status block manually.
-    _kv("Qwen Code config", str(settings_path))
-    _kv("SAH backup", "present" if backup_path.is_file() else "not present")
-    _kv("Plain qwen", "wired to Spark AI Hub" if wired else "not wired to Spark AI Hub")
-    if model:
-        _kv("Configured model", model)
-
-
-def cmd_openclaw(args) -> None:
-    if args.status:
-        _status_openclaw_global()
-        return
-    if args.restore:
-        _restore_client_file("openclaw", _openclaw_config_paths()[0])
-        return
-    bin_name = shutil.which("openclaw") or shutil.which("clawdbot")
-    if not bin_name:
-        sys.exit("openclaw not found in PATH. Install options: https://github.com/openclaw/openclaw")
-    info = current_model_info()
-    if not info:
-        sys.exit(
-            f"No model is running on {hub_url()}.\n"
-            f"Launch one from the Spark AI Hub web UI first."
-        )
-    model = info["id"]
-    if args.install:
-        _ensure_openclaw_config(model, info)
-        _print_wired("OpenClaw", "openclaw", _openclaw_config_paths()[0])
-        return
-    profile = "sah"
-    _mirror_openclaw_profile(profile)
-    _ensure_openclaw_config(model, info, profile=profile)
-    extra = _normalize_passthrough(args.passthrough)
-    if not extra:
-        extra = ["tui"]
-    env = _openclaw_env(profile=profile)
-    if extra[0] in {"tui", "terminal"} and "--local" not in extra:
-        sys.exit(_run_openclaw_with_gateway(bin_name, extra, env, profile=profile))
-    os.execvpe(bin_name, [bin_name, "--profile", profile, *extra], env)
-
-
-def _normalize_passthrough(args: list[str]) -> list[str]:
-    if args and args[0] == "--":
-        return args[1:]
-    return args
-
-
-def _client_backup_path(client: str) -> Path:
-    return CONFIG_DIR / f"{client}-settings.backup.json"
-
-
-def _backup_client_file_once(client: str, path: Path) -> None:
-    backup_path = _client_backup_path(client)
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    if backup_path.is_file():
-        return
-    backup = {
+    write_json(target, {
         "settings_path": str(path),
         "existed": path.is_file(),
         "content": path.read_text() if path.is_file() else "",
-    }
-    _write_json_atomic(backup_path, backup)
+    })
 
 
-def _restore_client_file(client: str, default_path: Path, quiet: bool = False) -> None:
-    """Put a client's original config file back. `quiet` suppresses the report
-    for clients that restore several files and print one summary of their own."""
-    backup_path = _client_backup_path(client)
-    if not backup_path.is_file():
-        if not quiet:
-            print(f"No Spark AI Hub {client} backup found; nothing to restore.")
-        return
+def restore_backup(label: str, default_path: Path) -> bool:
+    target = backup_path(label)
+    if not target.is_file():
+        return False
     try:
-        backup = json.loads(backup_path.read_text())
+        saved = json.loads(target.read_text())
     except json.JSONDecodeError:
-        sys.exit(f"{client} backup is unreadable: {backup_path}")
-    path = Path(backup.get("settings_path") or default_path)
-    if backup.get("existed"):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _write_text_atomic(path, backup.get("content") or "")
+        sys.exit(f"{label} backup is unreadable: {target}")
+    path = Path(saved.get("settings_path") or default_path)
+    if saved.get("existed"):
+        write_text(path, saved.get("content") or "")
     elif path.is_file():
         path.unlink()
-    backup_path.unlink()
-    if not quiet:
-        print(f"{client} restored.")
-        print(f"  Plain `{client}` no longer uses the Spark AI Hub profile.")
+    target.unlink()
+    return True
 
 
-def _model_context_window(info: dict, default: int = 32768) -> int:
-    try:
-        ctx = int(info.get("max_model_len") or 0)
-    except (TypeError, ValueError):
-        ctx = 0
-    return ctx if ctx > 0 else default
+# =============================================================== integrations
+#
+# One class per integration. The base class provides the whole lifecycle:
+#
+#   sah <name>              configure (if the client has a config) and exec it
+#   sah <name> --install    configure only, so the plain client uses the Hub
+#   sah <name> --restore    put the client's original config back
+#   sah <name> --status     show whether the plain client is wired
+#
+# Subclasses override only what differs: which files they own, how to render
+# them, and how the binary is invoked. Following Ollama, a bare launch of a
+# config-file client DOES write that client's config (Ollama's Editor/Configure
+# runs before Run); sah previously kept a private mirror of every client's
+# state directory to avoid that, which was ~200 lines of machinery and a
+# constant source of divergence between the mirrored and real config.
 
 
-def _mirror_state_dir(real: Path, home: Path, is_owned) -> None:
-    """Symlink every child of a client's real state dir into a sah-owned mirror,
-    so an ephemeral `sah <client>` still sees the user's sessions, skills,
-    credentials, workspace, etc. Children matched by `is_owned` are skipped:
-    sah materializes those itself with the Hub wiring, and linking them would
-    write the wiring straight back into the user's plain client.
+class Integration:
+    name = ""
+    display = ""
+    aliases: tuple[str, ...] = ()
+    kind = "CLI"
+    binary: str | None = None
+    install_hint = ""
+    launchable = True   # bare `sah <name>` runs the client
+    writes_config = False   # has a plain-client config → --install/--restore
+
+    # -- binary ---------------------------------------------------------------
+
+    def find_binary(self) -> str | None:
+        return shutil.which(self.binary) if self.binary else None
+
+    def require_binary(self) -> str:
+        path = self.find_binary()
+        if not path:
+            sys.exit(f"{self.binary} not found in PATH. Install: {self.install_hint}")
+        return path
+
+    def availability(self) -> str:
+        if not self.binary:
+            return "n/a"
+        return "yes" if self.find_binary() else "missing"
+
+    def supported(self) -> str | None:
+        """Non-None means this integration cannot run here; the string says why."""
+        return None
+
+    # -- config ---------------------------------------------------------------
+
+    def files(self) -> dict[str, Path]:
+        """Backup label -> plain-client config file that sah rewrites."""
+        return {}
+
+    def configure(self, model: Model) -> None:
+        """Write the Hub wiring into the client's own config."""
+
+    def wired(self) -> bool:
+        return False
+
+    def extras(self) -> tuple[tuple[str, str], ...]:
+        return ()
+
+    # -- launch ---------------------------------------------------------------
+
+    def env(self, model: Model) -> dict:
+        return {}
+
+    def argv(self, model: Model, extra: list[str]) -> list[str]:
+        return list(extra)
+
+    def launch(self, model: Model, extra: list[str]) -> None:
+        path = self.require_binary()
+        if self.writes_config:
+            self.apply(model)
+        env = {**os.environ, **self.env(model)}
+        os.execve(path, [self.binary or path, *self.argv(model, extra)], env)
+
+    # -- lifecycle ------------------------------------------------------------
+
+    def apply(self, model: Model) -> None:
+        for label, path in self.files().items():
+            backup_once(label, path)
+        self.configure(model)
+
+    def install(self, model: Model) -> None:
+        self.apply(model)
+        files = self.files()
+        print(f"{self.display} wired to {PROVIDER_NAME}.")
+        for _, path in files.items():
+            kv("  Config", str(path))
+        kv("  Model", model.name)
+        for key, value in self.extras():
+            kv(f"  {key}", value)
+        if self.binary:
+            print(f"  Plain `{self.binary}` will use the Hub until: sah {self.name} --restore")
+
+    def restore(self) -> None:
+        restored = [
+            label for label, path in self.files().items() if restore_backup(label, path)
+        ]
+        if not restored:
+            print(f"No {PROVIDER_NAME} {self.name} backup found; nothing to restore.")
+            return
+        print(f"{self.display} restored.")
+        if self.binary:
+            print(f"  Plain `{self.binary}` no longer uses the {PROVIDER_NAME} profile.")
+
+    def status(self) -> None:
+        if reason := self.supported():
+            kv(f"{self.display} status", reason)
+            return
+        if self.binary:
+            kv(f"{self.binary} binary", self.find_binary() or "not found in PATH")
+        kv("OpenAI base", api_base())
+        files = self.files()
+        if not files:
+            kv("Mode", "launch only (plain client settings untouched)")
+            kv("Launch", f"sah {self.name}")
+            for key, value in self.extras():
+                kv(key, value)
+            return
+        for label, path in files.items():
+            kv(f"{self.display} config", str(path))
+            kv("  SAH backup", "present" if backup_path(label).is_file() else "not present")
+        kv(f"Plain {self.binary or self.name}",
+           f"wired to {PROVIDER_NAME}" if self.wired() else f"not wired to {PROVIDER_NAME}")
+        for key, value in self.extras():
+            kv(key, value)
+
+    # -- CLI hooks ------------------------------------------------------------
+
+    def add_arguments(self, parser) -> None:
+        """Extra flags beyond --install/--restore/--status."""
+
+    def run(self, args) -> None:
+        if reason := self.supported():
+            sys.exit(reason)
+        if args.status:
+            self.status()
+            return
+        if args.restore:
+            if not self.writes_config:
+                sys.exit(f"{self.display} is launch only in sah: it is configured per "
+                         f"invocation and never writes the plain client's settings.")
+            self.restore()
+            return
+        if args.install:
+            if not self.writes_config:
+                sys.exit(f"{self.display} is launch only in sah: it is configured per "
+                         f"invocation, so there is nothing to install.\n"
+                         f"Just run: sah {self.name}")
+            self.install(require_model())
+            return
+        if not self.launchable:
+            sys.exit(f"Choose one: sah {self.name} --install, --status, or --restore")
+        self.launch(require_model(), normalize_passthrough(args.passthrough))
+
+
+def normalize_passthrough(args: list[str]) -> list[str]:
+    return args[1:] if args and args[0] == "--" else args
+
+
+def reject_managed_flags(extra: list[str], names: tuple[str, ...], owner: str) -> None:
+    for arg in extra:
+        if arg.split("=", 1)[0] in names:
+            sys.exit(f"conflicting argument {arg!r}: {owner} manages it")
+
+
+def has_flag(extra: list[str], *names: str) -> bool:
+    return any(a.split("=", 1)[0] in names for a in extra)
+
+
+# ---------------------------------------------------------------------- claude
+
+
+class Claude(Integration):
+    """Ollama's cmd/launch/claude.go: env vars only, nothing written to disk.
+
+    sah used to also rewrite ~/.claude/settings.json under --install; Ollama
+    does not, and the env vars alone are sufficient, so that is gone.
     """
-    if not real.is_dir():
-        return
-    home.mkdir(parents=True, exist_ok=True)
-    existing = {p.name: p for p in home.iterdir()}
-    wanted = {p.name for p in real.iterdir() if not is_owned(p.name)}
-    for name, link in existing.items():
-        if is_owned(name):
-            continue
-        if link.is_symlink() and name not in wanted:
-            link.unlink()
-    for item in real.iterdir():
-        if is_owned(item.name):
-            continue
-        link = home / item.name
-        target = item.resolve()
-        if link.is_symlink():
-            if Path(os.readlink(link)) == target:
-                continue
-            link.unlink()
-        elif link.exists():
-            continue  # leave non-symlink user data alone
-        link.symlink_to(target)
+    name, display, binary = "claude", "Claude Code", "claude"
+    install_hint = "https://code.claude.com/docs/en/quickstart"
+
+    def find_binary(self) -> str | None:
+        if path := shutil.which("claude"):
+            return path
+        for fallback in (Path.home() / ".local/bin/claude", Path.home() / ".claude/local/claude"):
+            if fallback.is_file():
+                return str(fallback)
+        return None
+
+    def env(self, model: Model) -> dict:
+        return {
+            "ANTHROPIC_BASE_URL": hub_url(),
+            "ANTHROPIC_API_KEY": "",
+            "ANTHROPIC_AUTH_TOKEN": API_KEY,
+            "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+            "DISABLE_ERROR_REPORTING": "1",
+            "DISABLE_FEEDBACK_COMMAND": "1",
+            "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": model.name,
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": model.name,
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": model.name,
+            "CLAUDE_CODE_SUBAGENT_MODEL": model.name,
+        }
+
+    def argv(self, model: Model, extra: list[str]) -> list[str]:
+        return ["--model", model.name, *extra]
 
 
-def _mirror_openclaw_profile(profile: str) -> None:
-    """Mirror children of the user's main ~/.openclaw/ into ~/.openclaw-<profile>/
-    so ephemeral `sah openclaw` shares sessions, skills, identity, workspace,
-    etc. with plain openclaw. The profile owns its own openclaw.json (and the
-    .bak/.last-good siblings openclaw writes alongside it) so the Hub wiring
-    stays scoped to the sah profile.
+# -------------------------------------------------------------------- opencode
+
+
+class OpenCode(Integration):
+    """Ollama's cmd/launch/opencode.go: the whole provider config is handed to
+    OpenCode inline through OPENCODE_CONFIG_CONTENT, so opencode.json is never
+    touched. Only the model-picker state file is written, so Hub models show up
+    in the picker."""
+    name, display, binary = "opencode", "OpenCode", "opencode"
+    install_hint = "https://opencode.ai"
+
+    def find_binary(self) -> str | None:
+        if path := shutil.which("opencode"):
+            return path
+        fallback = Path.home() / ".opencode/bin/opencode"
+        return str(fallback) if fallback.is_file() else None
+
+    def state_path(self) -> Path:
+        return Path.home() / ".local/state/opencode/model.json"
+
+    def inline_config(self, model: Model) -> str:
+        entry: dict = {"name": model.name}
+        if model.has("vision"):
+            entry["modalities"] = {"input": model.input_modalities(), "output": ["text"]}
+        if model.has("thinking"):
+            entry["reasoning"] = True
+        if model.context_length:
+            entry["limit"] = {"context": model.context_length, "output": model.max_output()}
+        return json.dumps({
+            "$schema": "https://opencode.ai/config.json",
+            "provider": {
+                PROVIDER: {
+                    "npm": "@ai-sdk/openai-compatible",
+                    "name": PROVIDER_NAME,
+                    "options": {"baseURL": api_base()},
+                    "models": {model.name: entry},
+                }
+            },
+            "model": f"{PROVIDER}/{model.name}",
+        })
+
+    def _touch_picker_state(self, model: Model) -> None:
+        path = self.state_path()
+        state = read_json(path) or {"recent": [], "favorite": [], "variant": {}}
+        recent = [
+            e for e in (state.get("recent") or [])
+            if not (isinstance(e, dict) and e.get("providerID") == PROVIDER
+                    and e.get("modelID") == model.name)
+        ]
+        state["recent"] = [{"providerID": PROVIDER, "modelID": model.name}, *recent][:10]
+        write_json(path, state)
+
+    def env(self, model: Model) -> dict:
+        self._touch_picker_state(model)
+        return {"OPENCODE_CONFIG_CONTENT": self.inline_config(model)}
+
+    def extras(self) -> tuple[tuple[str, str], ...]:
+        return (("Picker state", str(self.state_path())),)
+
+
+# ----------------------------------------------------------------------- codex
+
+
+CODEX_PROFILE = "sah"
+
+
+class Codex(Integration):
+    """Ollama's cmd/launch/codex.go: a self-contained profile file that sah owns
+    outright plus `codex --profile sah`. The user's root config.toml is never
+    read or written, so there is no backup, no restore state, and no way for
+    this to collide with `sah chatgpt` (which does write the root table).
+
+    sah previously wrote root keys via -c overrides and --install; that is what
+    made codex and chatgpt fight over the same file.
     """
-    _mirror_state_dir(
-        Path.home() / ".openclaw",
-        _openclaw_state_dir(profile),
-        lambda name: name == "openclaw.json" or name.startswith("openclaw.json."),
-    )
+    name, display, binary = "codex", "Codex", "codex"
+    install_hint = "npm install -g @openai/codex"
 
+    def codex_dir(self) -> Path:
+        return Path.home() / ".codex"
 
-def _openclaw_state_dir(profile: str | None = None) -> Path:
-    if profile:
-        return Path.home() / f".openclaw-{profile}"
-    return Path.home() / ".openclaw"
+    def profile_path(self) -> Path:
+        return self.codex_dir() / f"{CODEX_PROFILE}.config.toml"
 
+    def catalog_path(self) -> Path:
+        return self.codex_dir() / f"{CODEX_PROFILE}-model.json"
 
-def _openclaw_config_paths(profile: str | None = None) -> tuple[Path, Path]:
-    state_dir = _openclaw_state_dir(profile)
-    return (
-        state_dir / "openclaw.json",
-        (Path.home() / ".clawdbot" / "clawdbot.json") if profile is None else state_dir / "clawdbot.json",
-    )
+    def base_url(self) -> str:
+        return api_base().rstrip("/") + "/"
 
+    def catalog_entry(self, model: Model) -> dict:
+        return {
+            "slug": model.name,
+            "display_name": model.name,
+            "context_window": model.context(128000),
+            "shell_type": "default",
+            "visibility": "list",
+            "supported_in_api": True,
+            "priority": 0,
+            "truncation_policy": {"mode": "bytes", "limit": 10000},
+            "input_modalities": model.input_modalities(),
+            "base_instructions": "",
+            "support_verbosity": True,
+            "default_verbosity": "low",
+            "supports_parallel_tool_calls": False,
+            "supports_reasoning_summaries": False,
+            "supported_reasoning_levels": [],
+            "experimental_supported_tools": [],
+        }
 
-def _ensure_openclaw_config(model: str, info: dict, profile: str | None = None) -> None:
-    config_path, legacy_path = _openclaw_config_paths(profile)
-    if profile is None:
-        backup_source = config_path if config_path.is_file() or not legacy_path.is_file() else legacy_path
-        _backup_client_file_once("openclaw", backup_source)
-    if not config_path.is_file() and not legacy_path.is_file():
-        _openclaw_onboard(model, profile=profile)
+    def write_profile(self, model: Model) -> None:
+        catalog = self.catalog_path()
+        write_json(catalog, {"models": [self.catalog_entry(model)]})
+        text = "\n".join([
+            f"model = {json.dumps(model.name)}",
+            f"model_provider = {json.dumps(CODEX_PROFILE)}",
+            f"model_catalog_json = {json.dumps(str(catalog))}",
+            "",
+            f"[model_providers.{CODEX_PROFILE}]",
+            f"name = {json.dumps(PROVIDER_NAME)}",
+            f"base_url = {json.dumps(self.base_url())}",
+            'wire_api = "responses"',
+            "",
+        ])
+        toml_validate(text, self.profile_path())
+        write_text(self.profile_path(), text)
 
-    source = config_path if config_path.is_file() else legacy_path
-    config = _read_json(source)
-    config_path.parent.mkdir(parents=True, exist_ok=True)
+    # Codex only loads `~/.codex/<profile>.config.toml` from this version on;
+    # before it, --profile resolves against the root config.toml only, which is
+    # exactly the file this design refuses to touch. Ollama gates on the same
+    # version for the same reason (checkCodexVersion).
+    MIN_VERSION = (0, 134, 0)
 
-    models_section = config.setdefault("models", {})
-    if not isinstance(models_section, dict):
-        models_section = {}
-        config["models"] = models_section
-    models_section.setdefault("mode", "merge")
-    providers = models_section.setdefault("providers", {})
-    if not isinstance(providers, dict):
-        providers = {}
-        models_section["providers"] = providers
-
-    provider = providers.setdefault("sah", {})
-    if not isinstance(provider, dict):
-        provider = {}
-        providers["sah"] = provider
-    provider["baseUrl"] = api_base()
-    provider["apiKey"] = "sah"
-    provider["api"] = "openai-completions"
-
-    model_entry = {
-        "id": model,
-        "name": model,
-        "api": "openai-completions",
-        "input": ["text"],
-        "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-        "contextWindow": _model_context_window(info),
-        "maxTokens": min(8192, _model_context_window(info)),
-        "compat": {
-            "supportsDeveloperRole": False,
-            "supportsUsageInStreaming": True,
-            "supportsStrictMode": False,
-        },
-    }
-    existing = provider.get("models") if isinstance(provider.get("models"), list) else []
-    provider["models"] = [
-        *(m for m in existing if not (isinstance(m, dict) and m.get("id") == model)),
-        model_entry,
-    ]
-
-    agents = config.setdefault("agents", {})
-    if not isinstance(agents, dict):
-        agents = {}
-        config["agents"] = agents
-    defaults = agents.setdefault("defaults", {})
-    if not isinstance(defaults, dict):
-        defaults = {}
-        agents["defaults"] = defaults
-    model_config = defaults.setdefault("model", {})
-    if not isinstance(model_config, dict):
-        model_config = {}
-        defaults["model"] = model_config
-    model_config["primary"] = f"sah/{model}"
-
-    cfg_models = defaults.setdefault("models", {})
-    if isinstance(cfg_models, dict):
-        cfg_models[f"sah/{model}"] = cfg_models.get(f"sah/{model}", {})
-
-    _write_json_atomic(config_path, config)
-    _clear_openclaw_session_model_override(model, profile=profile)
-
-
-def _status_openclaw_global() -> None:
-    config_path, legacy_path = _openclaw_config_paths()
-    source = config_path if config_path.is_file() else legacy_path
-    config = _read_json(source)
-    primary = (((config.get("agents") or {}).get("defaults") or {}).get("model") or {}).get("primary")
-    wired = isinstance(primary, str) and primary.startswith("sah/")
-    _print_status("OpenClaw", "openclaw", source, wired)
-
-
-def _openclaw_onboard(model: str, profile: str | None = None) -> None:
-    bin_name = shutil.which("openclaw") or shutil.which("clawdbot")
-    cmd = [bin_name]
-    if profile:
-        cmd += ["--profile", profile]
-    cmd += [
-        "onboard",
-        "--non-interactive",
-        "--accept-risk",
-        "--auth-choice", "custom-api-key",
-        "--custom-provider-id", "sah",
-        "--custom-base-url", api_base(),
-        "--custom-api-key", "sah",
-        "--custom-model-id", model,
-        "--custom-compatibility", "openai",
-        "--skip-health",
-        "--skip-channels",
-        "--skip-skills",
-        "--skip-ui",
-        "--no-install-daemon",
-    ]
-    result = subprocess.run(cmd, env=_openclaw_env(profile=profile))
-    if result.returncode != 0:
-        sys.exit("openclaw onboarding failed. Try running: openclaw onboard")
-
-
-def _clear_openclaw_session_model_override(model: str, profile: str | None = None) -> None:
-    path = _openclaw_state_dir(profile) / "agents" / "main" / "sessions" / "sessions.json"
-    if not path.is_file():
-        return
-    try:
-        sessions = json.loads(path.read_text())
-    except json.JSONDecodeError:
-        return
-    if not isinstance(sessions, dict):
-        return
-    changed = False
-    for session in sessions.values():
-        if not isinstance(session, dict):
-            continue
-        if session.get("modelOverride") and session.get("modelOverride") != model:
-            session.pop("modelOverride", None)
-            session.pop("providerOverride", None)
-            changed = True
-        if session.get("model") and session.get("model") != model:
-            session["model"] = model
-            changed = True
-    if changed:
-        _write_json_atomic(path, sessions)
-
-
-def _openclaw_gateway_info(profile: str | None = None) -> tuple[str, int]:
-    token = ""
-    port = 18789
-    for path in _openclaw_config_paths(profile):
-        cfg = _read_json(path)
-        gateway = cfg.get("gateway") if isinstance(cfg, dict) else None
-        if not isinstance(gateway, dict):
-            continue
+    def check_version(self, path: str) -> None:
+        result = subprocess.run([path, "--version"], capture_output=True, text=True)
+        fields = result.stdout.split()
+        if not fields:
+            return
+        raw = fields[-1]
         try:
-            port = int(gateway.get("port") or port)
-        except (TypeError, ValueError):
-            pass
-        auth = gateway.get("auth")
-        if isinstance(auth, dict) and isinstance(auth.get("token"), str):
-            token = auth["token"]
-        return token, port
-    return token, port
+            parts = tuple(int(p) for p in raw.split(".")[:3])
+        except ValueError:
+            return
+        if parts < self.MIN_VERSION:
+            sys.exit(
+                f"codex {raw} is too old for sah: profile config files need "
+                f"{'.'.join(str(p) for p in self.MIN_VERSION)} or newer.\n"
+                f"Update with: npm update -g @openai/codex"
+            )
+
+    def config_overrides(self) -> list[str]:
+        """The same settings as the profile file, passed on the command line.
+        Ollama sends both so a launch works even if the profile file is not
+        picked up."""
+        return [
+            "-c", f"model_provider={json.dumps(CODEX_PROFILE)}",
+            "-c", f"model_providers.{CODEX_PROFILE}.name={json.dumps(PROVIDER_NAME)}",
+            "-c", f"model_providers.{CODEX_PROFILE}.base_url={json.dumps(self.base_url())}",
+            "-c", f'model_providers.{CODEX_PROFILE}.wire_api="responses"',
+            "-c", f"model_catalog_json={json.dumps(str(self.catalog_path()))}",
+        ]
+
+    def launch(self, model: Model, extra: list[str]) -> None:
+        reject_managed_flags(extra, ("--profile", "-p", "--model", "-m"), "sah codex")
+        path = self.require_binary()
+        self.check_version(path)
+        self.write_profile(model)
+        env = {**os.environ, "OPENAI_API_KEY": API_KEY}
+        argv = ["codex", "--profile", CODEX_PROFILE, *self.config_overrides(),
+                "-m", model.name, *extra]
+        os.execve(path, argv, env)
+
+    # Codex owns only files sah created, so install/restore are create/delete
+    # rather than rewrite/put-back.
+    writes_config = True
+
+    def files(self) -> dict[str, Path]:
+        return {}
+
+    def apply(self, model: Model) -> None:
+        self.write_profile(model)
+
+    def install(self, model: Model) -> None:
+        self.write_profile(model)
+        print(f"{self.display} wired to {PROVIDER_NAME}.")
+        kv("  Profile", str(self.profile_path()))
+        kv("  Model catalog", str(self.catalog_path()))
+        kv("  Model", model.name)
+        print(f"  Launch with: codex --profile {CODEX_PROFILE}   (or: sah codex)")
+
+    def restore(self) -> None:
+        removed = False
+        for path in (self.profile_path(), self.catalog_path()):
+            if path.is_file():
+                path.unlink()
+                removed = True
+        print(f"{self.display} launch configuration removed."
+              if removed else
+              f"No {PROVIDER_NAME} codex configuration found; nothing to restore.")
+
+    def wired(self) -> bool:
+        return self.profile_path().is_file()
+
+    def status(self) -> None:
+        kv("Codex profile", str(self.profile_path()))
+        kv("Model catalog", str(self.catalog_path()))
+        kv("Root config.toml", "untouched by sah codex")
+        kv("Profile present", "yes" if self.wired() else "no")
+        kv("OpenAI base", api_base())
 
 
-def _port_open(port: int) -> bool:
+# ---------------------------------------------------------------------- qwen
+
+
+class Qwen(Integration):
+    """Ollama's cmd/launch/qwen.go: env + `--auth-type openai --model`, and a
+    Configure() that writes ~/.qwen/settings.json."""
+    name, display, binary = "qwen", "Qwen Code", "qwen"
+    install_hint = "https://qwen.ai/qwencode"
+    writes_config = True
+
+    def config_path(self) -> Path:
+        return Path.home() / ".qwen" / "settings.json"
+
+    def files(self) -> dict[str, Path]:
+        return {"qwen": self.config_path()}
+
+    def configure(self, model: Model) -> None:
+        cfg = read_json(self.config_path())
+        env_cfg = cfg.get("env") if isinstance(cfg.get("env"), dict) else {}
+        env_cfg["SAH_API_KEY"] = API_KEY
+        cfg["env"] = env_cfg
+
+        providers = cfg.get("modelProviders") if isinstance(cfg.get("modelProviders"), dict) else {}
+        mine = {
+            "id": model.name,
+            "name": f"{model.name} ({PROVIDER_NAME})",
+            "baseUrl": api_base(),
+            "envKey": "SAH_API_KEY",
+        }
+        others = [
+            p for p in (providers.get("openai") or [])
+            if not (isinstance(p, dict) and p.get("envKey") == "SAH_API_KEY")
+        ]
+        providers["openai"] = [mine, *others]
+        cfg["modelProviders"] = providers
+
+        security = cfg.get("security") if isinstance(cfg.get("security"), dict) else {}
+        auth = security.get("auth") if isinstance(security.get("auth"), dict) else {}
+        auth["selectedType"] = "openai"
+        auth["baseUrl"] = api_base()
+        security["auth"] = auth
+        cfg["security"] = security
+
+        model_cfg = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
+        model_cfg["name"] = model.name
+        cfg["model"] = model_cfg
+        write_json(self.config_path(), cfg)
+
+    def wired(self) -> bool:
+        cfg = read_json(self.config_path())
+        auth = (cfg.get("security") or {}).get("auth") or {}
+        return auth.get("baseUrl") == api_base()
+
+    def env(self, model: Model) -> dict:
+        return {
+            "OPENAI_API_KEY": API_KEY,
+            "OPENAI_BASE_URL": api_base(),
+            "OPENAI_MODEL": model.name,
+            "SAH_API_KEY": API_KEY,
+        }
+
+    def argv(self, model: Model, extra: list[str]) -> list[str]:
+        args = list(extra)
+        if not has_flag(args, "--auth-type"):
+            args = ["--auth-type", "openai", *args]
+        if not has_flag(args, "--model", "-m"):
+            args = ["--model", model.name, *args]
+        return args
+
+
+# --------------------------------------------------------------------- hermes
+
+
+class Hermes(Integration):
+    """Ollama's cmd/launch/hermes.go: providers.<key> + model defaults in
+    ~/.hermes/config.yaml, then run the binary.
+
+    DIVERGENCE (platform, not preference): Ollama merges that YAML with a real
+    parser. sah is stdlib-only, so it does targeted block replacement — which
+    preserves sibling keys but cannot merge inside the blocks it owns.
+    """
+    name, display, binary = "hermes", "Hermes Agent", "hermes"
+    install_hint = "https://hermes-agent.nousresearch.com/docs/getting-started/installation/"
+    writes_config = True
+
+    def hermes_home(self) -> Path:
+        if home := os.environ.get("HERMES_HOME", "").strip():
+            return Path(home)
+        return Path.home() / ".hermes"
+
+    def config_path(self) -> Path:
+        return self.hermes_home() / "config.yaml"
+
+    def files(self) -> dict[str, Path]:
+        return {"hermes": self.config_path()}
+
+    def find_binary(self) -> str | None:
+        if path := shutil.which("hermes"):
+            return path
+        fallback = Path.home() / ".local/bin/hermes"
+        return str(fallback) if fallback.is_file() else None
+
+    def configure(self, model: Model) -> None:
+        path = self.config_path()
+        text = path.read_text() if path.is_file() else ""
+        text = yaml_upsert(text, ["providers", PROVIDER], {
+            "name": PROVIDER_NAME,
+            "api": api_base(),
+            "default_model": model.name,
+            "models": [model.name],
+        })
+        text = yaml_upsert(text, ["model"], {
+            "provider": PROVIDER,
+            "default": model.name,
+            "base_url": api_base(),
+            "api_key": API_KEY,
+        })
+        # Ollama merges "web" into any existing toolsets; block replacement
+        # would drop the user's, so only seed the key when it is absent.
+        if not yaml_has_key(text, "toolsets"):
+            text = yaml_upsert(text, ["toolsets"], ["hermes-cli", "web"])
+        write_text(path, text)
+
+    def wired(self) -> bool:
+        path = self.config_path()
+        text = path.read_text() if path.is_file() else ""
+        return f'base_url: "{api_base()}"' in text and f'provider: "{PROVIDER}"' in text
+
+
+class HermesDesktop(Hermes):
+    """Same agent, same ~/.hermes/config.yaml, driven through `hermes desktop`.
+    `--skip-build` is added when a packaged desktop app already exists, exactly
+    as Ollama's HermesDesktop.launchArgs does."""
+    name, display = "hermes-desktop", "Hermes Desktop"
+    kind = "Desktop"
+
+    _BUILD_FLAGS = ("--skip-build", "--force-build", "--source", "--build-only", "--help", "-h")
+
+    def release_roots(self) -> list[str]:
+        roots = []
+        if d := os.environ.get("HERMES_INSTALL_DIR", "").strip():
+            roots.append(Path(d))
+        roots.append(self.hermes_home() / "hermes-agent")
+        if sys.platform.startswith("linux"):
+            roots.append(Path("/usr/local/lib/hermes-agent"))
+        return [str(r / "apps" / "desktop" / "release") for r in roots]
+
+    def packaged_app_exists(self) -> bool:
+        for root in self.release_roots():
+            base = Path(root)
+            if sys.platform == "darwin":
+                if any(base.glob("mac*/Hermes.app/Contents/MacOS/Hermes")):
+                    return True
+            elif sys.platform == "win32":
+                if any((base / d / "Hermes.exe").is_file()
+                       for d in ("win-unpacked", "win-ia32-unpacked", "win-arm64-unpacked")):
+                    return True
+            else:
+                if any((base / "linux-unpacked" / n).is_file() for n in ("hermes", "Hermes")):
+                    return True
+        return False
+
+    def argv(self, model: Model, extra: list[str]) -> list[str]:
+        args = ["desktop"]
+        if not any(a in self._BUILD_FLAGS for a in extra) and self.packaged_app_exists():
+            args.append("--skip-build")
+        return [*args, *extra]
+
+
+# ------------------------------------------------------------------- openclaw
+
+
+class OpenClaw(Integration):
+    """Ollama's cmd/launch/openclaw.go: models.providers.<id> plus
+    agents.defaults.model.primary in ~/.openclaw/openclaw.json, then the
+    gateway lifecycle around the TUI.
+
+    sah used to run OpenClaw under a private `--profile sah` with a mirrored
+    state directory so the user's own OpenClaw stayed untouched. Ollama edits
+    the real config; that is what sah does now, with a backup so --restore puts
+    the original back.
+    """
+    name, display, binary = "openclaw", "OpenClaw", "openclaw"
+    aliases = ("clawdbot", "moltbot")
+    install_hint = "https://docs.openclaw.ai"
+    writes_config = True
+
+    _CLEAR_KEYS = (
+        "ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "OPENAI_API_KEY", "GEMINI_API_KEY",
+        "MISTRAL_API_KEY", "GROQ_API_KEY", "XAI_API_KEY", "OPENROUTER_API_KEY",
+    )
+
+    def find_binary(self) -> str | None:
+        return shutil.which("openclaw") or shutil.which("clawdbot")
+
+    def config_path(self) -> Path:
+        return Path.home() / ".openclaw" / "openclaw.json"
+
+    def legacy_path(self) -> Path:
+        return Path.home() / ".clawdbot" / "clawdbot.json"
+
+    def files(self) -> dict[str, Path]:
+        return {"openclaw": self.config_path()}
+
+    def configure(self, model: Model) -> None:
+        path = self.config_path()
+        cfg = read_json(path) or read_json(self.legacy_path())
+
+        models_section = cfg.get("models") if isinstance(cfg.get("models"), dict) else {}
+        providers = models_section.get("providers") if isinstance(models_section.get("providers"), dict) else {}
+        provider = providers.get(PROVIDER) if isinstance(providers.get(PROVIDER), dict) else {}
+        provider["baseUrl"] = api_base()
+        provider["apiKey"] = API_KEY
+        provider["api"] = "openai-completions"
+        entry: dict = {
+            "id": model.name,
+            "name": model.name,
+            "input": model.input_modalities(),
+            "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+        }
+        if model.has("thinking"):
+            entry["reasoning"] = True
+        if model.context_length:
+            entry["contextWindow"] = model.context_length
+            entry["maxTokens"] = model.max_output()
+        provider["models"] = [entry]
+        providers[PROVIDER] = provider
+        models_section["providers"] = providers
+        cfg["models"] = models_section
+
+        agents = cfg.get("agents") if isinstance(cfg.get("agents"), dict) else {}
+        defaults = agents.get("defaults") if isinstance(agents.get("defaults"), dict) else {}
+        model_cfg = defaults.get("model") if isinstance(defaults.get("model"), dict) else {}
+        model_cfg["primary"] = f"{PROVIDER}/{model.name}"
+        defaults["model"] = model_cfg
+        agents["defaults"] = defaults
+        cfg["agents"] = agents
+
+        write_json(path, cfg)
+        self._clear_session_overrides(model.name)
+
+    def _clear_session_overrides(self, primary: str) -> None:
+        """Per-session overrides shadow the new primary model until cleared —
+        Ollama's clearSessionModelOverride."""
+        path = Path.home() / ".openclaw/agents/main/sessions/sessions.json"
+        sessions = read_json(path)
+        if not sessions:
+            return
+        changed = False
+        for session in sessions.values():
+            if not isinstance(session, dict):
+                continue
+            if session.pop("modelOverride", None) is not None:
+                session.pop("providerOverride", None)
+                changed = True
+            if session.get("model") not in (None, primary):
+                session["model"] = primary
+                changed = True
+        if changed:
+            write_json(path, sessions)
+
+    def wired(self) -> bool:
+        cfg = read_json(self.config_path())
+        providers = ((cfg.get("models") or {}).get("providers") or {})
+        provider = providers.get(PROVIDER)
+        return isinstance(provider, dict) and provider.get("baseUrl") == api_base()
+
+    def env(self, model: Model) -> dict:
+        env = {k: v for k, v in os.environ.items() if k not in self._CLEAR_KEYS}
+        env["OPENAI_API_KEY"] = API_KEY
+        env["OPENAI_BASE_URL"] = api_base()
+        env.setdefault("OPENCLAW_PLUGIN_STAGE_DIR",
+                       str(Path.home() / ".openclaw" / "plugin-runtime-deps"))
+        return env
+
+    def gateway_info(self) -> tuple[str, int]:
+        for path in (self.config_path(), self.legacy_path()):
+            cfg = read_json(path)
+            gateway = cfg.get("gateway") if isinstance(cfg, dict) else None
+            if not isinstance(gateway, dict):
+                continue
+            port = 18789
+            try:
+                port = int(gateway.get("port") or port)
+            except (TypeError, ValueError):
+                pass
+            auth = gateway.get("auth")
+            token = auth.get("token", "") if isinstance(auth, dict) else ""
+            return (token if isinstance(token, str) else ""), port
+        return "", 18789
+
+    def launch(self, model: Model, extra: list[str]) -> None:
+        binary = self.require_binary()
+        self.apply(model)
+        env = self.env(model)
+        token, port = self.gateway_info()
+        gateway = None
+        # Ollama only brings the gateway up for the TUI flow; with any other
+        # passthrough args it runs exactly what the user asked for.
+        needs_gateway = not extra or extra[0] == "tui"
+        if not needs_gateway:
+            sys.exit(subprocess.run([binary, *extra], env=env).returncode)
+        if not port_open(port):
+            gateway = subprocess.Popen(
+                [binary, "gateway", "run", "--force"],
+                env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            if not wait_port(port, 30):
+                _terminate(gateway)
+                sys.exit(f"openclaw gateway did not start on 127.0.0.1:{port}")
+        cmd = [binary, *(extra or ["tui"])]
+        if token and not has_flag(extra, "--token"):
+            cmd += ["--token", token]
+        if not has_flag(extra, "--url"):
+            cmd += ["--url", f"ws://127.0.0.1:{port}"]
+        try:
+            sys.exit(subprocess.run(cmd, env=env).returncode)
+        finally:
+            _terminate(gateway)
+
+
+def port_open(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.5)
         return sock.connect_ex(("127.0.0.1", port)) == 0
 
 
-def _wait_port(port: int, timeout: float) -> bool:
+def wait_port(port: int, timeout: float) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if _port_open(port):
+        if port_open(port):
             return True
         time.sleep(0.25)
     return False
 
 
-def _run_openclaw_with_gateway(bin_name: str, extra: list[str], env: dict, profile: str | None = None) -> int:
-    token, port = _openclaw_gateway_info(profile)
-    gateway = None
-    if not _port_open(port):
-        gateway_cmd = [bin_name]
-        if profile:
-            gateway_cmd += ["--profile", profile]
-        gateway_cmd += ["gateway", "run", "--force"]
-        gateway = subprocess.Popen(
-            gateway_cmd,
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        if not _wait_port(port, 30):
-            gateway.terminate()
-            try:
-                gateway.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                gateway.kill()
-            print(f"openclaw gateway did not start on 127.0.0.1:{port}", file=sys.stderr)
-            return 1
-
-    cmd = [bin_name]
-    if profile:
-        cmd += ["--profile", profile]
-    cmd += extra
-    if token and "--token" not in extra and not any(a.startswith("--token=") for a in extra):
-        cmd += ["--token", token]
-    if "--url" not in extra and not any(a.startswith("--url=") for a in extra):
-        cmd += ["--url", f"ws://127.0.0.1:{port}"]
-
+def _terminate(proc) -> None:
+    if proc is None:
+        return
+    proc.terminate()
     try:
-        return subprocess.run(cmd, env=env).returncode
-    finally:
-        if gateway is not None:
-            gateway.terminate()
-            try:
-                gateway.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                gateway.kill()
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
 
 
-def _openclaw_env(profile: str | None = None) -> dict:
-    clear = {
-        "ANTHROPIC_API_KEY",
-        "ANTHROPIC_OAUTH_TOKEN",
-        "OPENAI_API_KEY",
-        "GEMINI_API_KEY",
-        "MISTRAL_API_KEY",
-        "GROQ_API_KEY",
-        "XAI_API_KEY",
-        "OPENROUTER_API_KEY",
-    }
-    env = {k: v for k, v in os.environ.items() if k not in clear}
-    env["OPENAI_API_KEY"] = "sah"
-    env["OPENAI_BASE_URL"] = api_base()
-    env.setdefault(
-        "OPENCLAW_PLUGIN_STAGE_DIR",
-        str(_openclaw_state_dir(profile) / "plugin-runtime-deps"),
-    )
-    return env
+# ------------------------------------------------------------------- copilot
 
 
-def cmd_claude(args) -> None:
-    if args.status:
-        _status_claude_global()
-        return
-    if args.restore:
-        _restore_client_file("claude", _claude_settings_path())
-        return
-    if not shutil.which("claude"):
-        sys.exit("claude not found. Install options: https://claude.com/code")
-    model = require_model()
-    if args.install:
-        _install_claude_global(model)
-        return
-    extra = _normalize_passthrough(args.passthrough)
-    env = {
-        **os.environ,
-        "ANTHROPIC_BASE_URL": hub_url(),
-        "ANTHROPIC_API_KEY": "",
-        "ANTHROPIC_AUTH_TOKEN": "sah",
-        "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
-        "ANTHROPIC_DEFAULT_OPUS_MODEL": model,
-        "ANTHROPIC_DEFAULT_SONNET_MODEL": model,
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
-        "CLAUDE_CODE_SUBAGENT_MODEL": model,
-    }
-    os.execvpe("claude", ["claude", "--model", model, *extra], env)
+class Copilot(Integration):
+    """Ollama's cmd/launch/copilot.go: COPILOT_PROVIDER_* env vars only."""
+    name, display, binary = "copilot", "Copilot CLI", "copilot"
+    aliases = ("copilot-cli",)
+    install_hint = "https://github.com/features/copilot/cli/"
 
+    def find_binary(self) -> str | None:
+        if path := shutil.which("copilot"):
+            return path
+        fallback = Path.home() / ".local/bin/copilot"
+        return str(fallback) if fallback.is_file() else None
 
-def _claude_settings_path() -> Path:
-    return Path.home() / ".claude" / "settings.json"
-
-
-def _claude_hub_settings(base: dict, model: str) -> dict:
-    settings = base if isinstance(base, dict) else {}
-    env_block = settings.get("env") if isinstance(settings.get("env"), dict) else {}
-    env_block.update(
-        {
-            "ANTHROPIC_BASE_URL": hub_url(),
-            "ANTHROPIC_API_KEY": "",
-            "ANTHROPIC_AUTH_TOKEN": "sah",
-            "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
-            "ANTHROPIC_DEFAULT_OPUS_MODEL": model,
-            "ANTHROPIC_DEFAULT_SONNET_MODEL": model,
-            "ANTHROPIC_DEFAULT_HAIKU_MODEL": model,
-            "CLAUDE_CODE_SUBAGENT_MODEL": model,
+    def env(self, model: Model) -> dict:
+        return {
+            "COPILOT_PROVIDER_BASE_URL": api_base(),
+            "COPILOT_PROVIDER_API_KEY": API_KEY,
+            "COPILOT_PROVIDER_WIRE_API": "responses",
+            "COPILOT_MODEL": model.name,
         }
-    )
-    settings["env"] = env_block
-    settings["model"] = model
-    return settings
+
+    def argv(self, model: Model, extra: list[str]) -> list[str]:
+        return ["--model", model.name, *extra]
 
 
-def _install_claude_global(model: str) -> None:
-    path = _claude_settings_path()
-    _backup_client_file_once("claude", path)
-    settings = _read_json(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    _write_json_atomic(path, _claude_hub_settings(settings, model))
-    _print_wired("Claude Code", "claude", path)
+# ----------------------------------------------------------------------- pool
 
 
-def _status_claude_global() -> None:
-    path = _claude_settings_path()
-    settings = _read_json(path)
-    env_block = settings.get("env") if isinstance(settings.get("env"), dict) else {}
-    wired = env_block.get("ANTHROPIC_BASE_URL") == hub_url() and env_block.get("ANTHROPIC_AUTH_TOKEN") == "sah"
-    _print_status("Claude Code", "claude", path, wired)
+class Pool(Integration):
+    """Ollama's cmd/launch/poolside.go: env vars plus `-m <model>`."""
+    name, display, binary = "pool", "Pool", "pool"
+    install_hint = "https://downloads.poolside.ai/pool/install.sh"
+
+    def supported(self) -> str | None:
+        if sys.platform == "win32":
+            return "Pool is not currently supported on Windows."
+        return None
+
+    def env(self, model: Model) -> dict:
+        return {"POOLSIDE_STANDALONE_BASE_URL": api_base(), "POOLSIDE_API_KEY": API_KEY}
+
+    def argv(self, model: Model, extra: list[str]) -> list[str]:
+        return ["-m", model.name, *extra]
 
 
-# ---------- pi ----------
-#
-# pi keeps everything under one directory (~/.pi/agent, relocatable via
-# PI_CODING_AGENT_DIR) and learns about non-built-in backends from models.json
-# in there. Ephemeral `sah pi` therefore runs against a sah-owned mirror of
-# that directory: models.json and settings.json are materialized with the Hub
-# wiring, every other child (auth.json, sessions, packages, themes, trust.json,
-# ...) is symlinked through, so a sah session shares state with plain pi while
-# plain pi stays unwired.
-
-PI_PROVIDER = "sah"
+# ----------------------------------------------------------------------- kimi
 
 
-def cmd_pi(args) -> None:
-    if args.status:
-        _status_pi_global()
-        return
-    if args.restore:
-        _restore_pi_global()
-        return
-    if not shutil.which("pi"):
-        sys.exit("pi not found in PATH. Install options: https://pi.dev")
-    info = current_model_info()
-    if not info:
-        sys.exit(
-            f"No model is running on {hub_url()}.\n"
-            f"Launch one from the Spark AI Hub web UI first."
+class Kimi(Integration):
+    """Ollama's cmd/launch/kimi.go: the entire provider/model config is passed
+    inline as `--config <json>`, so ~/.kimi is never touched."""
+    name, display, binary = "kimi", "Kimi Code CLI", "kimi"
+    install_hint = "https://moonshotai.github.io/kimi-cli/en/guides/getting-started.html"
+
+    def find_binary(self) -> str | None:
+        if path := shutil.which("kimi"):
+            return path
+        for fallback in (Path.home() / ".local/bin/kimi", Path.home() / "bin/kimi"):
+            if fallback.is_file():
+                return str(fallback)
+        return None
+
+    def inline_config(self, model: Model) -> str:
+        return json.dumps({
+            "default_model": PROVIDER,
+            "providers": {PROVIDER: {
+                "type": "openai_legacy", "base_url": api_base(), "api_key": API_KEY,
+            }},
+            "models": {PROVIDER: {
+                "provider": PROVIDER, "model": model.name,
+                "max_context_size": model.context(32768),
+            }},
+        })
+
+    def argv(self, model: Model, extra: list[str]) -> list[str]:
+        reject_managed_flags(extra, ("--config", "--config-file", "--model", "-m"), "sah kimi")
+        return ["--config", self.inline_config(model), *extra]
+
+
+# ----------------------------------------------------------------------- muse
+
+
+class Muse(Integration):
+    """Ollama's cmd/launch/muse.go. Muse has no additive model list and no flag
+    for a catalog, and refuses to start without one; endpoint_transport is a
+    single global provider switch, so writing the user's settings.json would
+    repoint their whole Muse install. Both Ollama and sah therefore keep a
+    private config root and pass it as XDG_CONFIG_HOME."""
+    name, display, binary = "muse", "Muse Code", "muse"
+    aliases = ("muse-code",)
+    install_hint = "https://dev.meta.ai/install.sh"
+
+    PROVIDER_ID = "meta"
+    PROFILE_ID = "tbh"
+
+    def supported(self) -> str | None:
+        if sys.platform == "win32":
+            return "Muse is not currently supported on Windows."
+        return None
+
+    def find_binary(self) -> str | None:
+        if path := shutil.which("muse"):
+            return path
+        fallback = Path.home() / ".local/bin/muse"
+        return str(fallback) if fallback.is_file() else None
+
+    def config_home(self) -> Path:
+        return CONFIG_DIR / "muse-config"
+
+    def settings_path(self) -> Path:
+        return self.config_home() / "muse" / "settings.json"
+
+    def user_settings_path(self) -> Path:
+        base = os.environ.get("XDG_CONFIG_HOME")
+        return (Path(base) if base else Path.home() / ".config") / "muse" / "settings.json"
+
+    def settings(self, model: Model) -> dict:
+        # Muse persists its own settings back into whichever root it was given,
+        # so once sah's file exists it is the base and anything Muse recorded
+        # survives. Before that, seed from the user's own file so a first launch
+        # keeps their skills, hooks, MCP servers and TUI preferences.
+        settings = read_json(self.settings_path()) or read_json(self.user_settings_path())
+        settings.setdefault("schema_version", 1)
+        settings["provider"] = self.PROVIDER_ID
+        settings["model"] = model.name
+        settings["endpoint_transport"] = {
+            # See resolved_api_base(): Muse's HTTP client does not do mDNS.
+            "base_url": resolved_api_base(),
+            # The Hub ignores credentials, and Muse refuses to start on its
+            # default "bearer" unless one is configured.
+            "auth": "none",
+        }
+        ctx = model.context(32768)
+        settings["model_catalog"] = [{
+            "model_id": model.name,
+            "provider_id": self.PROVIDER_ID,
+            "profile_id": self.PROFILE_ID,
+            "display_label": model.name,
+            "visibility": "visible",
+            "display_order": 0,
+            "is_default": True,
+            "context_limit": ctx,
+            "output_limit": min(ctx, 32768),
+            "description": f"Served by {PROVIDER_NAME}",
+        }]
+        return settings
+
+    def env(self, model: Model) -> dict:
+        write_json(self.settings_path(), self.settings(model))
+        return {"XDG_CONFIG_HOME": str(self.config_home())}
+
+    def argv(self, model: Model, extra: list[str]) -> list[str]:
+        args = list(extra)
+        # DIVERGENCE (defect workaround, not preference): Muse defaults
+        # --reasoning-effort to "high", which the Hub's SGLang backend rejects
+        # with 400 ("Supported types are xhigh, medium, low") — and Muse
+        # silently retry-loops on that error instead of reporting it, so the
+        # launch just hangs. "medium" is accepted by every backend the Hub
+        # serves. The user's own flag always wins.
+        if not has_flag(args, "--reasoning-effort"):
+            args += ["--reasoning-effort", "medium"]
+        return args
+
+    def extras(self) -> tuple[tuple[str, str], ...]:
+        return (("Muse config root", str(self.config_home())),)
+
+
+# ------------------------------------------------------------------------ dsh
+
+
+class DeepSeekHarness(Integration):
+    """Ollama's cmd/launch/deepseek_harness.go: only the settings provider is
+    redirected, for this invocation, to an sah-owned document passed as
+    --patch. The user's DSH_HOME, profiles, sessions and credentials are
+    untouched."""
+    name, display, binary = "dsh", "DeepSeek Harness", "dsh"
+    aliases = ("deepseek-harness",)
+    install_hint = "npm install -g @deepseek-ai/dsh"
+
+    API_KEY_ENV = "SAH_DSH_API_KEY"
+
+    def config_dir(self) -> Path:
+        return CONFIG_DIR / "dsh"
+
+    def settings_path(self) -> Path:
+        return self.config_dir() / "settings.yaml"
+
+    def patch_path(self) -> Path:
+        return self.config_dir() / "sah.cordis.yml"
+
+    def settings(self, model: Model) -> dict:
+        entry: dict = {
+            "id": model.name,
+            "name": model.name,
+            "input": model.input_modalities(),
+        }
+        if model.context_length:
+            entry["contextWindow"] = model.context_length
+            entry["maxTokens"] = model.max_output()
+        return {
+            "agent-default-model": {"provider": PROVIDER, "model": model.name},
+            "llm-pi-ai": {"providers": {PROVIDER: {
+                "displayName": PROVIDER_NAME,
+                "apiKeyEnv": self.API_KEY_ENV,
+                "api": "openai-completions",
+                "baseURL": api_base(),
+                "models": [entry],
+            }}},
+        }
+
+    def write_config(self, model: Model) -> Path:
+        settings = self.settings_path()
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        settings.parent.chmod(0o700)
+        write_text(settings, yaml_dump(self.settings(model)))
+        settings.chmod(0o600)
+        patch = self.patch_path()
+        write_text(patch, yaml_dump([{"id": "settings", "config": {"path": str(settings)}}]))
+        patch.chmod(0o600)
+        return patch
+
+    def env(self, model: Model) -> dict:
+        return {self.API_KEY_ENV: API_KEY}
+
+    def argv(self, model: Model, extra: list[str]) -> list[str]:
+        reject_managed_flags(extra, ("--patch",), "sah dsh")
+        return ["web", "--patch", str(self.write_config(model)), *extra]
+
+    def extras(self) -> tuple[tuple[str, str], ...]:
+        return (("Launch settings", str(self.settings_path())),)
+
+
+# ------------------------------------------------------------------------ omp
+
+
+class OMP(Integration):
+    """Ollama's cmd/launch/omp.go: providers.<id> in ~/.omp/agent/models.yml,
+    a setupVersion marker in config.yml, then `omp --model <id>/<model>`."""
+    name, display, binary = "omp", "OMP", "omp"
+    install_hint = "https://omp.sh"
+    writes_config = True
+
+    SETUP_VERSION = 1
+
+    def find_binary(self) -> str | None:
+        if path := shutil.which("omp"):
+            return path
+        for directory in (Path.home() / ".local/bin", Path.home() / ".bun/bin"):
+            if (directory / "omp").is_file():
+                return str(directory / "omp")
+        return None
+
+    def agent_dir(self) -> Path:
+        if d := os.environ.get("PI_CODING_AGENT_DIR", "").strip():
+            return Path(d)
+        config_dir = os.environ.get("PI_CONFIG_DIR", "").strip() or ".omp"
+        root = Path(config_dir)
+        return (root if root.is_absolute() else Path.home() / root) / "agent"
+
+    def files(self) -> dict[str, Path]:
+        return {
+            "omp-models": self.agent_dir() / "models.yml",
+            "omp": self.agent_dir() / "config.yml",
+        }
+
+    def configure(self, model: Model) -> None:
+        entry: dict = {"id": model.name, "name": model.name, "input": model.input_modalities()}
+        if model.context_length:
+            entry["contextWindow"] = model.context_length
+            entry["maxTokens"] = model.max_output()
+        paths = self.files()
+        write_text(paths["omp-models"], yaml_dump({"providers": {PROVIDER: {
+            "baseUrl": api_base(),
+            "api": "openai-completions",
+            "auth": "none",
+            "models": [entry],
+        }}}))
+        write_text(paths["omp"], yaml_dump({"setupVersion": self.SETUP_VERSION}))
+
+    def wired(self) -> bool:
+        path = self.files()["omp-models"]
+        text = path.read_text() if path.is_file() else ""
+        return f"{PROVIDER}:" in text and api_base() in text
+
+    def argv(self, model: Model, extra: list[str]) -> list[str]:
+        return ["--model", f"{PROVIDER}/{model.name}", *extra]
+
+
+# ------------------------------------------------------------------------- pi
+
+
+class Pi(Integration):
+    """Ollama's cmd/launch/pi.go: providers.<id> in ~/.pi/agent/models.json with
+    a `_launch` marker on the entries it owns, and defaults in settings.json.
+    User-added models in the same file are preserved."""
+    name, display, binary = "pi", "Pi Coding Agent", "pi"
+    install_hint = "npm install -g @earendil-works/pi-coding-agent@latest"
+    writes_config = True
+
+    def agent_dir(self) -> Path:
+        return Path.home() / ".pi" / "agent"
+
+    def files(self) -> dict[str, Path]:
+        return {
+            "pi-models": self.agent_dir() / "models.json",
+            "pi": self.agent_dir() / "settings.json",
+        }
+
+    def configure(self, model: Model) -> None:
+        paths = self.files()
+        config = read_json(paths["pi-models"])
+        providers = config.get("providers") if isinstance(config.get("providers"), dict) else {}
+        provider = providers.get(PROVIDER) if isinstance(providers.get(PROVIDER), dict) else {}
+        provider["baseUrl"] = api_base()
+        provider["api"] = "openai-completions"
+        # pi hides models whose provider has no auth configured; the Hub ignores
+        # the key, so a placeholder is what makes them selectable.
+        provider["apiKey"] = API_KEY
+
+        entry: dict = {"id": model.name, "_launch": True, "input": model.input_modalities()}
+        if model.has("thinking"):
+            entry["reasoning"] = True
+        if model.context_length:
+            entry["contextWindow"] = model.context_length
+        kept = [
+            m for m in (provider.get("models") or [])
+            if isinstance(m, dict) and not m.get("_launch")
+        ]
+        provider["models"] = [entry, *kept]
+        providers[PROVIDER] = provider
+        config["providers"] = providers
+        write_json(paths["pi-models"], config)
+
+        settings = read_json(paths["pi"])
+        settings["defaultProvider"] = PROVIDER
+        # Hub model ids carry a slash (`poolside/Laguna-XS-2.1-NVFP4`) and
+        # `pi --model` reads a leading slash segment as a provider name, so the
+        # model is pinned here rather than on the command line.
+        settings["defaultModel"] = model.name
+        write_json(paths["pi"], settings)
+
+    def wired(self) -> bool:
+        models = read_json(self.files()["pi-models"])
+        provider = (models.get("providers") or {}).get(PROVIDER)
+        settings = read_json(self.files()["pi"])
+        return (isinstance(provider, dict) and provider.get("baseUrl") == api_base()
+                and settings.get("defaultProvider") == PROVIDER)
+
+
+# ---------------------------------------------------------------------- cline
+
+
+class Cline(Integration):
+    """Ollama's cmd/launch/cline.go writes Cline's built-in `ollama` provider,
+    which reaches models through an Ollama server. sah points Cline's built-in
+    `openai-compatible` provider at the Hub instead — it must be a built-in id,
+    because Cline validates the provider against its own registry and rejects
+    anything else with "Unknown or disabled provider".
+
+    Both config surfaces are written, as Ollama does: the current
+    providers.json and the legacy globalState.json, which calls the same
+    provider `openai`."""
+    name, display, binary = "cline", "Cline", "cline"
+    install_hint = "npm install -g cline@latest"
+    writes_config = True
+
+    CLINE_PROVIDER = "openai-compatible"
+
+    def state_dir(self) -> Path:
+        if d := os.environ.get("CLINE_DIR", "").strip():
+            return Path(d)
+        return Path.home() / ".cline"
+
+    def files(self) -> dict[str, Path]:
+        root = self.state_dir()
+        return {
+            "cline": root / "data" / "settings" / "providers.json",
+            "cline-state": root / "data" / "globalState.json",
+        }
+
+    def configure(self, model: Model) -> None:
+        paths = self.files()
+        config = read_json(paths["cline"])
+        capabilities = ["streaming", "tools"]
+        if model.has("vision"):
+            capabilities.append("vision")
+        providers = config.get("providers") if isinstance(config.get("providers"), dict) else {}
+        entry = providers.get(self.CLINE_PROVIDER)
+        entry = entry if isinstance(entry, dict) else {}
+        settings = {
+            "provider": self.CLINE_PROVIDER,
+            "client": "openai-compatible",
+            "protocol": "openai-chat",
+            "baseUrl": api_base(),
+            "apiKey": API_KEY,
+            "model": model.name,
+            "capabilities": capabilities,
+        }
+        if model.context_length:
+            settings["contextWindow"] = model.context_length
+            settings["maxTokens"] = model.max_output()
+        entry["settings"] = settings
+        entry["tokenSource"] = "manual"
+        entry["updatedAt"] = rfc3339_now()
+        providers[self.CLINE_PROVIDER] = entry
+        config["version"] = 1
+        config.setdefault("modes", {})
+        config["lastUsedProvider"] = self.CLINE_PROVIDER
+        config["providers"] = providers
+        write_json(paths["cline"], config)
+
+        state = read_json(paths["cline-state"])
+        state["openAiBaseUrl"] = api_base()
+        state["openAiApiKey"] = API_KEY
+        for mode in ("actMode", "planMode"):
+            state[f"{mode}ApiProvider"] = "openai"
+            state[f"{mode}OpenAiModelId"] = model.name
+        state["welcomeViewCompleted"] = True
+        write_json(paths["cline-state"], state)
+
+    def wired(self) -> bool:
+        config = read_json(self.files()["cline"])
+        provider = (config.get("providers") or {}).get(self.CLINE_PROVIDER)
+        settings = provider.get("settings") if isinstance(provider, dict) else None
+        return (config.get("lastUsedProvider") == self.CLINE_PROVIDER
+                and isinstance(settings, dict) and settings.get("baseUrl") == api_base())
+
+
+# ---------------------------------------------------------------------- droid
+
+
+class Droid(Integration):
+    """Ollama's cmd/launch/droid.go: customModels[] in ~/.factory/settings.json,
+    marked as sah-owned by their apiKey, plus sessionDefaultSettings.model."""
+    name, display, binary = "droid", "Droid", "droid"
+    install_hint = "https://docs.factory.ai/cli/getting-started/quickstart"
+    writes_config = True
+
+    def find_binary(self) -> str | None:
+        if path := shutil.which("droid"):
+            return path
+        fallback = Path.home() / ".local/bin/droid"
+        return str(fallback) if fallback.is_file() else None
+
+    def config_path(self) -> Path:
+        return Path.home() / ".factory" / "settings.json"
+
+    def files(self) -> dict[str, Path]:
+        return {"droid": self.config_path()}
+
+    def model_id(self, model: Model) -> str:
+        return f"custom:{model.name}-0"
+
+    def configure(self, model: Model) -> None:
+        settings = read_json(self.config_path())
+        kept = [
+            m for m in (settings.get("customModels") or [])
+            if not (isinstance(m, dict) and m.get("apiKey") == API_KEY)
+        ]
+        settings["customModels"] = [{
+            "model": model.name,
+            "displayName": model.name,
+            "baseUrl": api_base(),
+            "apiKey": API_KEY,
+            "provider": "generic-chat-completion-api",
+            "maxOutputTokens": model.max_output(64000),
+            "supportsImages": model.has("vision"),
+            "id": self.model_id(model),
+            "index": 0,
+        }, *kept]
+        session = settings.get("sessionDefaultSettings")
+        session = session if isinstance(session, dict) else {}
+        session["model"] = self.model_id(model)
+        if session.get("reasoningEffort") not in ("high", "medium", "low", "none"):
+            session["reasoningEffort"] = "none"
+        settings["sessionDefaultSettings"] = session
+        write_json(self.config_path(), settings)
+
+    def wired(self) -> bool:
+        settings = read_json(self.config_path())
+        return any(
+            isinstance(m, dict) and m.get("apiKey") == API_KEY and m.get("baseUrl") == api_base()
+            for m in (settings.get("customModels") or [])
         )
-    model = info["id"]
-    if args.install:
-        _install_pi_global(model, info)
-        return
-    agent_dir = _prepare_pi_agent_dir(model, info)
-    env = {**os.environ, "PI_CODING_AGENT_DIR": str(agent_dir)}
-    os.execvpe("pi", ["pi", *_normalize_passthrough(args.passthrough)], env)
 
 
-def _pi_agent_dir() -> Path:
-    return Path(os.environ.get("PI_CODING_AGENT_DIR") or Path.home() / ".pi" / "agent")
+# -------------------------------------------------------------------- chatgpt
 
 
-def _pi_models_path() -> Path:
-    return _pi_agent_dir() / "models.json"
+CHATGPT_PROVIDER = "sah-chatgpt"
+CHATGPT_BUNDLE_ID = "com.openai.codex"
 
 
-def _pi_settings_path() -> Path:
-    return _pi_agent_dir() / "settings.json"
+class ChatGPT(Integration):
+    """Ollama's cmd/launch/codex_app.go. The desktop app reads the ROOT table of
+    ~/.codex/config.toml (not a --profile), so wiring it is inherently
+    persistent. It uses its own provider name and catalog file, and `sah codex`
+    no longer touches the root table at all, so the two coexist."""
+    name, display = "chatgpt", "ChatGPT"
+    aliases = ("codex-app", "codex-desktop", "codex-gui")
+    kind = "Desktop"
+    binary = None
+    launchable = False
+    writes_config = True
+
+    def supported(self) -> str | None:
+        if sys.platform not in ("darwin", "win32"):
+            return ("sah chatgpt is macOS/Windows-only — OpenAI does not ship a Linux "
+                    "build of the ChatGPT desktop app. Run it on the machine that has "
+                    "it installed. (For the terminal agent, use: sah codex)")
+        return None
+
+    def config_path(self) -> Path:
+        return Path.home() / ".codex" / "config.toml"
+
+    def catalog_path(self) -> Path:
+        return Path.home() / ".codex" / "sah-chatgpt-models.json"
+
+    def files(self) -> dict[str, Path]:
+        return {"chatgpt": self.config_path()}
+
+    def app_path(self) -> Path | None:
+        if sys.platform != "darwin":
+            return None
+        for parent in (Path("/Applications"), Path.home() / "Applications"):
+            for app in ("ChatGPT.app", "Codex.app"):
+                if (parent / app).is_dir():
+                    return parent / app
+        return None
+
+    def running(self) -> bool:
+        if sys.platform != "darwin":
+            return False
+        result = subprocess.run(["pgrep", "-f", r"(ChatGPT|Codex)\.app/Contents/MacOS/"],
+                                capture_output=True, text=True)
+        return result.returncode == 0 and bool(result.stdout.strip())
+
+    def catalog_entry(self, model: Model) -> dict:
+        ctx = model.context(128000)
+        return {
+            "slug": model.name,
+            "display_name": model.name,
+            "description": f"Served by {PROVIDER_NAME}",
+            "default_reasoning_level": None,
+            "supported_reasoning_levels": [],
+            "shell_type": "default",
+            "visibility": "list",
+            "supported_in_api": True,
+            "priority": 0,
+            "additional_speed_tiers": [],
+            "availability_nux": None,
+            "upgrade": None,
+            "base_instructions": ("You are Codex, a coding agent. You and the user share "
+                                  "the same workspace and collaborate to achieve the "
+                                  "user's goals."),
+            "model_messages": None,
+            "supports_reasoning_summaries": False,
+            "default_reasoning_summary": "auto",
+            "support_verbosity": False,
+            "default_verbosity": None,
+            "apply_patch_tool_type": None,
+            "web_search_tool_type": "text",
+            "truncation_policy": {"mode": "bytes", "limit": 10000},
+            "supports_parallel_tool_calls": False,
+            "supports_image_detail_original": False,
+            "context_window": ctx,
+            "max_context_window": ctx,
+            "auto_compact_token_limit": None,
+            "effective_context_window_percent": 95,
+            "experimental_supported_tools": [],
+            "input_modalities": model.input_modalities(),
+            "supports_search_tool": False,
+        }
+
+    def configure(self, model: Model) -> None:
+        write_json(self.catalog_path(), {"models": [self.catalog_entry(model)]})
+        cfg = self.config_path()
+        text = cfg.read_text() if cfg.is_file() else ""
+        # A stale `profile` at the root would override everything set here.
+        text = toml_remove_root(text, "profile")
+        text = toml_set_root_string(text, "model", model.name)
+        text = toml_set_root_string(text, "model_provider", CHATGPT_PROVIDER)
+        text = toml_set_root_string(text, "model_catalog_json", str(self.catalog_path()))
+        text = toml_upsert_section(text, f"[model_providers.{CHATGPT_PROVIDER}]", [
+            f"name = {json.dumps(PROVIDER_NAME)}",
+            f"base_url = {json.dumps(api_base().rstrip('/') + '/')}",
+            'wire_api = "responses"',
+        ])
+        toml_validate(text, cfg)
+        write_text(cfg, text)
+
+    def wired(self) -> bool:
+        cfg = self.config_path()
+        text = cfg.read_text() if cfg.is_file() else ""
+        return f'model_provider = "{CHATGPT_PROVIDER}"' in text.split("\n[", 1)[0]
+
+    def extras(self) -> tuple[tuple[str, str], ...]:
+        app = self.app_path()
+        return (
+            ("ChatGPT app", f"installed at {app}" if app else "not found"),
+            ("ChatGPT running", "yes" if self.running() else "no"),
+        )
+
+    def restart(self, skip: bool) -> None:
+        if skip or sys.platform != "darwin":
+            print("Quit and reopen ChatGPT for the change to take effect.")
+            return
+        if self.running():
+            print("Restarting ChatGPT", end="", flush=True)
+            for app in ("ChatGPT", "Codex"):
+                subprocess.run(["osascript", "-e", f'tell application "{app}" to quit'],
+                               check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            deadline = time.time() + 30
+            while time.time() < deadline and self.running():
+                print(".", end="", flush=True)
+                time.sleep(1.0)
+            print(" done.")
+        app = self.app_path()
+        subprocess.run(["open", str(app)] if app else ["open", "-b", CHATGPT_BUNDLE_ID], check=False)
+
+    def add_arguments(self, parser) -> None:
+        parser.add_argument("--no-restart", action="store_true",
+                            help="Skip the automatic ChatGPT restart")
+
+    def run(self, args) -> None:
+        if reason := self.supported():
+            sys.exit(reason)
+        if args.status:
+            self.status()
+            return
+        if args.restore:
+            if self.restore_all():
+                self.restart(skip=args.no_restart)
+            return
+        if not args.install:
+            sys.exit("Choose one: sah chatgpt --install, --status, or --restore")
+        self.install(require_model())
+        self.restart(skip=args.no_restart)
+
+    def restore_all(self) -> bool:
+        if not restore_backup("chatgpt", self.config_path()):
+            print(f"No {PROVIDER_NAME} chatgpt wiring found; nothing to restore.")
+            return False
+        if self.catalog_path().is_file():
+            self.catalog_path().unlink()
+        print("ChatGPT restored to your usual profile.")
+        return True
 
 
-def _prepare_pi_agent_dir(model: str, info: dict) -> Path:
-    agent_dir = CONFIG_DIR / "pi-agent"
-    agent_dir.mkdir(parents=True, exist_ok=True)
-    real = _pi_agent_dir()
-    OWNED = {"models.json", "settings.json"}
-    _mirror_state_dir(real, agent_dir, lambda name: name in OWNED)
-    _write_json_atomic(
-        agent_dir / "models.json",
-        _pi_models_config(model, info, _read_json(real / "models.json")),
-    )
-    _write_json_atomic(
-        agent_dir / "settings.json",
-        _pi_hub_settings(_read_json(real / "settings.json"), model),
-    )
-    return agent_dir
+# ------------------------------------------------------------- claude-desktop
 
-
-def _pi_models_config(model: str, info: dict, base: dict | None = None) -> dict:
-    config = base if isinstance(base, dict) else {}
-    providers = config.get("providers") if isinstance(config.get("providers"), dict) else {}
-    ctx = _model_context_window(info, default=128000)
-    providers[PI_PROVIDER] = {
-        "baseUrl": api_base(),
-        "api": "openai-completions",
-        # pi hides models whose provider has no auth configured; the Hub
-        # ignores the key, so a placeholder is what makes it selectable.
-        "apiKey": "sah",
-        # `reasoning_effort` is what actually switches thinking ON for Hub
-        # models: measured against Laguna-S (vLLM 0.25.1, --reasoning-parser
-        # poolside_v1), omitting it yields zero reasoning tokens, while
-        # minimal/low/medium/high scale thinking length monotonically. Omitting
-        # it also makes the parser leak a stray `</think>` into the reply, so
-        # pi must send it.
-        #
-        # `supportsDeveloperRole` is the opposite case, and stays off. Laguna's
-        # chat template branches on user/assistant/tool/system and has no
-        # `developer` arm: rendering a developer message through it silently
-        # DROPS the content and substitutes the model's default system prompt.
-        # Over HTTP it appears to work only because vLLM's serving layer
-        # normalizes developer->system first — a version-dependent courtesy no
-        # other backend the Hub serves (llama.cpp, ...) is obliged to repeat.
-        # `system` is honored identically, so off costs nothing and removes a
-        # failure mode that would silently discard pi's whole system prompt.
-        "compat": {
-            "supportsDeveloperRole": False,
-            "supportsReasoningEffort": True,
-        },
-        "models": [
-            {
-                "id": model,
-                "reasoning": True,
-                "input": _pi_input_modalities_for(model),
-                "contextWindow": ctx,
-                "maxTokens": min(ctx, 65536),
-                "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-            }
-        ],
-    }
-    config["providers"] = providers
-    return config
-
-
-def _pi_hub_settings(base: dict, model: str) -> dict:
-    """Pin the Hub model through settings rather than `pi --model`: Hub ids
-    carry a slash (`poolside/Laguna-XS-2.1-NVFP4`) and `--model` reads a
-    leading slash segment as the provider name."""
-    settings = base if isinstance(base, dict) else {}
-    settings["defaultProvider"] = PI_PROVIDER
-    settings["defaultModel"] = model
-    return settings
-
-
-def _pi_input_modalities_for(model: str) -> list[str]:
-    # pi accepts ["text"] or ["text", "image"] — no video/pdf entries.
-    return ["text", "image"] if _qwen_modalities_for(model).get("image") else ["text"]
-
-
-def _install_pi_global(model: str, info: dict) -> None:
-    models_path = _pi_models_path()
-    settings_path = _pi_settings_path()
-    _backup_client_file_once("pi-models", models_path)
-    _backup_client_file_once("pi", settings_path)
-    models_path.parent.mkdir(parents=True, exist_ok=True)
-    _write_json_atomic(models_path, _pi_models_config(model, info, _read_json(models_path)))
-    _write_json_atomic(settings_path, _pi_hub_settings(_read_json(settings_path), model))
-    _print_wired(
-        "Pi Coding Agent", "pi", settings_path,
-        extras=(("Models", str(models_path)), ("Model", model)),
-    )
-
-
-def _restore_pi_global() -> None:
-    if not any(_client_backup_path(c).is_file() for c in ("pi", "pi-models")):
-        print("No Spark AI Hub pi backup found; nothing to restore.")
-        return
-    _restore_client_file("pi-models", _pi_models_path(), quiet=True)
-    _restore_client_file("pi", _pi_settings_path(), quiet=True)
-    print("pi restored.")
-    print("  Plain `pi` no longer uses the Spark AI Hub profile.")
-
-
-def _status_pi_global() -> None:
-    models = _read_json(_pi_models_path())
-    providers = models.get("providers") if isinstance(models.get("providers"), dict) else {}
-    provider = providers.get(PI_PROVIDER)
-    settings = _read_json(_pi_settings_path())
-    wired = (
-        isinstance(provider, dict)
-        and provider.get("baseUrl") == api_base()
-        and settings.get("defaultProvider") == PI_PROVIDER
-    )
-    _print_status(
-        "Pi", "pi", _pi_settings_path(), wired,
-        extras=(("Pi models config", str(_pi_models_path())),),
-    )
-
-
-# ---------- claude-desktop ----------
-#
-# Architecture: Claude Desktop's Cowork 3p mode requires HTTPS gateway URLs
-# (or http on 127.0.0.1). The Hub runs plain http on the LAN, so we install
-# a tiny TCP forwarder on 127.0.0.1:9009 → Hub as a launchd agent. Claude
-# Desktop sees a loopback URL and is happy.
-#
-# Schema mirrors Ollama's `ollama launch claude-desktop` (cmd/launch/claude_desktop.go):
-# we set deploymentMode="3p" (or "1p" on restore), maintain a stable profile
-# UUID, write the same gateway keys, and offer the same restore semantics.
 
 SAH_PROFILE_ID = str(uuid.uuid5(uuid.NAMESPACE_DNS, "spark-ai-hub.sah"))
-SAH_PROFILE_NAME = "Spark AI Hub"
 SAH_TUNNEL_PORT = 9009
 SAH_LAUNCH_LABEL = "ai.waxacabytes.sah-tunnel"
 
 SAH_TUNNEL_SCRIPT = '''#!/usr/bin/env python3
-"""sah-tunnel — TCP forwarder: 127.0.0.1:<port> -> <hub host:port>.
-
-Lets Claude Desktop see a loopback URL while traffic actually goes to the
-LAN Spark AI Hub. Plain TCP forwarding works for HTTP requests and SSE.
-"""
+"""sah-tunnel — TCP forwarder: 127.0.0.1:<port> -> <hub host:port>."""
 import asyncio, sys, urllib.parse
 
 
@@ -1782,425 +1969,340 @@ if __name__ == "__main__":
 '''
 
 
-def _cd_paths() -> dict:
-    if sys.platform != "darwin":
-        sys.exit(
-            "sah claude-desktop is macOS-only. Anthropic does not ship a Linux "
-            "build of Claude Desktop; run this on the Mac that has it installed."
-        )
-    home = Path.home()
-    base = home / "Library/Application Support"
-    return {
-        "normal_dir": base / "Claude",
-        "third_party_dir": base / "Claude-3p",
-        "launch_agents": home / "Library/LaunchAgents",
-        "tunnel_script": CONFIG_DIR / "sah-tunnel.py",
-        "tunnel_log": CONFIG_DIR / "sah-tunnel.log",
-        "plist": home / "Library/LaunchAgents" / f"{SAH_LAUNCH_LABEL}.plist",
-    }
+class ClaudeDesktop(Integration):
+    """Ollama's cmd/launch/claude_desktop.go: deploymentMode=3p, a stable
+    profile UUID, the same gateway keys, the same restore semantics.
 
-
-def _claude_app_path() -> Path | None:
-    for cand in (Path("/Applications/Claude.app"), Path.home() / "Applications/Claude.app"):
-        if cand.is_dir():
-            return cand
-    return None
-
-
-def _require_claude_installed() -> None:
-    if _claude_app_path() is None:
-        sys.exit(
-            "Claude Desktop is not installed. Install it from "
-            "https://claude.ai/download, then re-run this command."
-        )
-
-
-def _read_json(path: Path) -> dict:
-    if not path.is_file():
-        return {}
-    try:
-        return json.loads(path.read_text()) or {}
-    except json.JSONDecodeError:
-        return {}
-
-
-def _claude_pids() -> list[int]:
-    r = subprocess.run(
-        ["pgrep", "-f", "Claude.app/Contents/MacOS/Claude"],
-        capture_output=True, text=True,
-    )
-    if r.returncode != 0:
-        return []
-    return [int(x) for x in r.stdout.split() if x.strip().isdigit()]
-
-
-def _claude_running() -> bool:
-    return bool(_claude_pids())
-
-
-def _quit_claude() -> None:
-    subprocess.run(
-        ["osascript", "-e", 'tell application "Claude" to quit'],
-        check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-    )
-
-
-def _open_claude() -> None:
-    subprocess.run(["open", "-a", "Claude"], check=False)
-
-
-def _wait_claude_exit(timeout: float) -> bool:
-    """Poll until no Claude PIDs remain. Print a single dot per second so the
-    user sees progress without 50 dots/10s. Returns True if it actually exited.
+    DIVERGENCE (environment, not preference): Claude Desktop's 3p mode requires
+    an HTTPS gateway URL or http on 127.0.0.1. Ollama always satisfies that
+    because its server IS localhost; the Hub is on the LAN over plain http, so
+    sah installs a launchd-managed TCP forwarder on 127.0.0.1 and points Claude
+    Desktop at that.
     """
+    name, display = "claude-desktop", "Claude Desktop"
+    aliases = ("claude-app",)
+    kind = "Desktop"
+    binary = None
+    launchable = False
+    writes_config = True
 
-    deadline = time.time() + timeout
-    last_dot = time.time()
-    while time.time() < deadline:
-        if not _claude_running():
-            return True
-        if time.time() - last_dot >= 1.0:
-            print(".", end="", flush=True)
-            last_dot = time.time()
-        time.sleep(0.1)
-    return False
+    def supported(self) -> str | None:
+        if sys.platform != "darwin":
+            return ("sah claude-desktop is macOS-only. Anthropic does not ship a Linux "
+                    "build of Claude Desktop; run this on the Mac that has it installed.")
+        return None
 
+    def paths(self) -> dict:
+        home = Path.home()
+        base = home / "Library/Application Support"
+        return {
+            "normal_dir": base / "Claude",
+            "third_party_dir": base / "Claude-3p",
+            "tunnel_script": CONFIG_DIR / "sah-tunnel.py",
+            "tunnel_log": CONFIG_DIR / "sah-tunnel.log",
+            "plist": home / "Library/LaunchAgents" / f"{SAH_LAUNCH_LABEL}.plist",
+        }
 
-def _open_and_verify() -> None:
-    """open -a Claude, then poll until it's running. Retry once if needed."""
+    def app_path(self) -> Path | None:
+        for candidate in (Path("/Applications/Claude.app"), Path.home() / "Applications/Claude.app"):
+            if candidate.is_dir():
+                return candidate
+        return None
 
-    _open_claude()
-    for _ in range(20):  # up to 4s
-        if _claude_running():
-            return
-        time.sleep(0.2)
-    _open_claude()
+    def running(self) -> bool:
+        result = subprocess.run(["pgrep", "-f", "Claude.app/Contents/MacOS/Claude"],
+                                capture_output=True, text=True)
+        return result.returncode == 0 and bool(result.stdout.strip())
 
+    def files(self) -> dict[str, Path]:
+        return {}
 
-def _restart_claude(skip: bool) -> None:
-    if skip:
-        if _claude_running():
+    # -- tunnel ---------------------------------------------------------------
+
+    def install_tunnel(self, hub: str) -> None:
+        p = self.paths()
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        write_text(p["tunnel_script"], SAH_TUNNEL_SCRIPT)
+        p["tunnel_script"].chmod(0o755)
+        plist = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+            '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+            '<plist version="1.0">\n<dict>\n'
+            f'    <key>Label</key><string>{SAH_LAUNCH_LABEL}</string>\n'
+            '    <key>ProgramArguments</key>\n    <array>\n'
+            '        <string>/usr/bin/python3</string>\n'
+            f'        <string>{p["tunnel_script"]}</string>\n'
+            f'        <string>{SAH_TUNNEL_PORT}</string>\n'
+            f'        <string>{hub}</string>\n'
+            '    </array>\n'
+            '    <key>RunAtLoad</key><true/>\n'
+            '    <key>KeepAlive</key><true/>\n'
+            f'    <key>StandardOutPath</key><string>{p["tunnel_log"]}</string>\n'
+            f'    <key>StandardErrorPath</key><string>{p["tunnel_log"]}</string>\n'
+            '</dict>\n</plist>\n'
+        )
+        write_text(p["plist"], plist)
+        subprocess.run(["launchctl", "unload", str(p["plist"])], check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(["launchctl", "load", str(p["plist"])], check=False)
+        # Claude Desktop probes the gateway at startup and caches a failure if
+        # the port is not ready, so wait for the socket before relaunching it.
+        if not wait_port(SAH_TUNNEL_PORT, 5):
+            print(f"warning: tunnel on 127.0.0.1:{SAH_TUNNEL_PORT} did not come up within 5s; "
+                  f"check {p['tunnel_log']}", file=sys.stderr)
+
+    def uninstall_tunnel(self) -> None:
+        p = self.paths()
+        if p["plist"].is_file():
+            subprocess.run(["launchctl", "unload", str(p["plist"])], check=False,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            p["plist"].unlink()
+        if p["tunnel_script"].is_file():
+            p["tunnel_script"].unlink()
+
+    # -- profile --------------------------------------------------------------
+
+    def set_deployment_mode(self, mode: str) -> None:
+        p = self.paths()
+        for directory in (p["normal_dir"], p["third_party_dir"]):
+            path = directory / "claude_desktop_config.json"
+            cfg = read_json(path)
+            if cfg.get("deploymentMode") == mode and path.is_file():
+                continue
+            cfg["deploymentMode"] = mode
+            write_json(path, cfg)
+
+    def write_profile(self) -> None:
+        p = self.paths()
+        path = p["third_party_dir"] / f"configLibrary/{SAH_PROFILE_ID}.json"
+        cfg = read_json(path)
+        cfg["inferenceProvider"] = "gateway"
+        cfg["inferenceGatewayBaseUrl"] = f"http://127.0.0.1:{SAH_TUNNEL_PORT}"
+        cfg["inferenceGatewayApiKey"] = API_KEY
+        cfg["inferenceGatewayAuthScheme"] = "bearer"
+        cfg["disableDeploymentModeChooser"] = True
+        cfg.pop("inferenceModels", None)
+        write_json(path, cfg)
+
+        meta_path = p["third_party_dir"] / "configLibrary/_meta.json"
+        meta = read_json(meta_path)
+        entries = [e for e in (meta.get("entries") or []) if e.get("id") != SAH_PROFILE_ID]
+        meta["entries"] = [*entries, {"id": SAH_PROFILE_ID, "name": PROVIDER_NAME}]
+        meta["appliedId"] = SAH_PROFILE_ID
+        write_json(meta_path, meta)
+
+    def clear_profile(self) -> None:
+        p = self.paths()
+        meta_path = p["third_party_dir"] / "configLibrary/_meta.json"
+        if meta := read_json(meta_path):
+            if meta.get("appliedId") == SAH_PROFILE_ID:
+                meta.pop("appliedId", None)
+            meta["entries"] = [e for e in (meta.get("entries") or []) if e.get("id") != SAH_PROFILE_ID]
+            write_json(meta_path, meta)
+        path = p["third_party_dir"] / f"configLibrary/{SAH_PROFILE_ID}.json"
+        # Ollama strips the gateway keys rather than deleting the profile:
+        # deleting it leaves Claude Desktop with an applied-profile-is-gone
+        # state that presents as a logged-out 3p screen.
+        if cfg := read_json(path):
+            cfg["disableDeploymentModeChooser"] = False
+            for key in ("inferenceProvider", "inferenceGatewayBaseUrl",
+                        "inferenceGatewayAuthScheme", "inferenceModels"):
+                cfg.pop(key, None)
+            write_json(path, cfg)
+
+    def restart(self, skip: bool) -> None:
+        if skip:
             print("Quit and reopen Claude Desktop for the change to take effect.")
-        else:
-            print("Open Claude Desktop when you're ready.")
-        return
-    if not _claude_running():
-        print("Opening Claude Desktop...", end="", flush=True)
-        _open_and_verify()
-        print(" done.")
-        return
+            return
+        if self.running():
+            print("Restarting Claude Desktop", end="", flush=True)
+            subprocess.run(["osascript", "-e", 'tell application "Claude" to quit'],
+                           check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            deadline = time.time() + 30
+            while time.time() < deadline and self.running():
+                print(".", end="", flush=True)
+                time.sleep(1.0)
+            print(" done.")
+            time.sleep(0.5)
+        subprocess.run(["open", "-a", "Claude"], check=False)
 
-    print("Restarting Claude Desktop", end="", flush=True)
-    _quit_claude()
-    _wait_claude_exit(30.0)
-    # Brief settle so launch services releases the previous instance before
-    # we ask for a new one.
+    def status(self) -> None:
+        p = self.paths()
+        app = self.app_path()
+        kv("Claude Desktop", f"installed at {app}" if app else "NOT installed")
+        if not app:
+            return
+        cfg = read_json(p["third_party_dir"] / "claude_desktop_config.json")
+        profile = read_json(p["third_party_dir"] / f"configLibrary/{SAH_PROFILE_ID}.json")
+        meta = read_json(p["third_party_dir"] / "configLibrary/_meta.json")
+        active = (cfg.get("deploymentMode") == "3p"
+                  and meta.get("appliedId") == SAH_PROFILE_ID
+                  and profile.get("inferenceProvider") == "gateway"
+                  and p["plist"].is_file())
+        kv("Deployment mode", cfg.get("deploymentMode", "1p (default)"))
+        kv("SAH profile", "APPLIED" if active else "not applied")
+        kv("Gateway URL", profile.get("inferenceGatewayBaseUrl", "—"))
+        kv("Tunnel agent", f"{'loaded' if p['plist'].is_file() else 'not installed'} ({p['plist']})")
+        kv("Claude running", "yes" if self.running() else "no")
 
-    time.sleep(0.5)
-    _open_and_verify()
-    print(" done.")
+    def add_arguments(self, parser) -> None:
+        parser.add_argument("--no-restart", action="store_true",
+                            help="Skip the automatic Claude Desktop restart")
 
-
-def _install_tunnel(hub: str) -> None:
-    p = _cd_paths()
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    _write_text_atomic(p["tunnel_script"], SAH_TUNNEL_SCRIPT)
-    p["tunnel_script"].chmod(0o755)
-
-    plist = (
-        '<?xml version="1.0" encoding="UTF-8"?>\n'
-        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
-        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
-        '<plist version="1.0">\n'
-        '<dict>\n'
-        f'    <key>Label</key><string>{SAH_LAUNCH_LABEL}</string>\n'
-        '    <key>ProgramArguments</key>\n'
-        '    <array>\n'
-        '        <string>/usr/bin/python3</string>\n'
-        f'        <string>{p["tunnel_script"]}</string>\n'
-        f'        <string>{SAH_TUNNEL_PORT}</string>\n'
-        f'        <string>{hub}</string>\n'
-        '    </array>\n'
-        '    <key>RunAtLoad</key><true/>\n'
-        '    <key>KeepAlive</key><true/>\n'
-        f'    <key>StandardOutPath</key><string>{p["tunnel_log"]}</string>\n'
-        f'    <key>StandardErrorPath</key><string>{p["tunnel_log"]}</string>\n'
-        '</dict>\n'
-        '</plist>\n'
-    )
-    p["plist"].parent.mkdir(parents=True, exist_ok=True)
-    _write_text_atomic(p["plist"], plist)
-
-    # Reload to pick up any URL changes; ignore unload errors on first install.
-    subprocess.run(["launchctl", "unload", str(p["plist"])],
-                   check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    subprocess.run(["launchctl", "load", str(p["plist"])], check=False)
-
-    # Wait until the tunnel actually accepts a connection. Claude Desktop probes
-    # the gateway URL at startup and caches a failure if the port isn't ready;
-    # without this gate, "sah claude-desktop" relaunches Claude before launchd
-    # finishes binding the socket and the user sees ERR_CONNECTION_REFUSED.
-
-    deadline = time.time() + 5
-    while time.time() < deadline:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.settimeout(0.2)
-            try:
-                sock.connect(("127.0.0.1", SAH_TUNNEL_PORT))
-                return
-            except OSError:
-                time.sleep(0.1)
-    print(
-        f"warning: tunnel on 127.0.0.1:{SAH_TUNNEL_PORT} did not come up within 5s; "
-        f"check ~/.config/sah/sah-tunnel.log",
-        file=sys.stderr,
-    )
+    def run(self, args) -> None:
+        if reason := self.supported():
+            sys.exit(reason)
+        if args.status:
+            self.status()
+            return
+        if not args.install and not args.restore:
+            sys.exit("Choose one: sah claude-desktop --install, --status, or --restore")
+        if self.app_path() is None:
+            sys.exit("Claude Desktop is not installed. Install it from "
+                     "https://claude.ai/download, then re-run this command.")
+        if args.restore:
+            # Order matches Ollama: deploymentMode first, then unwind the
+            # profile — Claude Desktop routes everything else off that.
+            self.set_deployment_mode("1p")
+            self.clear_profile()
+            self.uninstall_tunnel()
+            print(f"{PROVIDER_NAME} disconnected from Claude Desktop.")
+            self.restart(skip=args.no_restart)
+            return
+        hub = hub_url()
+        self.install_tunnel(hub)
+        self.write_profile()
+        self.set_deployment_mode("3p")
+        print(f"{PROVIDER_NAME} wired to Claude Desktop.")
+        kv("  Local proxy", f"127.0.0.1:{SAH_TUNNEL_PORT} → {hub}")
+        print("  Restore with: sah claude-desktop --restore")
+        self.restart(skip=args.no_restart)
 
 
-def _uninstall_tunnel() -> None:
-    p = _cd_paths()
-    if p["plist"].is_file():
-        subprocess.run(["launchctl", "unload", str(p["plist"])],
-                       check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        p["plist"].unlink()
-    if p["tunnel_script"].is_file():
-        p["tunnel_script"].unlink()
+# ------------------------------------------------------------------- registry
+#
+# Order mirrors Ollama's launcherIntegrationOrder, with the integrations it
+# marks Hidden at the end. Ollama's `vscode` is deliberately absent: it reaches
+# models only through Copilot Chat's built-in `ollama` vendor, which speaks the
+# Ollama native API (/api/tags, /api/chat) and cannot be pointed at an
+# OpenAI-compatible endpoint. Everything here talks to the Hub and nothing else.
+
+INTEGRATIONS: list[Integration] = [
+    Claude(), ChatGPT(), Hermes(), OpenClaw(), OpenCode(), HermesDesktop(), Codex(),
+    Copilot(), OMP(), Cline(), Droid(), DeepSeekHarness(), Pi(), Pool(), Qwen(),
+    ClaudeDesktop(), Kimi(), Muse(),
+]
+
+BY_NAME: dict[str, Integration] = {}
+for _integration in INTEGRATIONS:
+    BY_NAME[_integration.name] = _integration
+    for _alias in _integration.aliases:
+        BY_NAME[_alias] = _integration
 
 
-def _set_deployment_mode(mode: str) -> None:
-    p = _cd_paths()
-    for d in (p["normal_dir"], p["third_party_dir"]):
-        cfg_path = d / "claude_desktop_config.json"
-        cfg = _read_json(cfg_path)
-        if cfg.get("deploymentMode") == mode and cfg_path.is_file():
-            continue
-        cfg["deploymentMode"] = mode
-        _write_json_atomic(cfg_path, cfg)
+# ------------------------------------------------------------------- commands
 
 
-def _write_meta_entry() -> None:
-    p = _cd_paths()
-    meta_path = p["third_party_dir"] / "configLibrary/_meta.json"
-    meta = _read_json(meta_path)
-    entries = [e for e in (meta.get("entries") or []) if e.get("id") != SAH_PROFILE_ID]
-    entries.append({"id": SAH_PROFILE_ID, "name": SAH_PROFILE_NAME})
-    meta["entries"] = entries
-    meta["appliedId"] = SAH_PROFILE_ID
-    _write_json_atomic(meta_path, meta)
+def cmd_integrations(_args) -> None:
+    rows = []
+    for item in INTEGRATIONS:
+        persistent = item.writes_config
+        rows.append({
+            "name": item.name,
+            "kind": item.kind,
+            "available": item.availability(),
+            "mode": "persistent" if persistent else "launch only",
+            "launch": f"sah {item.name}" if item.launchable else "n/a",
+            "install": f"sah {item.name} --install" if persistent else "n/a",
+            "status": f"sah {item.name} --status",
+            "restore": f"sah {item.name} --restore" if persistent else "n/a",
+        })
+    print_table(rows, [
+        ("name", "Integration"), ("kind", "Kind"), ("available", "Installed"),
+        ("mode", "Mode"), ("launch", "Launch"), ("install", "Install"),
+        ("status", "Status"), ("restore", "Restore"),
+    ])
 
 
-def _restore_meta_entry() -> None:
-    p = _cd_paths()
-    meta_path = p["third_party_dir"] / "configLibrary/_meta.json"
-    if not meta_path.is_file():
-        return
-    meta = _read_json(meta_path)
-    if not meta:
-        return
-    changed = False
-    if meta.get("appliedId") == SAH_PROFILE_ID:
-        meta.pop("appliedId", None)
-        changed = True
-    entries = meta.get("entries") or []
-    new_entries = [e for e in entries if e.get("id") != SAH_PROFILE_ID]
-    if len(new_entries) != len(entries):
-        meta["entries"] = new_entries
-        changed = True
-    if changed:
-        _write_json_atomic(meta_path, meta)
+def cmd_info(_args) -> None:
+    active = hub_url()
+    info = current_model_info()
+    kv("Hub", active)
+    if others := [c for c in _hub_candidates() if c != active]:
+        kv("Fallback hubs", ", ".join(others))
+    kv("OpenAI base", api_base())
+    kv("Anthropic base", active)
+    kv("API key", f"{API_KEY}  (any value works)")
+    kv("Current model", info["id"] if info else "(none — launch one in the Hub)")
 
 
-def _write_gateway_profile() -> None:
-    p = _cd_paths()
-    profile_path = p["third_party_dir"] / f"configLibrary/{SAH_PROFILE_ID}.json"
-    cfg = _read_json(profile_path)
-    cfg["inferenceProvider"] = "gateway"
-    cfg["inferenceGatewayBaseUrl"] = f"http://127.0.0.1:{SAH_TUNNEL_PORT}"
-    cfg["inferenceGatewayApiKey"] = "sah"
-    cfg["inferenceGatewayAuthScheme"] = "bearer"
-    cfg["disableDeploymentModeChooser"] = True
-    cfg.pop("inferenceModels", None)
-    _write_json_atomic(profile_path, cfg)
-
-
-def _restore_gateway_profile() -> None:
-    """Strip the gateway keys from the SAH profile rather than deleting it.
-
-    Mirrors Ollama. Deleting the file outright was leaving Claude Desktop in
-    a broken "applied profile is gone" state on the next launch — presenting
-    as a logged-out 3p screen even though we'd flipped deploymentMode to 1p.
-    """
-    p = _cd_paths()
-    profile_path = p["third_party_dir"] / f"configLibrary/{SAH_PROFILE_ID}.json"
-    if not profile_path.is_file():
-        return
-    cfg = _read_json(profile_path)
-    if not cfg:
-        return
-    cfg["disableDeploymentModeChooser"] = False
-    for k in ("inferenceProvider", "inferenceGatewayBaseUrl",
-              "inferenceGatewayAuthScheme", "inferenceModels"):
-        cfg.pop(k, None)
-    _write_json_atomic(profile_path, cfg)
-
-
-def _status() -> None:
-    p = _cd_paths()
-    app = _claude_app_path()
-    _kv("Claude Desktop", f"installed at {app}" if app else "NOT installed")
-    if not app:
-        return
-
-    cfg = _read_json(p["third_party_dir"] / "claude_desktop_config.json")
-    mode = cfg.get("deploymentMode", "1p (default)")
-    profile = _read_json(p["third_party_dir"] / f"configLibrary/{SAH_PROFILE_ID}.json")
-    meta = _read_json(p["third_party_dir"] / "configLibrary/_meta.json")
-    applied = meta.get("appliedId") == SAH_PROFILE_ID
-    gateway_url = profile.get("inferenceGatewayBaseUrl", "—")
-    plist_loaded = p["plist"].is_file()
-
-    sah_active = (
-        mode == "3p"
-        and applied
-        and profile.get("inferenceProvider") == "gateway"
-        and plist_loaded
-    )
-    _kv("Deployment mode", mode)
-    _kv("SAH profile", "APPLIED" if sah_active else "not applied")
-    _kv("Gateway URL", gateway_url)
-    _kv("Tunnel agent", f"{'loaded' if plist_loaded else 'not installed'} ({p['plist']})")
-    _kv("Claude running", "yes" if _claude_running() else "no")
-
-
-def cmd_claude_desktop(args) -> None:
-    """Wire Claude Desktop's Cowork 3p mode to the Hub via a loopback proxy.
-
-    Install (--install): drops a launchd-managed TCP forwarder on 127.0.0.1
-    pointing at the Hub, writes a 3p gateway profile, sets deploymentMode=3p,
-    and restarts Claude Desktop.
-
-    Restore (--restore): tears down the SAH profile, flips deploymentMode=1p
-    (Anthropic-account mode), and restarts Claude Desktop. Mirrors Ollama's
-    `--restore` semantics.
-
-    Status (--status): print whether SAH is currently wired to Claude Desktop.
-
-    Use --no-restart to skip the automatic Claude Desktop restart.
-    """
-    _cd_paths()  # exits early on non-darwin
-
-    if args.status:
-        _status()
-        return
-
-    if not args.install and not args.restore:
-        sys.exit("Choose one: sah claude-desktop --install, --status, or --restore")
-
-    _require_claude_installed()
-
-    if args.restore:
-        # Order matches Ollama: flip deploymentMode first, then unwind the
-        # gateway profile + meta entry. Claude Desktop reads deploymentMode
-        # at launch and routes everything else off that.
-        _set_deployment_mode("1p")
-        _restore_meta_entry()
-        _restore_gateway_profile()
-        _uninstall_tunnel()
-        print("Spark AI Hub disconnected from Claude Desktop.")
-        _restart_claude(skip=args.no_restart)
-        return
-
-    hub = hub_url()
-    _install_tunnel(hub)
-    _write_gateway_profile()
-    _write_meta_entry()
-    _set_deployment_mode("3p")
-    print("Spark AI Hub wired to Claude Desktop.")
-    print(f"  Local proxy:  127.0.0.1:{SAH_TUNNEL_PORT} → {hub}")
-    print(f"  Restore with: sah claude-desktop --restore")
-    _restart_claude(skip=args.no_restart)
-
-
-# ---------- entrypoint ----------
-
-def _add_client_parser(
-    sub,
-    name: str,
-    display: str,
-    func,
-    *,
-    aliases: list[str] | None = None,
-    mode: str = "persistent",
-):
-    sp = sub.add_parser(
-        name,
-        aliases=aliases or [],
-        help=f"Launch {display} through Spark AI Hub",
-        description=f"Launch {display} through Spark AI Hub.",
-    )
-    group = sp.add_mutually_exclusive_group()
-    if mode == "persistent":
-        group.add_argument(
-            "--install",
-            action="store_true",
-            help=f"Install persistent Spark AI Hub wiring for plain {display}",
-        )
-        group.add_argument(
-            "--restore",
-            action="store_true",
-            help=f"Restore previous plain {display} settings",
-        )
-        group.add_argument(
-            "--status",
-            action="store_true",
-            help=f"Show Spark AI Hub wiring status for {display}",
-        )
+def cmd_env(args) -> None:
+    if args.anthropic:
+        print(f"export ANTHROPIC_BASE_URL={hub_url()}")
+        print(f"export ANTHROPIC_AUTH_TOKEN={API_KEY}")
     else:
-        group.add_argument(
-            "--install",
-            action="store_true",
-            help=f"Not available: {display} is launch only in sah",
-        )
-        group.add_argument(
-            "--restore",
-            action="store_true",
-            help=f"Not available: {display} is launch only in sah",
-        )
-        group.add_argument(
-            "--status",
-            action="store_true",
-            help=f"Show Spark AI Hub support status for {display}",
-        )
-    sp.add_argument(
-        "passthrough",
-        nargs=argparse.REMAINDER,
-        metavar="args",
-        help=f"Arguments passed to {display}",
+        print(f"export OPENAI_BASE_URL={api_base()}")
+        print(f"export OPENAI_API_KEY={API_KEY}")
+
+
+def cmd_set_hub(args) -> None:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    write_text(CONFIG_FILE, args.url.rstrip("/") + "\n")
+    print(f"Hub set to {args.url}")
+
+
+# ------------------------------------------------------------------ entrypoint
+
+
+def _add_integration_parser(sub, integration: Integration):
+    verb = "Launch" if integration.launchable else "Manage"
+    parser = sub.add_parser(
+        integration.name,
+        aliases=list(integration.aliases),
+        help=f"{verb} {integration.display} through {PROVIDER_NAME}",
+        description=f"{verb} {integration.display} through {PROVIDER_NAME}.",
     )
-    sp.set_defaults(func=func)
-    return sp
+    group = parser.add_mutually_exclusive_group()
+    persistent = integration.writes_config
+    group.add_argument("--install", action="store_true",
+                       help=(f"Make the plain {integration.display} use {PROVIDER_NAME}"
+                             if persistent else
+                             f"Not available: {integration.display} is launch only"))
+    group.add_argument("--restore", action="store_true",
+                       help=(f"Restore previous plain {integration.display} settings"
+                             if persistent else
+                             f"Not available: {integration.display} is launch only"))
+    group.add_argument("--status", action="store_true",
+                       help=f"Show {PROVIDER_NAME} wiring status for {integration.display}")
+    integration.add_arguments(parser)
+    if integration.launchable:
+        parser.add_argument("passthrough", nargs=argparse.REMAINDER, metavar="args",
+                            help=f"Arguments passed to {integration.display}")
+    parser.set_defaults(func=integration.run)
+    return parser
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         prog="sah",
-        description="Spark AI Hub client launcher",
+        description=f"{PROVIDER_NAME} client launcher",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Lifecycle:\n"
-            "  sah <client>              Launch through Spark AI Hub; plain client settings are unchanged\n"
-            "  sah <client> --install    Persistent mode: make the plain client use Spark AI Hub\n"
-            "  sah <client> --status     Show Spark AI Hub wiring status for the client\n"
-            "  sah <client> --restore    Persistent mode: restore the previous plain client settings\n"
+            "  sah <client>              Configure the client for the Hub and launch it\n"
+            "  sah <client> --install    Configure only, so the plain client uses the Hub\n"
+            "  sah <client> --status     Show wiring status for the client\n"
+            "  sah <client> --restore    Put the client's original settings back\n"
             "\n"
             "Client args:\n"
-            "  sah <client> -- <args>    Pass args to the underlying client, e.g. sah qwen -- --help\n"
+            "  sah <client> -- <args>    Pass args to the underlying client\n"
             "\n"
             "Discover integrations:\n"
-            "  sah integrations          List each integration's mode and exact lifecycle commands\n"
+            "  sah integrations          List every integration's mode and commands\n"
         ),
     )
-    sub = p.add_subparsers(dest="cmd", required=True, title="commands", metavar="<command>")
+    sub = parser.add_subparsers(dest="cmd", required=True, title="commands", metavar="<command>")
 
     sp = sub.add_parser("info", help="Show Hub URL and current model")
     sp.set_defaults(func=cmd_info)
@@ -2213,36 +2315,18 @@ def main() -> None:
                         help="List integration modes and lifecycle commands")
     sp.set_defaults(func=cmd_integrations)
 
-    sp = sub.add_parser("set-hub", help="Set the Spark AI Hub URL")
+    sp = sub.add_parser("set-hub", help=f"Set the {PROVIDER_NAME} URL")
     sp.add_argument("url")
     sp.set_defaults(func=cmd_set_hub)
 
-    _add_client_parser(sub, "opencode", "OpenCode", cmd_opencode)
-    _add_client_parser(sub, "codex", "Codex", cmd_codex)
-    _add_client_parser(sub, "hermes", "Hermes Agent", cmd_hermes)
-    _add_client_parser(sub, "hermes-desktop", "Hermes Desktop", cmd_hermes_desktop)
-    _add_client_parser(sub, "qwen", "Qwen Code", cmd_qwen)
-    _add_client_parser(sub, "openclaw", "OpenClaw", cmd_openclaw, aliases=["clawdbot", "moltbot"])
-    _add_client_parser(sub, "pi", "Pi Coding Agent", cmd_pi)
-    _add_client_parser(sub, "claude", "Claude Code", cmd_claude)
+    for integration in INTEGRATIONS:
+        _add_integration_parser(sub, integration)
 
-    sp = sub.add_parser("claude-desktop", help="Manage Claude Desktop Spark AI Hub wiring")
-    g = sp.add_mutually_exclusive_group()
-    g.add_argument("--install", action="store_true",
-                   help="Persistently wire Claude Desktop to Spark AI Hub")
-    g.add_argument("--restore", action="store_true",
-                   help="Restore Claude Desktop to the usual Anthropic profile")
-    g.add_argument("--status", action="store_true",
-                   help="Show whether SAH is currently wired to Claude Desktop")
-    sp.add_argument("--no-restart", action="store_true",
-                    help="Skip the automatic Claude Desktop restart")
-    sp.set_defaults(func=cmd_claude_desktop)
-
-    args, extras = p.parse_known_args()
+    args, extras = parser.parse_known_args()
     if hasattr(args, "passthrough"):
         args.passthrough = [*extras, *args.passthrough]
     elif extras:
-        p.error(f"unrecognized arguments: {' '.join(extras)}")
+        parser.error(f"unrecognized arguments: {' '.join(extras)}")
     args.func(args)
 
 
