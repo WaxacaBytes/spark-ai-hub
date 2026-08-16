@@ -11,6 +11,8 @@ tags:
   - llm
   - diffusion-llm
   - moe
+  - multimodal
+  - vision
   - reasoning
   - coding
   - tool-use

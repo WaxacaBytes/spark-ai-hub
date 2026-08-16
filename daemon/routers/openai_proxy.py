@@ -74,13 +74,8 @@ async def _fetch_current_model() -> str | None:
 # reach. Unknown fields are ignored by OpenAI-shaped clients, so this is
 # additive for anything that does not look for it.
 
-_TAG_CAPABILITIES = {
-    "vision": "vision",
-    "multimodal": "vision",
-    "video": "video",
-    "tool-use": "tools",
-    "reasoning": "thinking",
-}
+# The tag → capability mapping lives on the Recipe model, so the detail page
+# shows the user exactly what is reported here.
 
 _CAPABILITY_CACHE: dict[str, Any] = {"caps": None, "fetched_at": 0.0}
 _CAPABILITY_CACHE_TTL = 30.0  # seconds; recipes change far less often than models
@@ -125,11 +120,7 @@ async def _serving_capabilities() -> list[str]:
             recipe = get_recipes().get(slug)
             if recipe is None or recipe.ui.port != upstream_port:
                 continue
-            found = {"completion"}
-            for tag in recipe.tags:
-                if capability := _TAG_CAPABILITIES.get(tag):
-                    found.add(capability)
-            caps = sorted(found)
+            caps = recipe.capabilities
             break
     except Exception:
         caps = []

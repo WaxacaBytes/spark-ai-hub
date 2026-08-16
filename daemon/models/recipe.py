@@ -1,5 +1,18 @@
 from __future__ import annotations
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
+
+
+# What a served model can actually do, derived from the recipe's hand-written
+# tags. This is the single source of truth: the OpenAI proxy reports it to
+# clients on /v1/models, and the detail page shows the same list to the user so
+# they know what their coding agent is being told.
+TAG_CAPABILITIES = {
+    "vision": "vision",
+    "multimodal": "vision",
+    "video": "video",
+    "tool-use": "tools",
+    "reasoning": "thinking",
+}
 
 
 class RecipeRequirements(BaseModel):
@@ -107,3 +120,15 @@ class Recipe(BaseModel):
     starting: bool = False
     installing: bool = False
     has_leftovers: bool = False
+
+    @computed_field
+    @property
+    def capabilities(self) -> list[str]:
+        """Capabilities reported for this model, or [] if it serves no API."""
+        if self.integration is None:
+            return []
+        found = {"completion"}
+        for tag in self.tags:
+            if capability := TAG_CAPABILITIES.get(tag):
+                found.add(capability)
+        return sorted(found)

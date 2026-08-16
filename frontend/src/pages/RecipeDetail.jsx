@@ -571,6 +571,7 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
                 <Field label="API URL" value={recipe.integration.api_url.replace('<SPARK_IP>', location.hostname)} />
                 <Field label="Model ID" value={recipe.integration.model_id} />
                 <Field label="API Key" value={recipe.integration.api_key} />
+                {recipe.capabilities?.length > 0 && <CapabilityField capabilities={recipe.capabilities} />}
                 {recipe.integration.max_context && <Field label="Max Context" value={recipe.integration.max_context} />}
                 {recipe.integration.max_output_tokens && <Field label="Max Output" value={recipe.integration.max_output_tokens} />}
                 {recipe.integration.curl_example && (
@@ -757,6 +758,34 @@ function ComposeEditor({ slug }) {
           {error && <span className="text-error font-label">{error}</span>}
         </div>
       </div>
+    </div>
+  )
+}
+
+// What the Hub reports to coding agents on /v1/models, spelled out so the user
+// knows what their client thinks this model can do.
+const CAPABILITY_LABELS = {
+  completion: 'Text generation',
+  vision: 'Image input',
+  video: 'Video input',
+  tools: 'Tool calling',
+  thinking: 'Reasoning',
+}
+
+function CapabilityField({ capabilities }) {
+  return (
+    <div>
+      <span className="text-[10px] text-text-dim font-label block">Capabilities</span>
+      <div className="flex flex-wrap gap-1.5 mt-1">
+        {capabilities.map((c) => (
+          <span key={c} className="bg-surface-high/70 text-text-muted px-2.5 py-1 rounded-full text-[11px] font-label">
+            {CAPABILITY_LABELS[c] || c}
+          </span>
+        ))}
+      </div>
+      <p className="text-[10px] text-text-dim leading-4 m-0 mt-1.5">
+        Reported to coding agents and other clients on <code className="font-mono">/v1/models</code>.
+      </p>
     </div>
   )
 }
