@@ -3,7 +3,7 @@ import { useStore } from '../store'
 import RecipeCard from '../components/RecipeCard'
 import PosterCard from '../components/PosterCard'
 import CardRow from '../components/CardRow'
-import ModelList, { ModelBlock } from '../components/ModelList'
+import ModelList, { ModelBlock, InstalledStrip } from '../components/ModelList'
 import Hero from '../components/Hero'
 import { vendorKey, vendorLabel } from '../covers'
 import { groupModels } from '../models'
@@ -143,17 +143,14 @@ export default function Catalog({ search = '' }) {
   const shelves = useMemo(() => {
     const pick = (id) => filtered.filter((r) => getSectionId(r) === id)
 
-    // "Jump back in" collects anything already on disk, running first. Model
-    // builds and apps split: a shelf of installed models was the worst case
-    // for poster art in the whole UI — three of its twelve tiles were the same
-    // capybara, differing only by the engine and quantization a poster cannot
-    // show — while installed apps do have art of their own worth showing.
+    // "Jump back in" collects everything already on disk, running first. It
+    // stays one shelf covering models and apps alike: it is short access to
+    // what is installed, and splitting it in two made you scroll past both to
+    // reach the catalog.
     const active = filtered
       .filter((r) => r.running || r.starting || r.installed)
       .sort((a, b) => Number(b.running || b.starting) - Number(a.running || a.starting)
         || byRelease(a, b))
-    const activeModels = active.filter(isModel)
-    const activeApps = active.filter((r) => !isModel(r))
 
     // Models are collapsed to one entry per model — Qwen3.6-27B is a single
     // choice with seven builds under it, not seven entries competing for the
@@ -192,8 +189,7 @@ export default function Catalog({ search = '' }) {
     }
 
     return {
-      activeModels,
-      activeApps,
+      active,
       spark: pick('spark-ai-hub').sort(byRelease),
       official: pick('official').sort(byRelease),
       vendorShelves,
@@ -283,23 +279,13 @@ export default function Catalog({ search = '' }) {
         />
       ) : (
         <div className="space-y-9 pt-4">
-          {shelves.activeModels.length > 0 && (
+          {shelves.active.length > 0 && (
             <CardRow
               title="Jump back in"
               subtitle="Installed on this Spark · one model serves port 9001 at a time"
               wrap
             >
-              <ModelList items={shelves.activeModels} variant="installed" />
-            </CardRow>
-          )}
-
-          {shelves.activeApps.length > 0 && (
-            <CardRow
-              title={shelves.activeModels.length > 0 ? 'Installed apps' : 'Jump back in'}
-              subtitle="Installed on this Spark"
-              wrap
-            >
-              {shelves.activeApps.map((r) => <PosterCard key={r.slug} recipe={r} />)}
+              <InstalledStrip items={shelves.active} />
             </CardRow>
           )}
 
@@ -367,9 +353,8 @@ export default function Catalog({ search = '' }) {
             </div>
           )}
 
-          {shelves.activeModels.length === 0 && shelves.activeApps.length === 0
-            && shelves.spark.length === 0 && shelves.official.length === 0
-            && shelves.vendorShelves.length === 0 && <Empty />}
+          {shelves.active.length === 0 && shelves.spark.length === 0
+            && shelves.official.length === 0 && shelves.vendorShelves.length === 0 && <Empty />}
         </div>
       )}
     </div>

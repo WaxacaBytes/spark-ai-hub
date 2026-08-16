@@ -13,14 +13,14 @@ import { buildLabel, displayName } from '../models'
 // build from another were squeezed into chips over a scrim. Rows put those
 // facts in columns, where comparing them is just reading downwards.
 //
-// Three shelves need this list and they differ in one column and one heading,
-// so they are three variants of one component rather than three components:
+// Two shelves need this list and they differ in one column and one heading,
+// so they are two variants of one component rather than two components:
 //
 //   build      grouped under a model heading, which names the model, so a row
 //              only has to name its build
 //   ranked     one flat leaderboard per band; leads with a rank number
-//   installed  what is on this Spark; leads with run state, because only one
-//              model holds port 9001 at a time and you need to see which
+//
+// "Jump back in" is deliberately not one of them -- see InstalledStrip.
 //
 const VARIANTS = {
   build: {
@@ -37,16 +37,6 @@ const VARIANTS = {
     lead: 'rank',
     wrap: true,
     maxWidth: '730px',
-  },
-  installed: {
-    columns: '62px minmax(0,1fr) 70px 70px 56px 80px 62px 42px 62px',
-    headers: ['Engine', 'Quant'],
-    first: 'Model · build',
-    lead: 'status',
-    wrap: true,
-    // Wider than the ranked pair: this shelf is never split, and its status
-    // column costs the name the room the rank number does not.
-    maxWidth: '880px',
   },
 }
 
@@ -167,20 +157,8 @@ function BuildRow({ recipe, variant, groupLabel, rank, highlight }) {
       {v.lead === 'rank' && (
         <span className="text-right font-label text-[10px] tabular-nums text-text-dim">{rank}</span>
       )}
-      {v.lead === 'status' && (
-        // Every row on this shelf is installed, so the word "Installed" would
-        // be printed a dozen times to make one "Running" stand out. The plain
-        // state keeps only its dot; the states that mean something get words.
-        <span className="flex min-w-0 items-center gap-1.5 font-label text-[10px] font-semibold text-text-muted">
-          {state && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${state.dot}`} />}
-          {state && state.label !== 'Installed' && <span className="truncate">{state.label}</span>}
-        </span>
-      )}
-
       <span className="flex min-w-0 items-center gap-1.5">
-        {/* Where a status column carries the run state, the inline dot would
-            only say it twice. */}
-        {v.lead !== 'status' && state && (
+        {state && (
           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${state.dot}`} title={state.label} />
         )}
         {v.lead !== null && logoUrl && !logoFailed && (
@@ -260,6 +238,103 @@ export default function ModelList({ items, variant = 'ranked', highlight = null 
         </section>
       ))}
     </div>
+  )
+}
+
+// "Jump back in": short access to everything on this Spark.
+//
+// This shelf is recall, not choosing — you already installed these and want
+// back into one. So it is sized for a glance, not for comparison: a wrapping
+// grid of one-glance chips, models and apps together, the whole thing about
+// two rows tall. Full table rows were legible but turned a strip you skim
+// into two sections you scroll past to reach the catalog, and posters before
+// them were illegible: three of twelve tiles were the same picture.
+//
+// Each chip carries only what tells two installed builds apart — the engine,
+// the quantization, the speed — plus the one control you came for.
+export function InstalledStrip({ items }) {
+  return (
+    <div className="flex flex-wrap gap-2 px-6">
+      {items.map((r) => <InstalledChip key={r.slug} recipe={r} />)}
+    </div>
+  )
+}
+
+function InstalledChip({ recipe }) {
+  const installing = useStore((s) => s.installing)
+  const updating = useStore((s) => s.updating)
+  const requestLaunch = useStore((s) => s.requestLaunch)
+  const [logoFailed, setLogoFailed] = useState(false)
+  const logoUrl = useThemedLogo(recipe.logo)
+
+  const isBusy = !!installing[recipe.slug] || !!updating[recipe.slug]
+  const state = runState(recipe, isBusy)
+  const running = recipe.running && recipe.ready
+  const openUrl = `http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`
+
+  // Models are told apart by how they were built; apps by their name alone.
+  const spec = [recipe.engine, recipe.quantization].filter(Boolean).join(' · ')
+
+  return (
+    <Link
+      to={`/app/${recipe.slug}`}
+      title={recipe.name}
+      className={`flex w-[272px] items-center gap-2 rounded-xl bg-surface p-2 no-underline text-inherit ring-1 transition-all hover:ring-text-dim ${
+        running ? 'ring-primary/60' : 'ring-glass-border'
+      }`}
+    >
+      {logoUrl && !logoFailed ? (
+        <img
+          src={logoUrl}
+          alt=""
+          loading="lazy"
+          onError={() => setLogoFailed(true)}
+          className="h-7 w-7 shrink-0 rounded-lg bg-surface-high object-contain p-1"
+        />
+      ) : (
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-high text-sm">
+          {recipe.icon || '◻'}
+        </span>
+      )}
+
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="flex items-center gap-1">
+          {state && state.label !== 'Installed' && (
+            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${state.dot}`} title={state.label} />
+          )}
+          <span className="truncate font-label text-[11px] font-bold text-text">
+            {displayName(recipe)}
+          </span>
+        </span>
+        <span className="truncate font-label text-[9px] text-text-dim">
+          {spec || recipe.author}
+          {recipe.tokens_per_second != null && (
+            <span className="ml-1 font-bold text-primary">{recipe.tokens_per_second} tok/s</span>
+          )}
+        </span>
+      </span>
+
+      {running ? (
+        <a
+          href={openUrl}
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="btn-primary shrink-0 px-2 py-1 text-[10px] font-bold no-underline"
+        >
+          Open ↗
+        </a>
+      ) : isBusy || recipe.starting ? (
+        <span className="shrink-0 font-label text-[9px] text-text-muted">{state?.label}…</span>
+      ) : (
+        <button
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestLaunch(recipe.slug) }}
+          className="shrink-0 cursor-pointer rounded-lg border border-outline-dim bg-transparent px-2 py-1 font-label text-[10px] font-bold text-text-muted transition-colors hover:border-primary hover:text-primary"
+        >
+          Launch
+        </button>
+      )}
+    </Link>
   )
 }
 
