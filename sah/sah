@@ -945,6 +945,21 @@ class Qwen(Integration):
     def files(self) -> dict[str, Path]:
         return {"qwen": self.config_path()}
 
+    @staticmethod
+    def _owned(entry) -> bool:
+        """Is this provider entry one sah wrote, now or in an earlier version?
+
+        Matching only the current API key and base URL leaves a dead entry
+        behind every time the Hub's address changes or sah's own key name does,
+        and qwen-code will happily pick a stale one. The display name is the
+        marker that has survived every version.
+        """
+        if not isinstance(entry, dict):
+            return False
+        if entry.get("envKey") in ("SAH_API_KEY", "OPENAI_API_KEY"):
+            return PROVIDER_NAME in (entry.get("name") or "")
+        return PROVIDER_NAME in (entry.get("name") or "") or entry.get("baseUrl") == api_base()
+
     def configure(self, model: Model) -> None:
         cfg = read_json(self.config_path())
         env_cfg = cfg.get("env") if isinstance(cfg.get("env"), dict) else {}
@@ -958,10 +973,23 @@ class Qwen(Integration):
             "baseUrl": api_base(),
             "envKey": "SAH_API_KEY",
         }
-        others = [
-            p for p in (providers.get("openai") or [])
-            if not (isinstance(p, dict) and p.get("envKey") == "SAH_API_KEY")
-        ]
+        # DIVERGENCE (client defect, not preference): qwen-code decides
+        # multimodality from its own built-in registry, keyed on the model
+        # NAME. A Hub model is never in that registry, so it falls through to
+        # the text-only `^qwen` default and refuses image and video reads
+        # client-side — the request never reaches the Hub, and no amount of
+        # capability reporting can change that. Ollama's qwen.go writes no
+        # modality either, because its own model names ARE in the registry.
+        # The flags below come from the Hub's reported capabilities, not from
+        # a guess about the model name.
+        modalities = {}
+        if model.has("vision"):
+            modalities["image"] = True
+        if model.has("video"):
+            modalities["video"] = True
+        if modalities:
+            mine["generationConfig"] = {"modalities": modalities}
+        others = [p for p in (providers.get("openai") or []) if not self._owned(p)]
         providers["openai"] = [mine, *others]
         cfg["modelProviders"] = providers
 
@@ -1046,6 +1074,13 @@ class Hermes(Integration):
             "base_url": api_base(),
             "api_key": API_KEY,
         })
+        # Hermes decides between native image input and a text description by
+        # looking the model up in its own capability registry, which no Hub
+        # model is in — so `auto` silently resolves to text and images never
+        # reach a vision model. Set it explicitly from what the Hub reports,
+        # both ways, so swapping to a text-only model turns it back off.
+        text = yaml_upsert(text, ["agent", "image_input_mode"],
+                           "native" if model.has("vision") else "auto")
         # Ollama merges "web" into any existing toolsets; block replacement
         # would drop the user's, so only seed the key when it is absent.
         if not yaml_has_key(text, "toolsets"):
@@ -1339,16 +1374,25 @@ class Kimi(Integration):
                 return str(fallback)
         return None
 
+    # kimi's LLMModel carries an explicit capability set, so the Hub's
+    # capabilities map straight onto it. Ollama leaves it unset because its own
+    # model names are already in kimi's registry; Hub model names are not.
+    _CAPABILITIES = {"vision": "image_in", "video": "video_in", "thinking": "thinking"}
+
     def inline_config(self, model: Model) -> str:
+        entry: dict = {
+            "provider": PROVIDER,
+            "model": model.name,
+            "max_context_size": model.context(32768),
+        }
+        if caps := [v for k, v in self._CAPABILITIES.items() if model.has(k)]:
+            entry["capabilities"] = caps
         return json.dumps({
             "default_model": PROVIDER,
             "providers": {PROVIDER: {
                 "type": "openai_legacy", "base_url": api_base(), "api_key": API_KEY,
             }},
-            "models": {PROVIDER: {
-                "provider": PROVIDER, "model": model.name,
-                "max_context_size": model.context(32768),
-            }},
+            "models": {PROVIDER: entry},
         })
 
     def argv(self, model: Model, extra: list[str]) -> list[str]:
