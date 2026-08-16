@@ -689,7 +689,7 @@ class Claude(Integration):
         return None
 
     def env(self, model: Model) -> dict:
-        return {
+        env = {
             "ANTHROPIC_BASE_URL": hub_url(),
             "ANTHROPIC_API_KEY": "",
             "ANTHROPIC_AUTH_TOKEN": API_KEY,
@@ -702,6 +702,17 @@ class Claude(Integration):
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": model.name,
             "CLAUDE_CODE_SUBAGENT_MODEL": model.name,
         }
+        # Claude Code only knows the context window of models in its own
+        # registry; a Hub model is never in it, so it assumes 200k and
+        # auto-compacts early — discarding context a 262k model was happy to
+        # hold. The Hub reports the real window, so pass it on. Ollama does the
+        # same for its cloud models via CLAUDE_CODE_AUTO_COMPACT_WINDOW; this is
+        # the variable Claude Code's own warning names for the window itself.
+        if model.context_length:
+            env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = os.environ.get(
+                "CLAUDE_CODE_MAX_CONTEXT_TOKENS", str(model.context_length)
+            )
+        return env
 
     def argv(self, model: Model, extra: list[str]) -> list[str]:
         return ["--model", model.name, *extra]

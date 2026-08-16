@@ -46,6 +46,32 @@ def _flatten_text(value: Any) -> str:
     return ""
 
 
+def _hoist_system_messages(messages: list[dict]) -> list[dict]:
+    """Fold every system message into a single leading one.
+
+    Claude Code adds system content part-way through a conversation — on a
+    tool-result turn it sends a second `system` message after the first user
+    turn. The OpenAI schema tolerates that, but SGLang rejects the request
+    outright with "System message must be at the beginning.", which reaches the
+    user as a bare 400 in the middle of an otherwise working session. Merging
+    them preserves every instruction and the order they were given in, and
+    costs nothing on backends that would have accepted the original.
+    """
+    system_texts: list[str] = []
+    rest: list[dict] = []
+    for msg in messages:
+        if msg.get("role") != "system":
+            rest.append(msg)
+            continue
+        content = msg.get("content")
+        text = content if isinstance(content, str) else _flatten_text(content)
+        if text:
+            system_texts.append(text)
+    if not system_texts:
+        return rest
+    return [{"role": "system", "content": "\n\n".join(system_texts)}, *rest]
+
+
 def _anthropic_to_openai(body: dict, model: str) -> dict:
     out: dict[str, Any] = {"model": model, "stream": bool(body.get("stream"))}
 
@@ -140,7 +166,7 @@ def _anthropic_to_openai(body: dict, model: str) -> dict:
                 asst["tool_calls"] = tool_calls
             messages.append(asst)
 
-    out["messages"] = messages
+    out["messages"] = _hoist_system_messages(messages)
 
     if tools := body.get("tools"):
         out["tools"] = [
@@ -379,6 +405,7 @@ async def messages(request: Request):
                 async with s.post(url, json=upstream_payload) as r:
                     if r.status != 200:
                         err = (await r.text())[:500]
+                        print(f"[anthropic] upstream {r.status} (stream): {err}", flush=True)
                         yield _sse("error", {
                             "type": "error",
                             "error": {"type": "api_error", "message": err},
@@ -396,10 +423,17 @@ async def messages(request: Request):
             except aiohttp.ContentTypeError:
                 data = {"error": {"message": (await r.text())[:500]}}
             if r.status != 200:
-                err_msg = data.get("error", {}).get("message") if isinstance(data, dict) else str(data)
+                err_msg = data.get("error", {}).get("message") if isinstance(data, dict) else None
+                if not err_msg:
+                    # Never collapse an upstream failure to a bare "upstream
+                    # error": the body is the only thing that says what the
+                    # client actually got wrong.
+                    err_msg = json.dumps(data)[:800] if data else "upstream error"
+                roles = [m.get("role") for m in upstream_payload.get("messages", [])]
+                print(f"[anthropic] upstream {r.status}: {err_msg} | roles={roles}", flush=True)
                 return JSONResponse(status_code=r.status, content={
                     "type": "error",
-                    "error": {"type": "api_error", "message": err_msg or "upstream error"},
+                    "error": {"type": "api_error", "message": err_msg},
                 })
     return JSONResponse(_openai_to_anthropic(data, requested_model))
 
