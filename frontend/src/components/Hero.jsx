@@ -3,6 +3,7 @@ import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { backdropFor } from '../covers'
 import { formatParams } from './RecipeCard'
+import { speedLabel } from '../models'
 
 const ROTATE_MS = 9000
 
@@ -31,7 +32,7 @@ export default function Hero({ picks }) {
     recipe.author,
     recipe.params_b != null && formatParams(recipe),
     recipe.quantization,
-    recipe.tokens_per_second != null && `${recipe.tokens_per_second} tok/s`,
+    speedLabel(recipe),
   ].filter(Boolean)
 
   const openUrl = `http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`

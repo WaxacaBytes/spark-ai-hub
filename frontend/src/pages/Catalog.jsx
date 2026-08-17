@@ -64,12 +64,45 @@ const MODEL_SORTS = [
     band: (r) => bands([[80, '80 GB+'], [50, '50–80 GB'], [20, '20–50 GB'], [0, 'Under 20 GB']],
       'Unmeasured')(r.weights_gb),
   },
+  // The two speed sorts are named after the work, not after a superlative:
+  // "Speed" never said speed at what, and both figures are sustained rates over
+  // thousands of tokens, so calling either one a peak would misdescribe it.
   {
     id: 'speed',
-    label: 'Speed',
+    label: 'Writing',
     key: (r) => r.tokens_per_second,
-    band: (r) => bands([[100, '100+ tok/s'], [50, '50–100 tok/s'], [25, '25–50 tok/s'],
-      [10, '10–25 tok/s'], [0, 'Under 10 tok/s']], 'Not benchmarked')(r.tokens_per_second),
+    note: 'Ranked on writing new text: three prompts — a quicksort with comments, TCP vs '
+      + 'UDP, a Kyoto itinerary — averaged, 512 tokens each at temperature 0, with thinking '
+      + 'left on as these models ship it. Nothing in the answer can be copied from the '
+      + 'question, so a speculative drafter has little to work with and every build is '
+      + 'close to its plain decode speed. This is the figure every recipe carries.',
+    band: (r) => bands([[100, '100+ tok/s writing'], [50, '50–100 tok/s writing'],
+      [25, '25–50 tok/s writing'], [10, '10–25 tok/s writing'], [0, 'Under 10 tok/s writing']],
+      'Not benchmarked')(r.tokens_per_second),
+  },
+  // Where a speculative drafter's value actually shows up. Under Writing those
+  // builds rank below plainer, slower ones, because writing is the workload a
+  // drafter cannot help with. Only builds measured on an edit can be ranked, so
+  // the rest fall to one band at the bottom rather than being silently ordered
+  // by a number they do not have.
+  {
+    id: 'editing',
+    label: 'Editing',
+    key: (r) => r.tokens_per_second_editing,
+    note: 'Ranked on reproducing a document with a small change applied — here a 45-class '
+      + 'Python module with one method added to every class, sent with thinking off '
+      + '(enable_thinking: false), temperature 0 and a 3000-token cap. This is a sustained '
+      + 'rate over those 3000 tokens, not a burst. Nearly all of the output already exists '
+      + 'in the prompt, so a speculative drafter\'s proposals are almost always accepted and '
+      + 'the server commits several tokens per forward pass. The kind of text barely matters '
+      + '— the same recipe measured 57.4 editing prose and 56.3 editing a markdown document '
+      + 'against 58.1 on this code — but how much new material the edit introduces does: an '
+      + 'edit that writes a fresh docstring for every function fell to 48.5. Nothing else '
+      + 'differs from the Writing run: same recipe, same flags, prefix caching on. Builds '
+      + 'with no drafter gain little here, and builds not yet measured on an edit are last.',
+    band: (r) => bands([[100, '100+ tok/s editing'], [50, '50–100 tok/s editing'],
+      [25, '25–50 tok/s editing'], [0, 'Under 25 tok/s editing']],
+      'Not measured on an edit')(r.tokens_per_second_editing),
   },
 ]
 
@@ -230,6 +263,31 @@ export default function Catalog({ search = '' }) {
     </div>
   )
 
+  // One message for the whole shelf, not one per column and one per sort. It
+  // explains the two speed columns by default, and is replaced by the ranking
+  // sort's own account of its workload when that is the question being asked —
+  // a rate read as a general speed is worse than no rate at all.
+  const sortNote = (
+    <p className="m-0 max-w-6xl text-[11px] leading-5 text-text-dim">
+      {modelSort.note ? (
+        <>
+          <span className="font-label font-bold text-text-muted">
+            Sorted by {modelSort.label.toLowerCase()}.{' '}
+          </span>
+          {modelSort.note}
+        </>
+      ) : (
+        <>
+          <span className="font-label font-bold text-text-muted">Writing and Editing </span>
+          are sustained tok/s on two workloads: writing new text from a short prompt, and
+          reproducing a document with a small change applied. Builds that draft speculatively
+          are far faster at editing, where most of the output is already in the prompt — which
+          is why one number cannot describe them. Sort by either to see the full account.
+        </>
+      )}
+    </p>
+  )
+
   const connectButton = (
     <button
       onClick={openConnect}
@@ -275,6 +333,7 @@ export default function Catalog({ search = '' }) {
           comparator={comparator}
           highlight={groupByLab ? null : modelSort.id}
           sortControl={sortControl}
+          sortNote={sortNote}
           search={search}
         />
       ) : (
@@ -317,6 +376,7 @@ export default function Catalog({ search = '' }) {
                   {connectButton}
                 </div>
               </div>
+              <div className="mb-1 px-6">{sortNote}</div>
 
               {/* Two shapes for two questions. Browsing by lab, you are
                   choosing a model, so builds sit grouped under theirs. On a
@@ -369,7 +429,7 @@ function shelfSubtitle(groups) {
   return builds === groups.length ? models : `${models} · ${builds} builds`
 }
 
-function ResultsGrid({ recipes, comparator, highlight, sortControl, search }) {
+function ResultsGrid({ recipes, comparator, highlight, sortControl, sortNote, search }) {
   const sorted = useMemo(() => [...recipes].sort(comparator), [recipes, comparator])
   if (sorted.length === 0) return <Empty />
   return (
@@ -381,6 +441,7 @@ function ResultsGrid({ recipes, comparator, highlight, sortControl, search }) {
         </h2>
         <div className="ml-auto">{sortControl}</div>
       </div>
+      <div className="mb-4 -mt-1">{sortNote}</div>
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
         {sorted.map((r) => <RecipeCard key={r.slug} recipe={r} highlight={highlight} />)}
       </div>

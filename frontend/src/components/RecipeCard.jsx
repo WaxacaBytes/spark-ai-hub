@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
+import { speedLabel } from '../models'
 
 // "35B-A3B" for MoE (total + active), plain "27B" for dense.
 export function formatParams(recipe) {
@@ -115,7 +116,7 @@ export default function RecipeCard({ recipe, hideCategories = false, highlight =
                 ? chipClass(true)
                 : 'text-[10px] font-label text-primary bg-primary/10 px-2 py-0.5 rounded-full'}
               >
-                {recipe.tokens_per_second} tok/s
+                {speedLabel(recipe)}
               </span>
             )}
           </div>

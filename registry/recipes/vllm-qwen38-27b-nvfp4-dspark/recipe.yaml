@@ -1,10 +1,10 @@
-name: "Qwen3.8-27B NVFP4"
-slug: vllm-qwen38-27b-nvfp4
+name: "Qwen3.8-27B NVFP4 DSpark"
+slug: vllm-qwen38-27b-nvfp4-dspark
 version: "1.0.0"
-description: "Qwen3.8-27B NVFP4 (Unsloth Dynamic V3.0) on vLLM with MTP speculative decoding. Qwen's newest dense 27B vision-language model — hybrid Gated DeltaNet + gated attention, thinking on by default with tunable reasoning_effort, 262K context — quantized to NVFP4 MLPs with FP8 attention and served with an fp8 KV cache on the flashinfer backend."
-author: "Alibaba Cloud + Unsloth + vLLM"
+description: "Qwen3.8-27B NVFP4 (Unsloth Dynamic V3.0) on vLLM with the DSpark block drafter instead of the checkpoint's MTP head. Same weights as the MTP recipe — the speedup is decode strategy, which is output-preserving. Speed depends heavily on how predictable the output is: 27.7 tok/s writing code from scratch, 58.0 editing a file that is already in the prompt (thinking off), 15.0 on open prose. Hybrid Gated DeltaNet VLM, 262K context, prefix caching on."
+author: "Alibaba Cloud + Unsloth + Doopeworld"
 source: "community"
-website: "https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4"
+website: "https://github.com/0xBakeer/Qwen3.8-27B-4-bit-on-a-single-DGX-Spark"
 upstream: "https://huggingface.co/unsloth/Qwen3.8-27B-NVFP4"
 category: llm
 tags:
@@ -19,12 +19,12 @@ tags:
   - qwen
   - nvfp4
   - speculative-decoding
-  - mtp
+  - dspark
 logo: "/logos/qwen.png"
 requirements:
   min_memory_gb: 45
   recommended_memory_gb: 60
-  disk_gb: 32
+  disk_gb: 35
   cuda_compute: "12.1"
 ui:
   type: api-only
@@ -32,33 +32,31 @@ ui:
   path: "/v1/models"
 docker:
   build: true
+  build_time_minutes: 12
   gpu: true
 status: community-verified
 engine: "vLLM"
 params_b: 27
 arch: dense
 quantization: "NVFP4"
-weights_gb: 23.4
-release_date: "2026-08-12"
-tokens_per_second: 21.4
-tokens_per_second_editing: 29.9
+weights_gb: 25.3
+release_date: "2026-08"
+tokens_per_second: 19.5
+tokens_per_second_editing: 58.0
 editing_workload: "code-edit"
-# MTP accepts 99.9% of its drafts on a code edit — it is not acceptance that
-# limits it, but nst=3, which caps the engine at 4.00 tokens per forward pass.
-# The DSpark sibling accepts less and still reaches 59.4, because it drafts a
-# block of 7 at once. Depth, not accuracy, is what sets the ceiling here.
 benchmarks:
-  code: 23.6
-  explainer: 21.3
-  prose: 19.5
-  code-edit: 29.9
-requires_hf_token: true
+  code: 27.7
+  explainer: 19.4
+  prose: 15.0
+  code-edit: 58.0
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-08-17"
 integration:
   api_url: "http://<SPARK_IP>:9001/v1"
   model_id: "unsloth/Qwen3.8-27B-NVFP4"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"unsloth/Qwen3.8-27B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 2048, \"temperature\": 1.0, \"top_p\": 0.95}'"
-
 
 cover:
   image: qwen-27b.jpg

@@ -60,6 +60,30 @@ export function displayName(recipe) {
     .trim() || recipe.name
 }
 
+// One number cannot describe a model that drafts speculatively. A drafter
+// proposes tokens the target model verifies in a single pass, so throughput
+// tracks how much of the output is copied from the prompt rather than invented.
+// Qwen3.8-27B NVFP4 DSpark writes at 19.5 tok/s and edits at 58.0 — both
+// sustained over thousands of tokens, neither a spike. Averaging them reports
+// 19.5 for a build that genuinely does 58 on editing work, and ranks it below a
+// slower non-speculative sibling.
+//
+// Measured across four kinds of edit, the kind of text barely matters (prose
+// 57.4, markdown 56.3, code 58.1), so this is an editing rate rather than a
+// coding one. `tokens_per_second` stays the baseline every recipe has, and
+// stays what the default sort uses.
+export function speedRange(recipe) {
+  const base = recipe.tokens_per_second
+  if (base == null) return null
+  const editing = recipe.tokens_per_second_editing
+  return editing != null && editing > base ? `${base}–${editing}` : `${base}`
+}
+
+export function speedLabel(recipe) {
+  const range = speedRange(recipe)
+  return range == null ? null : `${range} tok/s`
+}
+
 // What this build is, with the part every sibling shares taken away: "NVFP4
 // DFlash". A build whose name *is* the group name is the plain one, and is
 // labelled by its quantization instead of left blank.

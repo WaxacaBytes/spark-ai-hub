@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { formatParams } from './RecipeCard'
-import { buildLabel, displayName } from '../models'
+import { buildLabel, displayName, speedLabel } from '../models'
 
 // Model builds, as rows of aligned numbers.
 //
@@ -23,29 +23,34 @@ import { buildLabel, displayName } from '../models'
 // "Jump back in" is deliberately not one of them -- see InstalledStrip.
 //
 const VARIANTS = {
+  // The two speed columns are deliberately separate rather than one "19.5–59.4"
+  // cell. A range string has no common decimal point, so a column of them
+  // cannot be scanned vertically — and comparing builds against each other is
+  // the only reason this table exists. Cards and the hero print the range,
+  // where it reads as prose and costs nothing.
   build: {
-    columns: 'minmax(0,1fr) 56px 48px 72px 50px 34px 48px',
+    columns: 'minmax(0,1fr) 56px 44px 44px 66px 50px 34px 48px',
     headers: ['Engine'],
     first: 'Build',
     lead: null,
     wrap: false,
   },
   ranked: {
-    columns: '26px minmax(0,1fr) 70px 70px 56px 80px 62px 42px 62px',
+    columns: '26px minmax(0,1fr) 70px 70px 50px 50px 74px 62px 42px 62px',
     headers: ['Engine', 'Quant'],
     first: 'Model · build',
     lead: 'rank',
     wrap: true,
-    maxWidth: '730px',
   },
 }
 
 // Left to fill the window, the name column absorbs every spare pixel and
 // pushes the numbers ~900px from the name they describe; past that width a
-// row stops reading as one thing. Each variant caps itself (see maxWidth).
+// row stops reading as one thing. So a wide window buys more tables rather
+// than wider ones — see COL_FIT below.
 
-// Splitting a band in two only pays once it is taller than the heading stack
-// above it.
+// Splitting a band across tables only pays once it is taller than the heading
+// stack above it.
 const SPLIT_THRESHOLD = 8
 
 function formatContext(tokens) {
@@ -83,7 +88,11 @@ function ColumnHeader({ variant }) {
           {h}
         </span>
       ))}
-      {['tok/s', 'Params', 'On disk', 'Ctx'].map((h) => (
+      {/* Writing and Editing are bare numbers: "27.5 tok/s" in a 44px column
+          truncates, and a second header line for the unit costs a row of height
+          on every table. What they are and what unit they carry is stated once,
+          under the section heading these tables sit beneath. */}
+      {['Writing', 'Editing', 'Params', 'On disk', 'Ctx'].map((h) => (
         <span
           key={h}
           className="text-right font-label text-[9px] font-semibold uppercase tracking-wider text-text-dim"
@@ -192,6 +201,17 @@ function BuildRow({ recipe, variant, groupLabel, rank, highlight }) {
       }`}>
         {recipe.tokens_per_second ?? '—'}
       </span>
+      {/* Editing gets its own column so the two rates align with their own
+          kind. Dimmer than writing: both are sustained tok/s, but writing is
+          the one every build has, and so the one that ranks them by default. */}
+      <span
+        className={`truncate text-right font-display text-[13px] font-bold tabular-nums ${
+          recipe.tokens_per_second_editing != null ? 'text-secondary' : 'text-text-dim'
+        }`}
+        title={recipe.tokens_per_second_editing != null ? `${recipe.tokens_per_second_editing} tok/s sustained, reproducing a document with a small change applied (${recipe.editing_workload || 'code-edit'}, thinking off)` : undefined}
+      >
+        {recipe.tokens_per_second_editing ?? '—'}
+      </span>
       <Cell className={`text-right ${highlight === 'params' ? 'text-secondary font-bold' : 'text-text-muted'}`}>
         {recipe.params_b != null ? formatParams(recipe) : null}
       </Cell>
@@ -204,20 +224,64 @@ function BuildRow({ recipe, variant, groupLabel, rank, highlight }) {
   )
 }
 
-// One or two tables of builds. `ranked` splits a tall band across two tables
-// side by side; the rank numbers carry the reading order, and on a narrow
-// window the halves stack — still in order, first half first.
+// As many tables of builds as the window fits, side by side. The rank numbers
+// carry the reading order: it runs down the first table, then down the next.
+//
+// The column count is measured rather than left to `repeat(auto-fit, minmax(a,
+// b))`, which does not do what it looks like it does — when the max is a
+// definite length the track count is computed from *that*, so a 1380px shelf of
+// minmax(560px, 730px) fits one column, not two, and the second table wrapped
+// underneath into the empty half of the screen.
+// The ranked row's fixed columns (rank, engine, quant, five numbers, action)
+// already total ~560px, so the width that decides whether another table fits is
+// not the width at which a table survives — it is that plus enough left over to
+// read a model name. Splitting the moment each table could be 650px left ~90px
+// for the name and produced rows reading "Gemm / 4 31…". COL_FIT is therefore
+// the *comfortable* width: another column is added only when every column can
+// still be this wide, which keeps the name at 220px or more at every size.
+const COL_FIT = 780
+const COL_MAX = 900   // wider and the numbers drift too far from the name
+const COL_GAP = 12    // must match the grid's gap-3
+const MIN_ROWS_PER_COL = 4
+
+function useColumnCount(ref, enabled) {
+  const [cols, setCols] = useState(1)
+  useEffect(() => {
+    if (!enabled || !ref.current) return undefined
+    const measure = (width) => setCols(Math.max(1, Math.floor((width + COL_GAP) / (COL_FIT + COL_GAP))))
+    const ro = new ResizeObserver(([entry]) => measure(entry.contentRect.width))
+    ro.observe(ref.current)
+    measure(ref.current.getBoundingClientRect().width)
+    return () => ro.disconnect()
+  }, [ref, enabled])
+  return enabled ? cols : 1
+}
+
+function chunk(items, n) {
+  if (n <= 1) return [items]
+  const per = Math.ceil(items.length / n)
+  const out = []
+  for (let i = 0; i < items.length; i += per) out.push(items.slice(i, i + per))
+  return out
+}
+
 export default function ModelList({ items, variant = 'ranked', highlight = null }) {
-  const split = variant === 'ranked' && items.length >= SPLIT_THRESHOLD
-    ? Math.ceil(items.length / 2)
-    : items.length
-  const halves = [items.slice(0, split), items.slice(split)].filter((h) => h.length > 0)
+  const ref = useRef(null)
+  const splittable = variant === 'ranked' && items.length >= SPLIT_THRESHOLD
+  const fits = useColumnCount(ref, splittable)
+  // Never so many columns that each holds a row or two — a table needs enough
+  // rows to be worth its header.
+  const cols = splittable ? Math.max(1, Math.min(fits, Math.ceil(items.length / MIN_ROWS_PER_COL))) : 1
+  const halves = chunk(items, cols)
+  // Rank is continuous across the tables: it runs down the first, then the next.
+  const offsets = halves.reduce((acc, h) => [...acc, acc[acc.length - 1] + h.length], [0])
 
   return (
     <div
+      ref={ref}
       className="grid w-full items-start gap-3"
       style={{
-        gridTemplateColumns: `repeat(auto-fit, minmax(560px, ${VARIANTS[variant].maxWidth}))`,
+        gridTemplateColumns: `repeat(${halves.length}, minmax(0, ${COL_MAX}px))`,
         justifyContent: 'start',
       }}
     >
@@ -230,7 +294,7 @@ export default function ModelList({ items, variant = 'ranked', highlight = null 
                 key={r.slug}
                 recipe={r}
                 variant={variant}
-                rank={(i === 0 ? 0 : split) + j + 1}
+                rank={offsets[i] + j + 1}
                 highlight={highlight}
               />
             ))}
@@ -309,7 +373,7 @@ function InstalledChip({ recipe }) {
         <span className="truncate font-label text-[9px] text-text-dim">
           {spec || recipe.author}
           {recipe.tokens_per_second != null && (
-            <span className="ml-1 font-bold text-primary">{recipe.tokens_per_second} tok/s</span>
+            <span className="ml-1 font-bold text-primary">{speedLabel(recipe)}</span>
           )}
         </span>
       </span>

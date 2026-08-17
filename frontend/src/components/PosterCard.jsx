@@ -4,6 +4,7 @@ import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { posterFor } from '../covers'
 import { formatParams } from './RecipeCard'
+import { speedLabel } from '../models'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -20,7 +21,7 @@ const HIGHLIGHTS = {
   release: { label: 'Released', value: (r) => formatMonth(r.release_date) },
   params: { label: 'Params', value: (r) => (r.params_b != null ? formatParams(r) : null) },
   size: { label: 'On disk', value: (r) => (r.weights_gb != null ? `${r.weights_gb} GB` : null) },
-  speed: { label: 'Speed', value: (r) => (r.tokens_per_second != null ? `${r.tokens_per_second} tok/s` : null) },
+  speed: { label: 'Speed', value: (r) => speedLabel(r) },
 }
 
 // Tokens/sec keeps its own corner slot whatever the catalog is sorted by —
@@ -58,7 +59,7 @@ export default function PosterCard({ recipe, highlight = null }) {
     recipe.params_b != null && { id: 'params', text: formatParams(recipe) },
     recipe.quantization && { id: 'quant', text: recipe.quantization },
     recipe.weights_gb != null && { id: 'size', text: `${recipe.weights_gb} GB` },
-    recipe.tokens_per_second != null && { id: 'speed', text: `${recipe.tokens_per_second} tok/s` },
+    recipe.tokens_per_second != null && { id: 'speed', text: speedLabel(recipe) },
     highlight === 'release' && { id: 'release', text: formatMonth(recipe.release_date) },
   ].filter((s) => s && s.text)
 

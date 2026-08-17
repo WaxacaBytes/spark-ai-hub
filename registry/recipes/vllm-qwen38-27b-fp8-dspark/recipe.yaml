@@ -1,0 +1,67 @@
+name: "Qwen3.8-27B FP8 DSpark"
+slug: vllm-qwen38-27b-fp8-dspark
+version: "1.0.0"
+description: "Qwen's own FP8 build of Qwen3.8-27B on vLLM with the DSpark block drafter instead of the checkpoint's MTP head. Reference numerics — no quantization quality question — with the full decode-strategy stack: DSpark k=14 speculative decoding plus prefix caching, which are output-preserving. Hybrid Gated DeltaNet VLM, 262K context."
+author: "Alibaba Cloud + Doopeworld"
+source: "community"
+website: "https://github.com/0xBakeer/Qwen3.8-27B-FP8-on-a-single-DGX-Spark"
+upstream: "https://huggingface.co/Qwen/Qwen3.8-27B-FP8"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - reasoning
+  - coding
+  - agentic
+  - tool-use
+  - vllm
+  - qwen
+  - fp8
+  - speculative-decoding
+  - dspark
+logo: "/logos/qwen.png"
+requirements:
+  min_memory_gb: 52
+  recommended_memory_gb: 70
+  disk_gb: 42
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 15
+  gpu: true
+status: community-verified
+engine: "vLLM"
+params_b: 27
+arch: dense
+quantization: "FP8"
+weights_gb: 30.6
+release_date: "2026-08"
+tokens_per_second: 15.4
+tokens_per_second_editing: 57.3
+editing_workload: "code-edit"
+benchmarks:
+  code: 24.6
+  explainer: 13.4
+  prose: 12.5
+  code-edit: 57.3
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-08-17"
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "Qwen/Qwen3.8-27B-FP8"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"Qwen/Qwen3.8-27B-FP8\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 2048, \"temperature\": 1.0, \"top_p\": 0.95}'"
+
+cover:
+  image: qwen-27b.jpg
+  caption: "The Qwen capybara writing SQL. Shared by Qwen models of 27B parameters."
+  fit: contain
+  grade: false
+  credit: "cfahlgren1/flux-qwen-capybara — a FLUX.1-dev LoRA recreating the Qwen capybara · FLUX.1-dev non-commercial licence"
+  source: "https://huggingface.co/cfahlgren1/flux-qwen-capybara"

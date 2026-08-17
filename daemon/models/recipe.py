@@ -112,6 +112,22 @@ class Recipe(BaseModel):
     requires_hf_token: bool = False
     runtime_env_path: str = ""
     tokens_per_second: float | None = None
+    # Two sustained rates, not a number and a spike. Throughput tracks how much
+    # of the output is copied from the prompt rather than invented, because that
+    # is what sets a speculative drafter's acceptance: `tokens_per_second` is
+    # writing new text (the three mixed prompts), `tokens_per_second_editing` is
+    # the same server reproducing a document with a small change applied.
+    # Measured across four edit workloads on Qwen3.8-27B NVFP4 DSpark, the kind
+    # of text barely matters — prose 57.4, markdown 56.3, repetitive code 58.1 —
+    # so this is an editing figure, not a code figure. What does matter is how
+    # much new material the edit introduces: an edit that writes a fresh
+    # docstring per function fell to 48.5.
+    tokens_per_second_editing: float | None = None
+    editing_workload: str = ""            # which edit was measured, e.g. "code-edit"
+    # Per-workload detail behind those two numbers, keyed by the labels the
+    # benchmark snippet prints: code, explainer, prose, code-edit. Shown on the
+    # detail page so a range can be checked rather than taken on faith.
+    benchmarks: dict[str, float] = {}
     context_tokens: int | None = None     # served context window; read off the
                                           # compose command when not declared
 

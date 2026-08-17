@@ -1,0 +1,109 @@
+services:
+  vllm:
+    # Qwen3.8-27B NVFP4 (Unsloth Dynamic V3.0) with the **DSpark** block drafter
+    # instead of the checkpoint's own MTP head. Same weights as
+    # `vllm-qwen38-27b-nvfp4`; the difference is entirely decode strategy.
+    #
+    # MTP re-runs one in-checkpoint head sequentially k times and pays a full
+    # lm_head projection over the ~150K vocab each time. DSpark is a separate
+    # 5-layer drafter that emits a whole block at once — measured ~3.3x cheaper
+    # per draft token on this hardware.
+    #
+    # Image: stock `vllm/vllm-openai:v0.27.1-aarch64`. The older
+    # `vllm-qwen38-27b-nvfp4` recipe pins the special `qwen38-arm64-cu130` tag
+    # because v0.27.1 was thought to predate Qwen3.8 support; it does not —
+    # v0.27.1 registers Qwen3_5ForConditionalGeneration and the `dspark`
+    # speculative method, so this recipe rides the stock release tag.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        # HF_HUB_DOWNLOAD_TIMEOUT: without it a socket that goes quiet mid-shard
+        # blocks the whole download forever instead of failing and resuming.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights HF_HUB_DOWNLOAD_TIMEOUT=30
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('unsloth/Qwen3.8-27B-NVFP4'); snapshot_download('Doopeworld/Qwen3.8-27B-DSpark-vLLM')"
+        FROM vllm/vllm-openai:v0.27.1-aarch64
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/vllm-qwen38-27b-nvfp4-dspark:v0.27.1-aarch64
+    container_name: spark-ai-hub-vllm-qwen38-27b-nvfp4-dspark
+    ports:
+      - "9001:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # DGX Spark (GB10, sm_121a) flashinfer environment.
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      - CUTE_DSL_ARCH=sm_121a
+      # GB10 has no native FP4 compute path, so 4-bit weights are dequantized
+      # through Marlin. Marlin has a documented race on SM121 that silently
+      # corrupts output without atomic adds — this sits directly in the critical
+      # path for every 4-bit checkpoint on this device.
+      - VLLM_MARLIN_USE_ATOMIC_ADD=1
+    ipc: host
+    command:
+      - --model
+      - unsloth/Qwen3.8-27B-NVFP4
+      - --served-model-name
+      - unsloth/Qwen3.8-27B-NVFP4
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --trust-remote-code
+      - --dtype
+      - auto
+      - --gpu-memory-utilization
+      - "0.85"
+      - --max-model-len
+      - "262144"
+      # Prefix caching is NOT the default here: vLLM computes
+      # `default_prefix_caching = is_prefix_caching_supported and not is_hybrid`,
+      # and Qwen3.8-27B reports is_hybrid=True (48 GatedDeltaNet + 16 full
+      # attention layers). It has to be asked for, and on shared prefixes it is
+      # worth a large multiple on prefill.
+      - --enable-prefix-caching
+      - --max-num-batched-tokens
+      - "16384"
+      - --reasoning-parser
+      - qwen3
+      # qwen3_xml is the tool-call parser for this model; `qwen3` does not resolve
+      # as one, and `qwen3_xml` does not resolve as a reasoning parser.
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_xml
+      # draft_sample_method=probabilistic is what makes this configuration work.
+      # Measured here without it, fresh-generation throughput fell from 28.6 to
+      # 24.7 tok/s and acceptance roughly halved; with it, every number lands
+      # within 2% of the upstream recipe's published table.
+      #
+      # num_speculative_tokens is a workload choice, not a tuning constant:
+      #
+      #   k=7  (here)  28.6 fresh / 59.4 code-edit  — better on 3 of 4 workloads
+      #   k=14         25.0 fresh / 73.7 code-edit  — 24% more peak, 12% less fresh
+      #
+      # k=14 is the setting for editing and refactoring, where the answer is
+      # already in the prompt and the drafter is right most of the time. It is
+      # also the worse choice under concurrency, because draft slots come out of
+      # the same batch budget that would otherwise serve more sequences.
+      - --speculative-config
+      - '{"method":"dspark","model":"Doopeworld/Qwen3.8-27B-DSpark-vLLM","num_speculative_tokens":7,"draft_sample_method":"probabilistic"}'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN

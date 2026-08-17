@@ -4,6 +4,7 @@ import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { formatParams } from '../components/RecipeCard'
 import { backdropFor, posterFor } from '../covers'
+import { speedLabel } from '../models'
 import CoverInfoModal from '../components/CoverInfoModal'
 
 const DETAIL_TABS = [
@@ -266,7 +267,7 @@ function RecipeDetailPage({ slug }) {
             <SpecBadge label="Memory" value={`${recipe.requirements?.min_memory_gb ?? 8}–${recipe.requirements?.recommended_memory_gb ?? recipe.requirements?.min_memory_gb ?? 8} GB`} />
             <SpecBadge label="Disk" value={`${recipe.requirements?.disk_gb ?? 10} GB`} />
             {recipe.tokens_per_second != null && (
-              <SpecBadge label="Speed" value={`${recipe.tokens_per_second} tok/s`} />
+              <SpecBadge label="Speed" value={speedLabel(recipe)} />
             )}
           </div>
 
@@ -449,6 +450,57 @@ function StatusPill({ color, pulse, children }) {
   )
 }
 
+// The four workloads behind the speed range, always on screen. A range invites
+// exactly one question — where did each end come from — and answering it behind
+// a click means the number gets believed instead of checked. It is four rows.
+const WORKLOAD_NOTES = {
+  code: 'Write a quicksort with comments — fresh generation, nothing to copy.',
+  explainer: 'TCP vs UDP — fresh prose, the least predictable output here.',
+  prose: 'A Kyoto itinerary — fresh prose.',
+  'code-edit': 'Re-emit a 45-class module with one method added to every class, thinking off. Most of the output is already in the prompt.',
+}
+// Ordered by how predictable the output is, least to most — which is also
+// slowest to fastest. Read top to bottom, the four rows are the argument for
+// why this build reports a range rather than a number.
+const WORKLOAD_ORDER = ['prose', 'explainer', 'code', 'code-edit']
+
+function SpeedDetail({ recipe }) {
+  const rows = WORKLOAD_ORDER.filter((w) => recipe.benchmarks?.[w] != null)
+  if (rows.length === 0) return null
+
+  return (
+    <div className="border-t border-outline-dim pt-4">
+      <div className="text-[11px] uppercase tracking-[0.16em] text-text-dim font-label">
+        How this speed was measured
+      </div>
+      <div className="mt-3 space-y-2">
+        {rows.map((w) => (
+          <div key={w} className="flex items-baseline gap-3">
+            <span className="font-display text-[13px] font-extrabold tabular-nums text-primary w-14 text-right shrink-0">
+              {recipe.benchmarks[w]}
+            </span>
+            <span className="min-w-0">
+              <span className="text-[11px] font-label font-bold text-text">{w}</span>
+              <span className="block text-[11px] text-text-dim leading-5">{WORKLOAD_NOTES[w]}</span>
+            </span>
+          </div>
+        ))}
+        <p className="text-[11px] text-text-dim leading-5 m-0 pt-1">
+          The headline number averages the three fresh-generation prompts, with thinking
+          left on as this model ships it. Where a build drafts speculatively, code-edit is
+          reported alongside it as the top of the range: the drafter's proposals are nearly
+          always right when the answer is already in the prompt, and the same server then
+          verifies several tokens per forward pass. That run sends
+          <code className="mx-1 rounded bg-surface-high px-1 text-[10px]">enable_thinking: false</code>
+          — reasoning tokens are invented rather than copied, so a drafter cannot predict
+          them, and leaving thinking on drags the peak back down to roughly the headline
+          number. Run the script below to reproduce both on your own Spark.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 function SpecBadge({ label, value }) {
   return (
     <div className="border border-outline-dim rounded-xl px-3.5 py-2.5 bg-surface-high/65 min-w-[112px]">
@@ -580,6 +632,7 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
                     value={recipe.integration.curl_example.replace(/<SPARK_IP>/g, location.hostname)}
                   />
                 )}
+                <SpeedDetail recipe={recipe} />
                 {(recipe.tags?.includes('vllm') || recipe.tags?.includes('sglang') || recipe.tags?.includes('llama-cpp') || recipe.tags?.includes('atlas')) && (
                   <BenchmarkBlock
                     value={`python3 - <<'EOF'
@@ -591,8 +644,31 @@ PROMPTS = [
     ("explainer", "Explain the differences between TCP and UDP, and when each is preferred."),
     ("prose", "Plan a 3-day cultural travel itinerary for Kyoto, Japan in autumn."),
 ]
-def call(p, mt=512):
-    body = json.dumps({"model":MODEL,"messages":[{"role":"user","content":p}],"max_tokens":mt,"temperature":0}).encode()
+# Second workload: re-emit a file with a small change. Most of the output is
+# already in the prompt, so a speculative drafter's proposals are nearly always
+# right and it verifies many tokens per forward pass. Builds without a drafter
+# score about the same here as above; builds with one score far higher, which is
+# the whole reason both numbers are reported.
+FENCE = chr(96) * 3
+def source(n=45):
+    src = 'from dataclasses import dataclass, field\\n'
+    for i in range(1, n + 1):
+        src += ('\\n@dataclass\\nclass Item{0}:\\n    sku: str\\n    quantity: int = 0\\n'
+                '    price_cents: int = 0\\n    tags: list[str] = field(default_factory=list)\\n\\n'
+                '    def restock(self, n: int) -> None:\\n        if n < 0:\\n'
+                '            raise ValueError("n must be non-negative")\\n        self.quantity += n\\n\\n'
+                '    def total_value(self) -> int:\\n        return self.quantity * self.price_cents\\n').format(i)
+    return src
+EDIT = ("Here is a Python module. Add a discount(self, pct: int) -> int method to EVERY "
+        "Item class, returning the discounted total value. Output the COMPLETE modified "
+        "file, nothing else.\\n\\n" + FENCE + "python\\n" + source() + "\\n" + FENCE)
+def call(p, mt=512, thinking=True):
+    payload = {"model":MODEL,"messages":[{"role":"user","content":p}],"max_tokens":mt,"temperature":0}
+    # Reasoning tokens are invented, not copied from the prompt, so a drafter
+    # cannot predict them. Left on, the code-edit run measures reasoning speed
+    # and reports roughly the mixed-prompt number instead of the peak.
+    if not thinking: payload["chat_template_kwargs"] = {"enable_thinking": False}
+    body = json.dumps(payload).encode()
     req = urllib.request.Request(HOST+"/v1/chat/completions", data=body, headers={"Content-Type":"application/json"})
     t = time.time()
     with urllib.request.urlopen(req, timeout=600) as r: d = json.loads(r.read())
@@ -602,7 +678,11 @@ total_tok = total_t = 0
 for label, p in PROMPTS:
     n, dt = call(p); total_tok += n; total_t += dt
     print(f"  {label:<10} {n} tok / {dt:.2f}s = {n/dt:.2f} tok/s")
-print(f"Avg: {total_tok/total_t:.2f} tok/s ({total_tok} tok / {total_t:.2f}s across {len(PROMPTS)} mixed prompts)")
+print(f"Writing: {total_tok/total_t:.2f} tok/s ({total_tok} tok / {total_t:.2f}s across {len(PROMPTS)} mixed prompts)")
+n, dt = call(EDIT, 3000, thinking=False)
+print(f"  {'code-edit':<10} {n} tok / {dt:.2f}s = {n/dt:.2f} tok/s")
+print(f"Editing: {n/dt:.2f} tok/s (code-edit, thinking off; the answer is already in the prompt,")
+print(f"         so a drafter's proposals are nearly always accepted)")
 EOF`}
                   />
                 )}
