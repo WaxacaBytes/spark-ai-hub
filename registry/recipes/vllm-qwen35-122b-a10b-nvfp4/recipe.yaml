@@ -1,0 +1,60 @@
+name: "Qwen3.5-122B-A10B NVFP4"
+slug: vllm-qwen35-122b-a10b-nvfp4
+version: "1.0.0"
+description: "NVIDIA's own NVFP4 build of Qwen3.5-122B-A10B, served on the NGC vLLM container with native MTP self-speculation — the only 122B checkpoint that ships MTP draft weights, and the fastest 122B on the Spark at 26.5 tok/s. bf16 KV cache, full native 256K context, reasoning parser and tool calling."
+author: "Alibaba Cloud (Qwen) + NVIDIA"
+source: "official"
+website: "https://build.nvidia.com/spark/vllm"
+upstream: "https://huggingface.co/nvidia/Qwen3.5-122B-A10B-NVFP4"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - reasoning
+  - coding
+  - tool-use
+  - vllm
+  - nvfp4
+  - nvidia-official
+  - speculative-decoding
+  - mtp
+logo: "/logos/qwen.png"
+requirements:
+  min_memory_gb: 95
+  recommended_memory_gb: 120
+  disk_gb: 90
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 25
+  gpu: true
+status: community-verified
+engine: "vLLM"
+params_b: 122
+active_params_b: 10
+arch: moe
+quantization: "NVFP4"
+weights_gb: 83.5
+release_date: "2026-06"
+tokens_per_second: 26.5
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-08-16"
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "nvidia/Qwen3.5-122B-A10B-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Qwen3.5-122B-A10B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+
+cover:
+  image: qwen-122b.jpg
+  caption: "The Qwen capybara suited up as an astronaut. Shared by Qwen models of 122B parameters."
+  fit: contain
+  grade: false
+  credit: "cfahlgren1/flux-qwen-capybara — a FLUX.1-dev LoRA recreating the Qwen capybara · FLUX.1-dev non-commercial licence"
+  source: "https://huggingface.co/cfahlgren1/flux-qwen-capybara"

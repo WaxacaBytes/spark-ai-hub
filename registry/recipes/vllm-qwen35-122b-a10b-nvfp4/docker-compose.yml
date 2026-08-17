@@ -1,0 +1,101 @@
+services:
+  vllm:
+    # NVIDIA's own NVFP4 build of Qwen3.5-122B-A10B, served on NVIDIA's NGC vLLM
+    # container. NGC is the only build with a working sm_121a GDN linear-attention
+    # kernel for the Qwen3_5 hybrid arch on DGX Spark / GB10, and 26.07 is the first
+    # tag that needs no local patching (its prometheus-fastapi-instrumentator 8.0.2
+    # fixed the route lookup that made every request 500 on 26.06).
+    #
+    # ONE DELIBERATE DEVIATION FROM THE MODEL CARD: the card serves this checkpoint
+    # with `--kv-cache-dtype fp8`, because hf_quant_config.json declares
+    # "kv_cache_quant_algo": "FP8". That declaration is not backed by the weights --
+    # the checkpoint ships ZERO k_scale/v_scale tensors, so fp8 KV runs with an
+    # uncalibrated scale of 1.0, and on sm_121a that path emits pure garbage
+    # ("!!!!") on every MoE backend that fits in 128 GB. Passing an explicit
+    # `--kv-cache-dtype bfloat16` overrides the checkpoint declaration (vLLM only
+    # consults hf_quant_config when the flag is left at "auto") and costs nothing,
+    # since there were no KV scales to honour in the first place. bf16 KV is also
+    # exactly what makes the RedHatAI NVFP4 build of this same model coherent.
+    build:
+      secrets:
+        - hf_token
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/Qwen3.5-122B-A10B-NVFP4')"
+        FROM nvcr.io/nvidia/vllm:26.07-py3
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/vllm-qwen35-122b-a10b-nvfp4:26.07-py3
+    container_name: spark-ai-hub-vllm-qwen35-122b-a10b-nvfp4
+    ports:
+      - "9001:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    # Belt-and-suspenders: cap the container so any load-time spike is OOM-killed
+    # as the container (clean exit 137) rather than thrashing the whole host.
+    mem_limit: 120g
+    memswap_limit: 120g
+    # NGC entrypoint is nvidia_entrypoint.sh, so the command must include `vllm serve`.
+    command:
+      - vllm
+      - serve
+      - nvidia/Qwen3.5-122B-A10B-NVFP4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --quantization
+      - modelopt_fp4
+      # The only FP4 MoE kernel that both selects and runs on GB10: flashinfer_trtllm
+      # and flashinfer_cutedsl reject the device, and marlin's FP4 weight repack
+      # spikes past 128 GB on this 122B.
+      - --moe-backend
+      - flashinfer_cutlass
+      # See the note at the top of this file: the checkpoint declares fp8 KV but
+      # ships no KV scales, so bf16 is both the coherent and the honest choice.
+      - --kv-cache-dtype
+      - bfloat16
+      - --tensor-parallel-size
+      - "1"
+      - --gpu-memory-utilization
+      - "0.8"
+      - --max-model-len
+      - "262144"
+      - --max-num-seqs
+      - "4"
+      # This is the ONLY 122B checkpoint in the hub that ships MTP draft weights
+      # (785 `mtp.*` tensors, mtp_num_hidden_layers=1). Self-speculation with them
+      # is what pays for its extra weight bytes:
+      # 13.2 tok/s without it, 26.5 with. Measured nst=5 as well -- it is WORSE
+      # (23.3 tok/s): per-position acceptance falls off a cliff past position 3
+      # (~0.93 / 0.60 / 0.47 / 0.33 / 0.24) so the extra drafts cost more than
+      # they return. Keep it at 3.
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":3,"moe_backend":"triton"}'
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
