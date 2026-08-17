@@ -1,0 +1,67 @@
+name: "Qwen3.8-27B AEON Ultimate NVFP4"
+slug: vllm-qwen38-27b-aeon-ultimate-nvfp4
+version: "1.0.0"
+description: "AEON-7's uncensored Qwen3.8-27B in NVFP4 W4A4, the leanest Qwen3.8-27B build in the hub at 20.6 GB, served on vLLM with the checkpoint's own MTP draft head. Vision, tool calling and 262K context retained. Send chat_template_kwargs {\"reasoning_effort\": \"medium\"} for long-form work — the template's xhigh default can spend the whole token budget inside <think>."
+author: "Alibaba Cloud + AEON-7 + sakamakismile"
+source: "community"
+website: "https://huggingface.co/sakamakismile/Qwen3.8-27B-AEON-ULTIMATE-UNCENSORED-NVFP4"
+upstream: "https://huggingface.co/sakamakismile/Qwen3.8-27B-AEON-ULTIMATE-UNCENSORED-NVFP4"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - reasoning
+  - coding
+  - tool-use
+  - uncensored
+  - vllm
+  - qwen
+  - nvfp4
+  - speculative-decoding
+  - mtp
+logo: "/logos/qwen.png"
+requirements:
+  min_memory_gb: 40
+  recommended_memory_gb: 60
+  disk_gb: 30
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 12
+  gpu: true
+status: community-verified
+engine: "vLLM"
+params_b: 27
+arch: dense
+quantization: "NVFP4"
+weights_gb: 20.6
+release_date: "2026-08"
+tokens_per_second: 21.1
+tokens_per_second_editing: 27.9
+editing_workload: "code-edit"
+benchmarks:
+  prose: 23.06
+  explainer: 19.99
+  code: 20.43
+  code-edit: 27.9
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-08-16"
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "sakamakismile/Qwen3.8-27B-AEON-ULTIMATE-UNCENSORED-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"sakamakismile/Qwen3.8-27B-AEON-ULTIMATE-UNCENSORED-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}], \"max_tokens\": 2048, \"chat_template_kwargs\": {\"reasoning_effort\": \"medium\"}}'"
+
+cover:
+  image: qwen-27b.jpg
+  caption: "The Qwen capybara writing SQL. Shared by Qwen models of 27B parameters."
+  fit: contain
+  grade: false
+  credit: "cfahlgren1/flux-qwen-capybara — a FLUX.1-dev LoRA recreating the Qwen capybara · FLUX.1-dev non-commercial licence"
+  source: "https://huggingface.co/cfahlgren1/flux-qwen-capybara"
