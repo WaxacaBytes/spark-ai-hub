@@ -45,7 +45,14 @@ integration:
   model_id: "Qwen/Qwen3.5-2B"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"Qwen/Qwen3.5-2B\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
-tokens_per_second: 62.2
+tokens_per_second: 68.0
+tokens_per_second_editing: 68.0
+editing_workload: "code-edit"
+benchmarks:
+  prose: 65.11
+  explainer: 67.13
+  code: 72.26
+  code-edit: 68.0
 
 cover:
   image: qwen-2b.jpg

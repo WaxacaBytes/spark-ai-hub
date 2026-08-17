@@ -51,10 +51,11 @@ integration:
   api_key: "not-needed"
   max_context: "262144"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"inclusionAI/Ling-3.0-flash-int4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 4096, \"temperature\": 0.6, \"top_p\": 0.95}'"
-tokens_per_second: 36.0
-
-cover:
-  image: inclusion-ant-a-space.jpg
-  caption: "Ant A Space in Hangzhou — Ant Group's campus, and home of its inclusionAI research lab."
-  credit: "Ant A Space, Hangzhou, 2021-12-02.jpg · Siyuwj · CC BY-SA 4.0"
-  source: "https://commons.wikimedia.org/wiki/File%3AAnt%20A%20Space%2C%20Hangzhou%2C%202021-12-02.jpg"
+tokens_per_second: 35.9
+tokens_per_second_editing: 24.9
+editing_workload: "code-edit"
+benchmarks:
+  prose: 35.75
+  explainer: 36.34
+  code: 35.51
+  code-edit: 24.9

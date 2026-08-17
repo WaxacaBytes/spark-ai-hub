@@ -39,7 +39,14 @@ arch: dense
 quantization: "NVFP4"
 weights_gb: 21.9
 release_date: "2026-08-12"
-tokens_per_second: 27.5
+tokens_per_second: 26.0
+tokens_per_second_editing: 36.9
+editing_workload: "code-edit"
+benchmarks:
+  prose: 22.96
+  explainer: 25.41
+  code: 30.82
+  code-edit: 36.9
 context_length: 262144  # SGLang serves the native window; no flag caps it
 requires_hf_token: false
 integration:

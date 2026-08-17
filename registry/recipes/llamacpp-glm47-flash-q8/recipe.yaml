@@ -45,10 +45,11 @@ integration:
   model_id: "glm-4.7-flash"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"glm-4.7-flash\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
-tokens_per_second: 36.96
-
-cover:
-  image: zai-shanghai-bund.jpg
-  caption: "The Bund waterfront in Shanghai at night, the city Z.AI works from."
-  credit: "Shanghai bund – Panorama (Greg Zaal via Poly Haven).jpg · Greg Zaal · CC0"
-  source: "https://commons.wikimedia.org/wiki/File%3AShanghai%20bund%20%E2%80%93%20Panorama%20%28Greg%20Zaal%20via%20Poly%20Haven%29.jpg"
+tokens_per_second: 36.7
+tokens_per_second_editing: 36.7
+editing_workload: "code-edit"
+benchmarks:
+  prose: 36.86
+  explainer: 36.36
+  code: 37.02
+  code-edit: 36.7

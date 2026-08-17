@@ -39,7 +39,14 @@ arch: dense
 quantization: "FP8"
 weights_gb: 30.2
 release_date: "2026-08-12"
-tokens_per_second: 17.3
+tokens_per_second: 16.5
+tokens_per_second_editing: 23.7
+editing_workload: "code-edit"
+benchmarks:
+  prose: 14.1
+  explainer: 16.79
+  code: 19.3
+  code-edit: 23.7
 context_length: 262144  # SGLang serves the native window; no flag caps it
 requires_hf_token: false
 integration:

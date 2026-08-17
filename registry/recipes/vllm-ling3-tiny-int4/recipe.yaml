@@ -51,7 +51,14 @@ integration:
   api_key: "not-needed"
   max_context: "262144"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"inclusionAI/Ling-3.0-tiny-int4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 4096, \"temperature\": 1.0, \"top_p\": 0.95}'"
-tokens_per_second: 91.2
+tokens_per_second: 87.9
+tokens_per_second_editing: 87.9
+editing_workload: "code-edit"
+benchmarks:
+  prose: 88.55
+  explainer: 89.24
+  code: 86.12
+  code-edit: 87.9
 
 cover:
   image: inclusion-alipay-hq.jpg

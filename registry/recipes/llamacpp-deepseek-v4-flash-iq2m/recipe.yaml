@@ -43,7 +43,14 @@ release_date: "2026-07-31"
 tested_on:
   dgx_os: "7.2"
   date: "2026-08-01"
-tokens_per_second: 16.5
+tokens_per_second: 15.9
+tokens_per_second_editing: 15.9
+editing_workload: "code-edit"
+benchmarks:
+  prose: 15.93
+  explainer: 15.93
+  code: 15.89
+  code-edit: 15.9
 integration:
   api_url: "http://<SPARK_IP>:9001/v1"
   model_id: "deepseek-v4-flash-0731"

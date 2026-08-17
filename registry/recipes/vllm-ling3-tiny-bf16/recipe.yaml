@@ -51,10 +51,11 @@ integration:
   api_key: "not-needed"
   max_context: "262144"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"inclusionAI/Ling-3.0-tiny\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 4096, \"temperature\": 1.0, \"top_p\": 0.95}'"
-tokens_per_second: 75.5
-
-cover:
-  image: inclusion-alipay-hq.jpg
-  caption: "Alipay's headquarters in Gudang, Hangzhou — the Ant Group campus behind the inclusionAI lab."
-  credit: "201608 Alipay Mansion.jpg · MNXANL · CC BY-SA 3.0"
-  source: "https://commons.wikimedia.org/wiki/File%3A201608%20Alipay%20Mansion.jpg"
+tokens_per_second: 70.4
+tokens_per_second_editing: 70.4
+editing_workload: "code-edit"
+benchmarks:
+  prose: 71.01
+  explainer: 70.91
+  code: 69.28
+  code-edit: 70.4

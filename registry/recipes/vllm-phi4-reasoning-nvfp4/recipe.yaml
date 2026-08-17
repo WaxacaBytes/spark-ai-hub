@@ -36,7 +36,14 @@ arch: dense
 quantization: "NVFP4"
 weights_gb: 9.7
 release_date: "2025-09"
-tokens_per_second: 23.3
+tokens_per_second: 25.9
+tokens_per_second_editing: 25.9
+editing_workload: "code-edit"
+benchmarks:
+  prose: 26.06
+  explainer: 26.05
+  code: 25.66
+  code-edit: 25.9
 tested_on:
   dgx_os: "7.2"
   date: "2026-08-16"

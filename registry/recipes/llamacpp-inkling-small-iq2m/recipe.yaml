@@ -44,7 +44,14 @@ release_date: "2026-07-30"
 tested_on:
   dgx_os: "7.2"
   date: "2026-07-30"
-tokens_per_second: 22.7
+tokens_per_second: 22.2
+tokens_per_second_editing: 22.2
+editing_workload: "code-edit"
+benchmarks:
+  prose: 21.96
+  explainer: 22.21
+  code: 22.4
+  code-edit: 22.2
 integration:
   api_url: "http://<SPARK_IP>:9001/v1"
   model_id: "inkling-small"

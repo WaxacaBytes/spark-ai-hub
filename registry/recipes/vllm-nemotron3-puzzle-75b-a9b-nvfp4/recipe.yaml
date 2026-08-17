@@ -41,6 +41,13 @@ quantization: "NVFP4"
 weights_gb: 53.5
 release_date: "2026-07"
 tokens_per_second: 34.6
+tokens_per_second_editing: 45.7
+editing_workload: "code-edit"
+benchmarks:
+  prose: 31.03
+  explainer: 32.3
+  code: 42.71
+  code-edit: 45.7
 tested_on:
   dgx_os: "7.2"
   date: "2026-08-16"
