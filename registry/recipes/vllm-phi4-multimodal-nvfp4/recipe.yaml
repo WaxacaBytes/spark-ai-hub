@@ -1,0 +1,54 @@
+name: "Phi-4 Multimodal Instruct NVFP4"
+slug: vllm-phi4-multimodal-nvfp4
+version: "1.0.0"
+description: "Microsoft's Phi-4 multimodal (text+image+audio), NVFP4 quantized by NVIDIA. Blackwell-native FP4 weights served over an OpenAI-compatible API."
+author: "Microsoft"
+source: "official"
+website: "https://build.nvidia.com/spark/vllm"
+upstream: "https://huggingface.co/nvidia/Phi-4-multimodal-instruct-NVFP4"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - audio
+  - vllm
+  - nvfp4
+  - nvidia-official
+logo: "/logos/microsoft.png"
+requirements:
+  min_memory_gb: 16
+  recommended_memory_gb: 24
+  disk_gb: 24
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 5
+  gpu: true
+status: community-verified
+engine: "vLLM"
+params_b: 5.6
+arch: dense
+quantization: "NVFP4"
+weights_gb: 9.0
+release_date: "2025-09"
+tokens_per_second: 58.3
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-08-16"
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "nvidia/Phi-4-multimodal-instruct-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Phi-4-multimodal-instruct-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+
+cover:
+  image: microsoft-seattle-night.jpg
+  caption: "Seattle at blue hour, I-5 running through the foreground below the downtown towers. Microsoft's campus is across Lake Washington in Redmond."
+  focus_x: 0.45
+  credit: "Seattle I-5 skyline dllu.jpg · Dllu · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ASeattle%20I-5%20skyline%20dllu.jpg"

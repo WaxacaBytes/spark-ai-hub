@@ -1,0 +1,53 @@
+name: "Phi-4 Reasoning Plus NVFP4"
+slug: vllm-phi4-reasoning-nvfp4
+version: "1.0.0"
+description: "Microsoft's Phi-4 reasoning-plus model, NVFP4 quantized by NVIDIA — 9.7 GB of Blackwell-native FP4 against the FP8 build's 15.7 GB. Optimized for math, science, and coding reasoning."
+author: "Microsoft"
+source: "official"
+website: "https://build.nvidia.com/spark/vllm"
+upstream: "https://huggingface.co/nvidia/Phi-4-reasoning-plus-NVFP4"
+category: llm
+tags:
+  - llm
+  - reasoning
+  - math
+  - coding
+  - vllm
+  - nvfp4
+  - nvidia-official
+logo: "/logos/microsoft.png"
+requirements:
+  min_memory_gb: 16
+  recommended_memory_gb: 24
+  disk_gb: 24
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 5
+  gpu: true
+status: community-verified
+engine: "vLLM"
+params_b: 14
+arch: dense
+quantization: "NVFP4"
+weights_gb: 9.7
+release_date: "2025-09"
+tokens_per_second: 23.3
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-08-16"
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "nvidia/Phi-4-reasoning-plus-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Phi-4-reasoning-plus-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+
+cover:
+  image: microsoft-building-92.jpg
+  caption: "Building 92 on Microsoft's Redmond campus, home of the visitor centre."
+  credit: "Building92microsoft.jpg · Coolcaesar · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ABuilding92microsoft.jpg"

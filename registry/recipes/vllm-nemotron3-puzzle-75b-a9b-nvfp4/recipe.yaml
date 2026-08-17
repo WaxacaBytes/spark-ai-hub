@@ -1,0 +1,57 @@
+name: "Nemotron-Labs-3 Puzzle 75B-A9B NVFP4"
+slug: vllm-nemotron3-puzzle-75b-a9b-nvfp4
+version: "1.0.0"
+description: "NVIDIA's Iterative-Puzzle compression of Nemotron-3-Super-120B: 75B total / 9B active, NVFP4, with a trained MTP head for speculative decoding. Hybrid Mamba + MoE reasoning model at 256K context."
+author: "NVIDIA"
+source: "official"
+website: "https://build.nvidia.com/spark/vllm"
+upstream: "https://huggingface.co/nvidia/NVIDIA-Nemotron-Labs-3-Puzzle-75B-A9B-NVFP4"
+category: llm
+tags:
+  - llm
+  - moe
+  - reasoning
+  - coding
+  - tool-use
+  - vllm
+  - nvfp4
+  - nvidia-official
+  - speculative-decoding
+  - mtp
+logo: "/logos/nvidia.png"
+requirements:
+  min_memory_gb: 60
+  recommended_memory_gb: 90
+  disk_gb: 60
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 20
+  gpu: true
+status: community-verified
+engine: "vLLM"
+params_b: 75
+active_params_b: 9
+arch: moe
+quantization: "NVFP4"
+weights_gb: 53.5
+release_date: "2026-07"
+tokens_per_second: 34.6
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-08-16"
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "nvidia/NVIDIA-Nemotron-Labs-3-Puzzle-75B-A9B-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/NVIDIA-Nemotron-Labs-3-Puzzle-75B-A9B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+
+cover:
+  image: nvidia-dgx-gb200.jpg
+  caption: "An NVIDIA DGX GB200 rack — the class of machine NVIDIA's largest models are trained on."
+  credit: "Nvidia DGX GB200.jpg · Pokiiri · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ANvidia%20DGX%20GB200.jpg"

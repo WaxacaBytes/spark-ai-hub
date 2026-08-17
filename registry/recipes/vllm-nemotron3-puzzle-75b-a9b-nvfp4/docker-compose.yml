@@ -1,0 +1,80 @@
+services:
+  vllm:
+    # NVIDIA Nemotron-Labs-3 Puzzle 75B-A9B, NVFP4. Puzzle is Nemotron-3-Super-120B
+    # put through NVIDIA's Iterative Puzzle compression: 75B total / 9B active, so it
+    # loads in 53.5 GB where Super needs 80 GB, and it keeps the hybrid Mamba+MoE
+    # backbone. Flags follow the model card's "With MTP" vLLM block.
+    #
+    # `--enable-expert-parallel` from the card is omitted: it only means something at
+    # tensor-parallel-size >= 2, and the Spark is a single-GPU box (TP=1).
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/NVIDIA-Nemotron-Labs-3-Puzzle-75B-A9B-NVFP4')"
+        FROM vllm/vllm-openai:v0.27.1-aarch64
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/vllm-nemotron3-puzzle-75b-a9b-nvfp4:v0.27.1-aarch64
+    container_name: spark-ai-hub-vllm-nemotron3-puzzle-75b-a9b-nvfp4
+    ports:
+      - "9001:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    command:
+      - --model
+      - nvidia/NVIDIA-Nemotron-Labs-3-Puzzle-75B-A9B-NVFP4
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --tensor-parallel-size
+      - "1"
+      - --async-scheduling
+      # Hybrid Mamba backbone: the card's required cache settings.
+      - --mamba-backend
+      - flashinfer
+      - --mamba_ssm_cache_dtype
+      - float16
+      - --enable-mamba-cache-stochastic-rounding
+      - --mamba-cache-philox-rounds
+      - "5"
+      - --gpu-memory-utilization
+      - "0.8"
+      - --max-model-len
+      - "262144"
+      - --max-num-seqs
+      - "8"
+      # The checkpoint ships a trained MTP head (mtp.safetensors, 5.9 GB). The card
+      # recommends num_speculative_tokens=3 as the default and suggests 5 or 7 for
+      # low-batch deployments -- measured here, 5 is WORSE (30.3 vs 34.6 tok/s):
+      # position-3 acceptance is strong (~0.75 on code) but 4 and 5 are not, so the
+      # extra drafts cost more than they return. Stay at 3.
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":3}'
+      - --reasoning-parser
+      - nemotron_v3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
