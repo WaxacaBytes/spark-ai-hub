@@ -37,6 +37,8 @@ params_b: 172
 active_params_b: 10
 arch: moe
 quantization: "INT4"
+speculative_method: ""
+artificial_analysis_index: 39
 weights_gb: 91.5
 release_date: "2026-04-11"
 tested_on:
@@ -47,7 +49,14 @@ integration:
   model_id: "minimax-m2.7"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"minimax-m2.7\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
-tokens_per_second: 29
+tokens_per_second: 28.9
+tokens_per_second_editing: 28.9
+editing_workload: "code-edit"
+benchmarks:
+  prose: 28.83
+  explainer: 28.86
+  code: 28.95
+  code-edit: 28.9
 
 cover:
   image: minimax-cray.jpg

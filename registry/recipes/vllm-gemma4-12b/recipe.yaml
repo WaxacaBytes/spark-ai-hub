@@ -35,6 +35,8 @@ engine: "vLLM"
 params_b: 12
 arch: dense
 quantization: "BF16"
+speculative_method: ""
+artificial_analysis_index: 22
 weights_gb: 23.9
 release_date: "2026-06"
 tested_on:
@@ -45,7 +47,14 @@ integration:
   model_id: "google/gemma-4-12B-it"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"google/gemma-4-12B-it\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
-tokens_per_second: 7.6
+tokens_per_second: 7.3
+tokens_per_second_editing: 7.3
+editing_workload: "code-edit"
+benchmarks:
+  prose: 7.27
+  explainer: 7.26
+  code: 7.27
+  code-edit: 7.3
 
 cover:
   image: google-deepmind-london.jpg

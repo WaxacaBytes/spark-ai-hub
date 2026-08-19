@@ -35,6 +35,8 @@ engine: "vLLM"
 params_b: 27
 arch: dense
 quantization: "BF16"
+speculative_method: "dflash"
+artificial_analysis_index: 38
 weights_gb: 55.6
 release_date: "2026-05-04"
 requires_hf_token: true
@@ -43,7 +45,14 @@ integration:
   model_id: "Qwen/Qwen3.6-27B"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"Qwen/Qwen3.6-27B\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
-tokens_per_second: 13.7
+tokens_per_second: 13.8
+tokens_per_second_editing: 34.0
+editing_workload: "code-edit"
+benchmarks:
+  prose: 10.16
+  explainer: 14.61
+  code: 19.89
+  code-edit: 34.0
 
 cover:
   image: qwen-27b.jpg

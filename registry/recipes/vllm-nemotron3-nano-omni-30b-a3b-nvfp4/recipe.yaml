@@ -39,6 +39,8 @@ params_b: 30
 active_params_b: 3
 arch: moe
 quantization: "NVFP4"
+speculative_method: ""
+artificial_analysis_index: 15
 weights_gb: 22.4
 release_date: "2026-05"
 tested_on:
@@ -49,7 +51,14 @@ integration:
   model_id: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
-tokens_per_second: 55.1
+tokens_per_second: 54.3
+tokens_per_second_editing: 45.9
+editing_workload: "code-edit"
+benchmarks:
+  prose: 51.03
+  explainer: 56.13
+  code: 56.02
+  code-edit: 45.9
 
 cover:
   image: nvidia-ces-blackwell.jpg

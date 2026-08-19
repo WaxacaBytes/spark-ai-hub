@@ -39,6 +39,8 @@ params_b: 25.2
 active_params_b: 3.8
 arch: moe
 quantization: "BF16"
+speculative_method: ""
+artificial_analysis_index: null
 weights_gb: 51.6
 release_date: "2026-06-13"
 requires_hf_token: false
@@ -50,7 +52,14 @@ integration:
   model_id: "google/diffusiongemma-26B-A4B-it"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"google/diffusiongemma-26B-A4B-it\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
-tokens_per_second: 98.5
+tokens_per_second: 92.0
+tokens_per_second_editing: 320.8
+editing_workload: "code-edit"
+benchmarks:
+  prose: 79.93
+  explainer: 85.75
+  code: 118.55
+  code-edit: 320.8
 
 cover:
   image: google-io-stage.jpg

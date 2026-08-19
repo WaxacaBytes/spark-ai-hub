@@ -34,6 +34,8 @@ params_b: 21
 active_params_b: 3.6
 arch: moe
 quantization: "MXFP4"
+speculative_method: ""
+artificial_analysis_index: 15
 weights_gb: 13.8
 release_date: "2025-08"
 tested_on:
@@ -44,7 +46,14 @@ integration:
   model_id: "openai/gpt-oss-20b"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"openai/gpt-oss-20b\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
-tokens_per_second: 45.04
+tokens_per_second: 22.6
+tokens_per_second_editing: 22.6
+editing_workload: "code-edit"
+benchmarks:
+  prose: 22.64
+  explainer: 22.58
+  code: 22.45
+  code-edit: 22.6
 
 cover:
   image: openai-sf-night.jpg

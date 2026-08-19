@@ -35,6 +35,8 @@ engine: "vLLM"
 params_b: 31
 arch: dense
 quantization: "BF16"
+speculative_method: ""
+artificial_analysis_index: 39
 weights_gb: 62.5
 release_date: "2026-03"
 tested_on:
@@ -45,7 +47,14 @@ integration:
   model_id: "google/gemma-4-31B-it"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"google/gemma-4-31B-it\", \"messages\": [{\"role\": \"user\", \"content\": \"Solve 17 x 23 step by step.\"}]}'"
-tokens_per_second: 3.7
+tokens_per_second: 3.6
+tokens_per_second_editing: 3.6
+editing_workload: "code-edit"
+benchmarks:
+  prose: 3.6
+  explainer: 3.6
+  code: 3.68
+  code-edit: 3.6
 
 cover:
   image: google-campus-green.jpg

@@ -36,6 +36,8 @@ params_b: 35
 active_params_b: 3
 arch: moe
 quantization: "FP8"
+speculative_method: "mtp"
+artificial_analysis_index: 32
 weights_gb: 37.5
 release_date: "2026-04-15"
 tested_on:

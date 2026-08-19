@@ -107,6 +107,18 @@ class Recipe(BaseModel):
     active_params_b: float | None = None  # active parameters per token, MoE only
     arch: str = ""                        # "dense" | "moe"
     quantization: str = ""                # BF16 | FP8 | NVFP4 | INT4 | MXFP4 | Q8_0 | IQ2_M | ...
+    # What actually drafts at serve time, read off the docker-compose command
+    # itself (--speculative-config / --speculative-algorithm) rather than the
+    # slug or tags — those have been wrong often enough (a slug named "dspark"
+    # whose active config is EAGLE; drafters with no matching tag at all) that
+    # only the literal runtime flag can be trusted. Empty if no drafter runs.
+    speculative_method: str = ""          # mtp | dflash | dspark | eagle | ...
+    # Published Artificial Analysis Intelligence Index score for the base
+    # model (artificialanalysis.ai) — one capability score per model group,
+    # shared across every quant/drafter build of it. None where no
+    # independent score is published (community finetunes, or a model too
+    # new to have been evaluated).
+    artificial_analysis_index: float | None = None
     weights_gb: float | None = None       # actual weight download size on disk, in GB
     depends_on: list[str] = []
     requires_hf_token: bool = False

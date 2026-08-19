@@ -35,6 +35,8 @@ engine: "vLLM"
 params_b: 2.3
 arch: dense
 quantization: "BF16"
+speculative_method: ""
+artificial_analysis_index: 10
 weights_gb: 10.2
 release_date: "2026-03"
 tested_on:
@@ -45,7 +47,14 @@ integration:
   model_id: "google/gemma-4-E2B-it"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"google/gemma-4-E2B-it\", \"messages\": [{\"role\": \"user\", \"content\": \"Solve 17 x 23 step by step.\"}]}'"
-tokens_per_second: 38.7
+tokens_per_second: 37.5
+tokens_per_second_editing: 37.5
+editing_workload: "code-edit"
+benchmarks:
+  prose: 36.91
+  explainer: 37.99
+  code: 37.75
+  code-edit: 37.5
 
 cover:
   image: google-sign.jpg

@@ -34,6 +34,8 @@ engine: "vLLM"
 params_b: 14
 arch: dense
 quantization: "FP8"
+speculative_method: ""
+artificial_analysis_index: null
 weights_gb: 15.7
 release_date: "2025-04"
 tested_on:
@@ -44,7 +46,14 @@ integration:
   model_id: "nvidia/Phi-4-reasoning-plus-FP8"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Phi-4-reasoning-plus-FP8\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
-tokens_per_second: 14.94
+tokens_per_second: 15.9
+tokens_per_second_editing: 15.9
+editing_workload: "code-edit"
+benchmarks:
+  prose: 15.89
+  explainer: 16.09
+  code: 15.87
+  code-edit: 15.9
 
 cover:
   image: microsoft-building-92.jpg

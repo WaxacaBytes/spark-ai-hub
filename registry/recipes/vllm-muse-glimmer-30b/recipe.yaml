@@ -37,6 +37,8 @@ engine: "vLLM"
 params_b: 29.6
 arch: dense
 quantization: "BF16"
+speculative_method: ""
+artificial_analysis_index: 35
 weights_gb: 59.6
 context_length: 131072
 release_date: "2026-08-11"
@@ -45,6 +47,13 @@ tested_on:
   dgx_os: "7.2"
   date: "2026-08-11"
 tokens_per_second: 4.2
+tokens_per_second_editing: 4.2
+editing_workload: "code-edit"
+benchmarks:
+  prose: 4.22
+  explainer: 4.22
+  code: 4.22
+  code-edit: 4.2
 integration:
   api_url: "http://<SPARK_IP>:9001/v1"
   model_id: "meta-models/Muse-Glimmer-30B"

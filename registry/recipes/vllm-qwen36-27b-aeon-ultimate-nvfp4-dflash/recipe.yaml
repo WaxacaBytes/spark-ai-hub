@@ -40,6 +40,8 @@ engine: "vLLM"
 params_b: 27
 arch: dense
 quantization: "NVFP4"
+speculative_method: "dflash"
+artificial_analysis_index: null
 weights_gb: 27.7
 release_date: "2026-06"
 tested_on:
@@ -50,7 +52,14 @@ integration:
   model_id: "AEON-7/Qwen3.6-27B-AEON-Ultimate-Uncensored-NVFP4"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"AEON-7/Qwen3.6-27B-AEON-Ultimate-Uncensored-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"What is 17 x 23? Show your work.\"}], \"max_tokens\": 2048, \"temperature\": 0}'"
-tokens_per_second: 21.5
+tokens_per_second: 22.2
+tokens_per_second_editing: 59.6
+editing_workload: "code-edit"
+benchmarks:
+  prose: 15.27
+  explainer: 25.11
+  code: 33.4
+  code-edit: 59.6
 
 cover:
   image: qwen-27b.jpg

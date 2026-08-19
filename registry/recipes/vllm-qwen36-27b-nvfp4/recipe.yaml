@@ -38,6 +38,8 @@ engine: "vLLM"
 params_b: 27
 arch: dense
 quantization: "NVFP4"
+speculative_method: "mtp"
+artificial_analysis_index: 38
 weights_gb: 21.9
 release_date: "2026-06-30"
 requires_hf_token: true
@@ -46,7 +48,14 @@ integration:
   model_id: "nvidia/Qwen3.6-27B-NVFP4"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Qwen3.6-27B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
-tokens_per_second: 24.9
+tokens_per_second: 24.7
+tokens_per_second_editing: 31.5
+editing_workload: "code-edit"
+benchmarks:
+  prose: 21.73
+  explainer: 25.09
+  code: 28.29
+  code-edit: 31.5
 
 cover:
   image: qwen-27b.jpg

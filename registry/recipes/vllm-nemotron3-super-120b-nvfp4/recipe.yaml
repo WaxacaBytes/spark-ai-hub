@@ -35,6 +35,8 @@ params_b: 120
 active_params_b: 12
 arch: moe
 quantization: "NVFP4"
+speculative_method: ""
+artificial_analysis_index: 26
 weights_gb: 80.3
 release_date: "2026-03"
 tested_on:
@@ -45,7 +47,14 @@ integration:
   model_id: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
-tokens_per_second: 23.3
+tokens_per_second: 22.7
+tokens_per_second_editing: 29.0
+editing_workload: "code-edit"
+benchmarks:
+  prose: 18.87
+  explainer: 22.9
+  code: 28.28
+  code-edit: 29.0
 
 cover:
   image: nvidia-dgx-gb200.jpg

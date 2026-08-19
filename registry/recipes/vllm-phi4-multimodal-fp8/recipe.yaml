@@ -34,6 +34,8 @@ engine: "vLLM"
 params_b: 5.6
 arch: dense
 quantization: "FP8"
+speculative_method: ""
+artificial_analysis_index: 5
 weights_gb: 10.3
 release_date: "2025-02"
 tested_on:
@@ -44,7 +46,14 @@ integration:
   model_id: "nvidia/Phi-4-multimodal-instruct-FP8"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Phi-4-multimodal-instruct-FP8\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
-tokens_per_second: 44.55
+tokens_per_second: 44.2
+tokens_per_second_editing: 44.2
+editing_workload: "code-edit"
+benchmarks:
+  prose: 44.19
+  explainer: 44.25
+  code: 44.17
+  code-edit: 44.2
 
 cover:
   image: microsoft-seattle-night.jpg

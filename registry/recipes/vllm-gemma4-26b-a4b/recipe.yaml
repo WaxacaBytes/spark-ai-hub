@@ -37,6 +37,8 @@ params_b: 26
 active_params_b: 4
 arch: moe
 quantization: "BF16"
+speculative_method: ""
+artificial_analysis_index: 26
 weights_gb: 51.6
 release_date: "2026-03"
 tested_on:
@@ -47,7 +49,14 @@ integration:
   model_id: "google/gemma-4-26B-A4B-it"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"google/gemma-4-26B-A4B-it\", \"messages\": [{\"role\": \"user\", \"content\": \"Solve 17 x 23 step by step.\"}]}'"
-tokens_per_second: 23.7
+tokens_per_second: 23.8
+tokens_per_second_editing: 23.8
+editing_workload: "code-edit"
+benchmarks:
+  prose: 23.44
+  explainer: 24.09
+  code: 23.92
+  code-edit: 23.8
 
 cover:
   image: google-bikes.jpg

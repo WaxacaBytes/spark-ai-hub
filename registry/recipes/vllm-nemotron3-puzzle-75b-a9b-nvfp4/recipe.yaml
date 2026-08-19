@@ -38,6 +38,8 @@ params_b: 75
 active_params_b: 9
 arch: moe
 quantization: "NVFP4"
+speculative_method: "mtp"
+artificial_analysis_index: null
 weights_gb: 53.5
 release_date: "2026-07"
 tokens_per_second: 34.6

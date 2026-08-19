@@ -36,12 +36,21 @@ params_b: 30
 active_params_b: 3
 arch: moe
 quantization: "NVFP4"
+speculative_method: ""
+artificial_analysis_index: null
 weights_gb: 19.3
 release_date: "2026-04"
 tested_on:
   dgx_os: "7.2"
   date: "2026-07-03"
-tokens_per_second: 58.3
+tokens_per_second: 57.4
+tokens_per_second_editing: 57.4
+editing_workload: "code-edit"
+benchmarks:
+  prose: 54.14
+  explainer: 59.94
+  code: 58.43
+  code-edit: 57.4
 integration:
   api_url: "http://<SPARK_IP>:9001/v1"
   model_id: "nvidia/NVIDIA-Nemotron-Labs-3-Elastic-30B-A3B-NVFP4"

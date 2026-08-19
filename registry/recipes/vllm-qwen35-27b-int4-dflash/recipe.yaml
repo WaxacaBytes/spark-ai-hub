@@ -37,6 +37,8 @@ engine: "vLLM"
 params_b: 27
 arch: dense
 quantization: "INT4"
+speculative_method: "dflash"
+artificial_analysis_index: 35
 weights_gb: 30.2
 release_date: "2026-05-01"
 integration:
@@ -44,7 +46,14 @@ integration:
   model_id: "Qwen/Qwen3.5-27B-GPTQ-Int4"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"Qwen/Qwen3.5-27B-GPTQ-Int4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
-tokens_per_second: 24.3
+tokens_per_second: 25.9
+tokens_per_second_editing: 55.2
+editing_workload: "code-edit"
+benchmarks:
+  prose: 19.39
+  explainer: 24.41
+  code: 43.3
+  code-edit: 55.2
 
 requires_hf_token: true
 

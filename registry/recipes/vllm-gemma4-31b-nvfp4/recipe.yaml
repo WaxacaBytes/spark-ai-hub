@@ -38,6 +38,8 @@ engine: "vLLM"
 params_b: 31
 arch: dense
 quantization: "NVFP4"
+speculative_method: ""
+artificial_analysis_index: 39
 weights_gb: 32.6
 release_date: "2026-03"
 tested_on:

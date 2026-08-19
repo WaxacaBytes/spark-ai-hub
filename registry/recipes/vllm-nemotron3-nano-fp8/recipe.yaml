@@ -34,6 +34,8 @@ params_b: 30
 active_params_b: 3
 arch: moe
 quantization: "FP8"
+speculative_method: ""
+artificial_analysis_index: 15
 weights_gb: 32.7
 release_date: "2025-12"
 tested_on:
@@ -44,10 +46,11 @@ integration:
   model_id: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
-tokens_per_second: 47.89
-
-cover:
-  image: nvidia-hq.jpg
-  caption: "NVIDIA's Voyager building in Santa Clara, where Nemotron is built."
-  credit: "2788-2888 San Tomas Expwy.jpg · Coolcaesar · CC BY-SA 4.0"
-  source: "https://commons.wikimedia.org/wiki/File%3A2788-2888%20San%20Tomas%20Expwy.jpg"
+tokens_per_second: 45.3
+tokens_per_second_editing: 45.3
+editing_workload: "code-edit"
+benchmarks:
+  prose: 41.72
+  explainer: 47.27
+  code: 47.36
+  code-edit: 45.3

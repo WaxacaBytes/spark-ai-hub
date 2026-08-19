@@ -36,6 +36,8 @@ params_b: 35
 active_params_b: 3
 arch: moe
 quantization: "FP8"
+speculative_method: "mtp"
+artificial_analysis_index: 30
 weights_gb: 37.5
 release_date: "2026-02"
 tested_on:
@@ -46,7 +48,14 @@ integration:
   model_id: "Qwen/Qwen3.5-35B-A3B-FP8"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"Qwen/Qwen3.5-35B-A3B-FP8\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
-tokens_per_second: 54.6
+tokens_per_second: 61.1
+tokens_per_second_editing: 61.1
+editing_workload: "code-edit"
+benchmarks:
+  prose: 60.57
+  explainer: 61.37
+  code: 61.45
+  code-edit: 61.1
 
 cover:
   image: qwen-35b.jpg

@@ -84,23 +84,40 @@ export function speedLabel(recipe) {
   return range == null ? null : `${range} tok/s`
 }
 
-// What this build is, with the part every sibling shares taken away: "NVFP4
-// DFlash". A build whose name *is* the group name is the plain one, and is
-// labelled by its quantization instead of left blank.
-export function buildLabel(recipe, groupLabel) {
-  const name = recipe.name || ''
-  const tail = (name.startsWith(groupLabel) ? name.slice(groupLabel.length) : name)
-    .trim()
-    // A tail that was parenthetical in the full name — "… (BF16)" — is the
-    // headline once the shared part is gone, so it loses its brackets.
-    .replace(/^\((.*)\)$/, '$1')
+// What this build is, told only through quantization and speculative drafter
+// — "NVFP4 DFlash", "BF16 DSpark", "FP8". Everything else that could
+// distinguish a build (engine, MoE-ness, a finetune's name) is already shown
+// elsewhere — the group heading carries the finetune, other columns carry the
+// engine — so it stays out of here rather than being said twice.
+// Keyed by `recipe.speculative_method` — parsed straight off each recipe's
+// docker-compose.yml command (--speculative-config / --speculative-algorithm)
+// by tools/sync_speculative_method.py, never from tags or the slug. Both of
+// those have been wrong: a slug named "dspark" whose active algorithm is
+// EAGLE, and drafters running with no matching tag at all. Only the literal
+// runtime flag can be trusted.
+const DRAFTER_LABELS = { dflash: 'DFlash', dspark: 'DSpark', mtp: 'MTP', eagle: 'EAGLE' }
+
+// "INT4" alone hides which quantization algorithm actually produced it —
+// GPTQ and AutoRound W4A16 are different builds, not the same one. The
+// signal for which is inconsistently placed (sometimes a tag, sometimes only
+// in the free-text name), so both are checked. AutoRound is named "W4A16"
+// rather than "Int4" because that's the term its own recipe uses throughout
+// (description: "AutoRound W4A16") — inventing "AutoRound-Int4" would be a
+// term this recipe never uses about itself.
+function resolvedQuant(recipe) {
   const quant = recipe.quantization || ''
-  if (!tail) return quant || recipe.engine || 'Default build'
-  // Most tails already name the quantization ("NVFP4 DFlash"), but some name
-  // only the drafter or the architecture ("DFlash", "MoE"). Every row has to
-  // say what precision it runs at, so the missing ones get it appended.
-  if (quant && !tail.toLowerCase().includes(quant.toLowerCase())) return `${tail} · ${quant}`
-  return tail
+  if (quant !== 'INT4') return quant
+  const tags = recipe.tags || []
+  if (tags.includes('autoround') && tags.includes('w4a16')) return 'AutoRound W4A16'
+  if (tags.includes('gptq') || /gptq/i.test(recipe.name || '')) return 'GPTQ-Int4'
+  return quant
+}
+
+export function buildLabel(recipe) {
+  const quant = resolvedQuant(recipe)
+  const drafter = DRAFTER_LABELS[recipe.speculative_method] || ''
+  const label = [quant, drafter].filter(Boolean).join(' ')
+  return label || recipe.engine || 'Default build'
 }
 
 // Groups `recipes` by model. `comparator` ranks the groups against each other;

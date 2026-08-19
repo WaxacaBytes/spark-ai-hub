@@ -32,6 +32,8 @@ engine: "vLLM"
 params_b: 36
 arch: dense
 quantization: "BF16"
+speculative_method: ""
+artificial_analysis_index: 19
 weights_gb: 72.3
 release_date: "2025-08"
 tested_on:
@@ -42,7 +44,14 @@ integration:
   model_id: "ByteDance-Seed/Seed-OSS-36B-Instruct"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"ByteDance-Seed/Seed-OSS-36B-Instruct\", \"messages\": [{\"role\": \"user\", \"content\": \"Solve 17 x 23 step by step.\"}]}'"
-tokens_per_second: 3.17
+tokens_per_second: 3.3
+tokens_per_second_editing: 3.3
+editing_workload: "code-edit"
+benchmarks:
+  prose: 3.28
+  explainer: 3.28
+  code: 3.23
+  code-edit: 3.3
 
 cover:
   image: bytedance-beijing-night.jpg

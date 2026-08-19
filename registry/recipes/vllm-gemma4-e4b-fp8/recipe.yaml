@@ -37,6 +37,8 @@ engine: "vLLM"
 params_b: 4.5
 arch: dense
 quantization: "FP8"
+speculative_method: ""
+artificial_analysis_index: 12
 weights_gb: 16.0
 release_date: "2026-03"
 tested_on:
@@ -47,7 +49,14 @@ integration:
   model_id: "google/gemma-4-E4B-it"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"google/gemma-4-E4B-it\", \"messages\": [{\"role\": \"user\", \"content\": \"Solve 17 x 23 step by step.\"}]}'"
-tokens_per_second: 36.5
+tokens_per_second: 35.3
+tokens_per_second_editing: 35.3
+editing_workload: "code-edit"
+benchmarks:
+  prose: 35.22
+  explainer: 35.39
+  code: 35.42
+  code-edit: 35.3
 
 cover:
   image: google-council-bluffs.jpg

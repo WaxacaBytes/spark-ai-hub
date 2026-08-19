@@ -38,6 +38,8 @@ engine: "llama.cpp"
 params_b: 295
 arch: moe
 quantization: "IQ1_M"
+speculative_method: "mtp"
+artificial_analysis_index: 41
 weights_gb: 91.8
 release_date: "2026-07-14"
 tested_on:

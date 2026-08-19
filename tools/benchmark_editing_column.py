@@ -94,6 +94,37 @@ def evict_conflicting_models(slug):
     time.sleep(2)
 
 
+def is_installed(slug):
+    try:
+        r = http_json(f"{HUB_API}/api/recipes/{slug}", timeout=10)
+        return bool(r.get("installed"))
+    except Exception:
+        return False
+
+
+def install(slug, timeout=3600):
+    """Replicates clicking Install: POST /install, then poll until the build
+    finishes (installed=True) or fails."""
+    try:
+        http_json(f"{HUB_API}/api/recipes/{slug}/install", data={}, method="POST", timeout=30)
+    except Exception as e:
+        return f"INSTALL_REQUEST_FAILED: {e}"
+
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            r = http_json(f"{HUB_API}/api/recipes/{slug}", timeout=10)
+            if r.get("installed"):
+                return None
+            if not r.get("installing") and not r.get("starting"):
+                # build task finished but recipe still not installed => failed
+                return "INSTALL_FAILED: build finished but recipe not installed"
+        except Exception:
+            pass
+        time.sleep(5)
+    return "INSTALL_TIMEOUT"
+
+
 def launch(slug):
     evict_conflicting_models(slug)
     try:
@@ -134,7 +165,12 @@ def call(model_id, prompt, max_tokens=512, thinking=True):
     if not thinking:
         payload["chat_template_kwargs"] = {"enable_thinking": False}
     t0 = time.time()
-    d = http_json(f"{VLLM_API}/v1/chat/completions", data=payload, timeout=600)
+    # Scale the timeout to the request size rather than a fixed 600s: a
+    # genuinely slow model (e.g. Gemma 4 31B BF16 at ~3.7 tok/s) needs ~830s
+    # just for the 3000-token code-edit call. 1s/token is a generous floor —
+    # covers anything down to 1 tok/s — while still capping runaway hangs.
+    timeout = max(600, max_tokens)  # seconds; 1s/token, floor 600s
+    d = http_json(f"{VLLM_API}/v1/chat/completions", data=payload, timeout=timeout)
     dt = time.time() - t0
     return d["usage"]["completion_tokens"], dt
 
@@ -167,6 +203,12 @@ def run_benchmark(model_id):
     editing_measured = n / dt if dt else 0
     per_workload["code-edit"] = round(editing_measured, 2)
     print(f"    {'code-edit':<10} {n} tok / {dt:.2f}s = {editing_measured:.2f} tok/s")
+    if n < 50:
+        # A near-empty completion (e.g. the model stopping immediately) is not
+        # a slow edit — it is the chat template mishandling
+        # enable_thinking: false and producing a degenerate response. That is
+        # not a real measurement of anything and must not be published as one.
+        raise RuntimeError(f"degenerate code-edit response: only {n} completion tokens")
 
     return writing_measured, editing_measured, per_workload
 
@@ -210,6 +252,15 @@ def process(slug, results):
     print(f"\n=== {slug} ===")
     content, model_id, writing_published = get_recipe_yaml_fields(slug)
     print(f"  model_id={model_id}  published writing={writing_published}")
+
+    if not is_installed(slug):
+        print("  Not installed -> installing (replicates clicking Install)...")
+        err = install(slug)
+        if err:
+            print(f"  {err}")
+            results[slug] = err
+            return
+        print("  Installed.")
 
     if not launch(slug):
         results[slug] = "LAUNCH_FAILED"

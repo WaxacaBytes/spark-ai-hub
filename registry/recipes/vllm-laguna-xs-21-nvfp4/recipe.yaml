@@ -38,6 +38,8 @@ params_b: 33
 active_params_b: 3
 arch: moe
 quantization: "NVFP4"
+speculative_method: "dflash"
+artificial_analysis_index: null
 weights_gb: 21.6
 release_date: "2026-07-21"
 requires_hf_token: false
@@ -47,7 +49,14 @@ integration:
   api_key: "not-needed"
   max_context: "262144"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"poolside/Laguna-XS-2.1-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512}'"
-tokens_per_second: 48.0
+tokens_per_second: 46.1
+tokens_per_second_editing: 298.0
+editing_workload: "code-edit"
+benchmarks:
+  prose: 39.95
+  explainer: 44.05
+  code: 57.77
+  code-edit: 298.0
 
 cover:
   image: poolside-station-f.jpg

@@ -35,6 +35,8 @@ engine: "vLLM"
 params_b: 2
 arch: dense
 quantization: "BF16"
+speculative_method: "mtp"
+artificial_analysis_index: 7
 weights_gb: 4.5
 release_date: "2026-02"
 tested_on:

@@ -43,6 +43,8 @@ params_b: 26
 active_params_b: 4
 arch: moe
 quantization: "NVFP4"
+speculative_method: "dflash"
+artificial_analysis_index: 26
 weights_gb: 18.8
 release_date: "2026-05"
 integration:
@@ -50,7 +52,14 @@ integration:
   model_id: "nvidia/Gemma-4-26B-A4B-NVFP4"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/Gemma-4-26B-A4B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
-tokens_per_second: 57.2
+tokens_per_second: 59.1
+tokens_per_second_editing: 94.6
+editing_workload: "code-edit"
+benchmarks:
+  prose: 37.9
+  explainer: 49.56
+  code: 239.67
+  code-edit: 94.6
 
 cover:
   image: google-bikes.jpg

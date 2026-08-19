@@ -31,16 +31,20 @@ const VARIANTS = {
   build: {
     columns: 'minmax(0,1fr) 56px 44px 44px 66px 50px 34px 48px',
     headers: ['Engine'],
+    fixedHeaders: ['Writing', 'Editing', 'Params', 'On disk', 'Ctx'],
     first: 'Build',
     lead: null,
     wrap: false,
+    aaIndex: false,
   },
   ranked: {
-    columns: '26px minmax(0,1fr) 70px 70px 50px 50px 74px 62px 42px 62px',
+    columns: '26px minmax(0,1fr) 70px 70px 50px 50px 54px 74px 62px 42px 62px',
     headers: ['Engine', 'Quant'],
+    fixedHeaders: ['Writing', 'Editing', 'AA Index', 'Params', 'On disk', 'Ctx'],
     first: 'Model · build',
     lead: 'rank',
     wrap: true,
+    aaIndex: true,
   },
 }
 
@@ -92,7 +96,7 @@ function ColumnHeader({ variant }) {
           truncates, and a second header line for the unit costs a row of height
           on every table. What they are and what unit they carry is stated once,
           under the section heading these tables sit beneath. */}
-      {['Writing', 'Editing', 'Params', 'On disk', 'Ctx'].map((h) => (
+      {v.fixedHeaders.map((h) => (
         <span
           key={h}
           className="text-right font-label text-[9px] font-semibold uppercase tracking-wider text-text-dim"
@@ -105,7 +109,7 @@ function ColumnHeader({ variant }) {
   )
 }
 
-function BuildRow({ recipe, variant, groupLabel, rank, highlight }) {
+function BuildRow({ recipe, variant, rank, highlight }) {
   const v = VARIANTS[variant]
   const installing = useStore((s) => s.installing)
   const updating = useStore((s) => s.updating)
@@ -121,7 +125,7 @@ function BuildRow({ recipe, variant, groupLabel, rank, highlight }) {
 
   // Grouped rows sit under a heading that names the model, so they name only
   // the build. The other two stand alone and carry the model name and logo.
-  const label = variant === 'build' ? buildLabel(recipe, groupLabel) : displayName(recipe)
+  const label = variant === 'build' ? buildLabel(recipe) : displayName(recipe)
 
   const action = isBusy ? (
     <span className="font-label text-[10px] text-secondary">Building…</span>
@@ -212,6 +216,19 @@ function BuildRow({ recipe, variant, groupLabel, rank, highlight }) {
       >
         {recipe.tokens_per_second_editing ?? '—'}
       </span>
+      {/* A capability score, not a speed one — published per base model by
+          Artificial Analysis, so it does not vary with quantization or
+          drafter the way Writing/Editing do. Grouped "build" tables already
+          say it once in the model heading, so this column only exists on the
+          ranked leaderboards, where every row is an independent build. */}
+      {v.aaIndex && (
+        <Cell
+          className={`text-right ${highlight === 'aa-index' ? 'text-secondary font-bold' : 'text-text-muted'}`}
+          title={recipe.artificial_analysis_index != null ? `${recipe.artificial_analysis_index} on the Artificial Analysis Intelligence Index` : undefined}
+        >
+          {recipe.artificial_analysis_index ?? null}
+        </Cell>
+      )}
       <Cell className={`text-right ${highlight === 'params' ? 'text-secondary font-bold' : 'text-text-muted'}`}>
         {recipe.params_b != null ? formatParams(recipe) : null}
       </Cell>
@@ -430,6 +447,14 @@ export function ModelBlock({ group }) {
         >
           {group.label}
         </h3>
+        {group.lead.artificial_analysis_index != null && (
+          <span
+            className="shrink-0 font-label text-[10px] font-bold tabular-nums text-text-muted"
+            title={`${group.lead.artificial_analysis_index} on the Artificial Analysis Intelligence Index — one score per model, shared by every build below`}
+          >
+            AA {group.lead.artificial_analysis_index}
+          </span>
+        )}
         <span className="shrink-0 font-label text-[10px] text-text-dim">
           {group.items.length} build{group.items.length > 1 ? 's' : ''}
         </span>
@@ -441,7 +466,7 @@ export function ModelBlock({ group }) {
 
       <div className="mt-0.5">
         {group.items.map((r) => (
-          <BuildRow key={r.slug} recipe={r} variant="build" groupLabel={group.label} />
+          <BuildRow key={r.slug} recipe={r} variant="build" />
         ))}
       </div>
     </section>

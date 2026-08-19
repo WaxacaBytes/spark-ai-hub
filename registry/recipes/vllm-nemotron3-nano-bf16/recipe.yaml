@@ -34,6 +34,8 @@ params_b: 30
 active_params_b: 3
 arch: moe
 quantization: "BF16"
+speculative_method: ""
+artificial_analysis_index: 15
 weights_gb: 63.2
 release_date: "2025-12"
 tested_on:
@@ -44,7 +46,14 @@ integration:
   model_id: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
-tokens_per_second: 28.97
+tokens_per_second: 27.4
+tokens_per_second_editing: 27.4
+editing_workload: "code-edit"
+benchmarks:
+  prose: 26.37
+  explainer: 27.62
+  code: 28.17
+  code-edit: 27.4
 
 cover:
   image: nvidia-hq.jpg

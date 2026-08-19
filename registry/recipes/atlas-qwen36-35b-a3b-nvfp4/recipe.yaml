@@ -39,6 +39,8 @@ params_b: 35
 active_params_b: 3
 arch: moe
 quantization: "NVFP4"
+speculative_method: ""
+artificial_analysis_index: 32
 weights_gb: 25.0
 release_date: "2026-05-16"
 requires_hf_token: true
@@ -48,7 +50,14 @@ integration:
   api_key: "not-needed"
   max_context: "131072"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"RedHatAI/Qwen3.6-35B-A3B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
-tokens_per_second: 116.2
+tokens_per_second: 93.6
+tokens_per_second_editing: 111.6
+editing_workload: "code-edit"
+benchmarks:
+  prose: 93.4
+  explainer: 93.16
+  code: 94.18
+  code-edit: 111.6
 services:
   atlas:
     image: avarok/atlas-gb10:latest

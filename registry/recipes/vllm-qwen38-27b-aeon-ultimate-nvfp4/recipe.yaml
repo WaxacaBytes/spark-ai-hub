@@ -39,6 +39,8 @@ engine: "vLLM"
 params_b: 27
 arch: dense
 quantization: "NVFP4"
+speculative_method: "mtp"
+artificial_analysis_index: null
 weights_gb: 20.6
 release_date: "2026-08"
 tokens_per_second: 21.1

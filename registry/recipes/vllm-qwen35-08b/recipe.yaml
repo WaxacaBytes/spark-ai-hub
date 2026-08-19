@@ -35,6 +35,8 @@ engine: "vLLM"
 params_b: 0.8
 arch: dense
 quantization: "BF16"
+speculative_method: "mtp"
+artificial_analysis_index: 5
 weights_gb: 1.7
 release_date: "2026-02"
 tested_on:
@@ -45,7 +47,14 @@ integration:
   model_id: "Qwen/Qwen3.5-0.8B"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"Qwen/Qwen3.5-0.8B\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
-tokens_per_second: 120.1
+tokens_per_second: 149.7
+tokens_per_second_editing: 149.7
+editing_workload: "code-edit"
+benchmarks:
+  prose: 147.38
+  explainer: 143.34
+  code: 159.19
+  code-edit: 149.7
 
 cover:
   image: qwen-08b.jpg

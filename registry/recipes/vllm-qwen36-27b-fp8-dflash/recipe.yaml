@@ -35,6 +35,8 @@ engine: "vLLM"
 params_b: 27
 arch: dense
 quantization: "FP8"
+speculative_method: "dflash"
+artificial_analysis_index: 38
 weights_gb: 30.9
 release_date: "2026-05-04"
 requires_hf_token: true

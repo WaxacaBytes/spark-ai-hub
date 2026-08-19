@@ -104,6 +104,21 @@ const MODEL_SORTS = [
       [25, '25–50 tok/s editing'], [0, 'Under 25 tok/s editing']],
       'Not measured on an edit')(r.tokens_per_second_editing),
   },
+  // A capability score, not a speed one — the only sort here that isn't
+  // measured on this Spark. Published by Artificial Analysis per base model,
+  // so every quant/drafter build of one model shares the same score; a
+  // community finetune with no independent evaluation has none.
+  {
+    id: 'aa-index',
+    label: 'AA Index',
+    key: (r) => r.artificial_analysis_index,
+    note: 'Ranked on the Artificial Analysis Intelligence Index (artificialanalysis.ai), a '
+      + 'published capability score for the base model — quantization and speculative '
+      + 'drafter do not change it, so every build of one model shares its score. Community '
+      + 'finetunes and models with no independent evaluation have none and sort last.',
+    band: (r) => bands([[40, '40+ AA Index'], [25, '25–40 AA Index'], [10, '10–25 AA Index'],
+      [0, 'Under 10 AA Index']], 'No published score')(r.artificial_analysis_index),
+  },
 ]
 
 function byRelease(a, b) {
