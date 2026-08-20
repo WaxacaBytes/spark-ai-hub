@@ -60,7 +60,7 @@ const FAMILY = [
   ['glm', 'zai'], ['hy3', 'tencent'], ['hunyuan', 'tencent'],
   ['inkling', 'thinking-machines'], ['minimax', 'minimax'], ['laguna', 'poolside'],
   ['ling3', 'inclusion'], ['seed-oss', 'bytedance'], ['minicpm', 'openbmb'],
-  ['mistral', 'mistral'],
+  ['mistral', 'mistral'], ['mimo', 'xiaomi'],
 ]
 
 const BY_AUTHOR = {
@@ -69,7 +69,7 @@ const BY_AUTHOR = {
   'ByteDance': 'bytedance', 'Microsoft': 'microsoft', 'Red Hat AI': 'redhat',
   'poolside': 'poolside', 'OpenBMB': 'openbmb', 'NVIDIA': 'nvidia',
   'Tencent': 'tencent', 'OpenAI': 'openai', 'Google': 'google', 'Meta': 'meta',
-  'Qwen': 'alibaba', 'Z.AI': 'zai',
+  'Qwen': 'alibaba', 'Z.AI': 'zai', 'Xiaomi': 'xiaomi',
 }
 
 const AUTHOR_KEYS = Object.keys(BY_AUTHOR).sort((a, b) => b.length - a.length)
@@ -108,6 +108,7 @@ export const VENDOR_LABELS = {
   inclusion: 'inclusionAI · Ling',
   openbmb: 'OpenBMB',
   mistral: 'Mistral AI',
+  xiaomi: 'Xiaomi · MiMo',
   generic: 'More models',
 }
 
