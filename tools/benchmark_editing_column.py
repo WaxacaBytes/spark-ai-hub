@@ -135,7 +135,7 @@ def launch(slug):
         return False
 
 
-def wait_ready(slug, timeout=900):
+def wait_ready(slug, timeout=1800):
     start = time.time()
     while time.time() - start < timeout:
         try:

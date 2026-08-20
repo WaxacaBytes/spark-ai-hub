@@ -47,7 +47,14 @@ integration:
   model_id: "openai/gpt-oss-120b"
   api_key: "not-needed"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"openai/gpt-oss-120b\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
-tokens_per_second: 33.08
+tokens_per_second: 34.2
+tokens_per_second_editing: 34.2
+editing_workload: "code-edit"
+benchmarks:
+  prose: 33.96
+  explainer: 34.22
+  code: 34.47
+  code-edit: 34.2
 
 cover:
   image: openai-1515-third.jpg

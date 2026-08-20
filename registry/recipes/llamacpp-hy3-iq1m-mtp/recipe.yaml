@@ -1,11 +1,11 @@
 name: "Hunyuan Hy3 295B (1-bit IQ1_M + MTP)"
 slug: llamacpp-hy3-iq1m-mtp
 version: "1.0.0"
-description: "Tencent Hunyuan Hy3 (hy_v3) 295B MoE at 1-bit (IQ1_M, ~92GB) with MTP self-speculative decoding, served via a custom-patched llama.cpp built native for the DGX Spark (ARM64+CUDA13). OpenAI-compatible API, 65K context, thinking + tool-call parser."
-author: "Tencent / AngelSlim"
+description: "Tencent Hunyuan Hy3 (hy_v3) 295B MoE at 1-bit (IQ1_M, ~92GB) with MTP self-speculative decoding, served via mainline llama.cpp built native for the DGX Spark (ARM64+CUDA13). OpenAI-compatible API, 65K context, thinking + tool-call parser."
+author: "Tencent / AtomicChat"
 source: "community"
-website: "https://huggingface.co/AngelSlim/Hy3-GGUF"
-upstream: "https://huggingface.co/AngelSlim/Hy3-GGUF"
+website: "https://huggingface.co/AtomicChat/Hy3-GGUF"
+upstream: "https://huggingface.co/AtomicChat/Hy3-GGUF"
 category: llm
 tags:
   - llm
@@ -41,11 +41,18 @@ quantization: "IQ1_M"
 speculative_method: "mtp"
 artificial_analysis_index: 41
 weights_gb: 91.8
-release_date: "2026-07-14"
+release_date: "2026-08-19"
 tested_on:
   dgx_os: "7.2"
-  date: "2026-07-14"
-tokens_per_second: 14
+  date: "2026-08-19"
+tokens_per_second: 15.6
+tokens_per_second_editing: 15.6
+editing_workload: "code-edit"
+benchmarks:
+  prose: 14.45
+  explainer: 14.68
+  code: 18.97
+  code-edit: 15.6
 integration:
   api_url: "http://<SPARK_IP>:9001/v1"
   model_id: "hy3"

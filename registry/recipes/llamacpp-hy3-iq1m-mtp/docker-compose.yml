@@ -1,11 +1,12 @@
 services:
   llama-server:
-    # Custom-patched llama.cpp with hy_v3 (Hunyuan v3) architecture + MTP support,
-    # built native for the DGX Spark (ARM64 + CUDA 13, GB10 sm_121).
+    # Mainline llama.cpp with hy_v3 (Hunyuan v3) support (merged upstream via
+    # https://github.com/ggml-org/llama.cpp/pull/25395, 2026-07-13), built native
+    # for the DGX Spark (ARM64 + CUDA 13, GB10 sm_121).
     # Source: https://github.com/WaxacaBytes/hy3-llamacpp-spark-ai-hub
     image: ghcr.io/waxacabytes/hy3-llamacpp-spark-ai-hub:latest
-    # Built locally at install time (patched llama.cpp with hy_v3 arch is not on any
-    # registry yet). Layers are compiled once and cached; relaunch is offline.
+    # Built locally at install time (no registry ships a prebuilt aarch64+CUDA13
+    # llama.cpp). Layers are compiled once and cached; relaunch is offline.
     build:
       context: .
       secrets:
@@ -15,24 +16,35 @@ services:
         # Model weights are part of the app artifact: baked into the final image
         # below, so `docker rmi` reclaims every byte this recipe introduced.
         FROM python:3.13-slim AS weights
-        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
-        RUN pip install --no-cache-dir huggingface_hub
+        # Xet MUST stay enabled here: Hy3-IQ1_M.gguf is a single 91.8GB file and
+        # huggingface_hub refuses any plain-HTTP download over 50GB
+        # (constants.MAX_HTTP_DOWNLOAD_SIZE). The file is xet-backed on the Hub, so
+        # hf_xet is both the only working transport and the fast one.
+        ENV HF_HOME=/weights
+        RUN pip install --no-cache-dir "huggingface_hub[hf_xet]"
         RUN --mount=type=secret,id=hf_token \
             HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
-            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('AngelSlim/Hy3-GGUF', allow_patterns=['*Hy3-IQ1_M-mtp.gguf*'])"
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('AtomicChat/Hy3-GGUF', allow_patterns=['*Hy3-IQ1_M.gguf*'])"
         # ---------------------------------------------------------------------
 
-        # hy3-llamacpp-spark-ai-hub — patched llama.cpp with hy_v3 (Hunyuan v3) support
+        # hy3-llamacpp-spark-ai-hub — mainline llama.cpp with hy_v3 (Hunyuan v3) support
         #
-        # The hy_v3 architecture is NOT in mainline llama.cpp. AngelSlim ship two patches
-        # (arch + MTP/tool-parser) against a pinned base commit. This image reproduces
-        # their setup_hyv3_llama.sh natively for the DGX Spark (ARM64 + CUDA 13, GB10 sm_121).
+        # hy_v3 is now IN mainline llama.cpp (merged via PR #25395 on 2026-07-13). An
+        # earlier version of this recipe built a pinned pre-merge commit plus two
+        # AngelSlim-authored patches; AngelSlim have since deleted those patches and
+        # re-quantized their GGUFs to the new mainline tensor layout, which broke the
+        # old patched build (crashed with "wrong number of tensors"). No patches are
+        # needed anymore — this just builds a recent mainline commit.
         #
-        #   base commit : 19bba67c1f4db723c60a0d421aa0788bf4ddc699 (ggml-org/llama.cpp master)
-        #   patch 01    : hy_v3 base architecture
-        #   patch 02    : MTP self-speculative decoding + thinking/tool-call parser
-        #
-        # Source patches: https://huggingface.co/AngelSlim/Hy3-GGUF/tree/main/patches
+        # Weights source: AtomicChat/Hy3-GGUF (self-quantized from tencent/Hy3, not a
+        # repack of AngelSlim's files). Its IQ1_M file includes an MTP head
+        # (blk.80.nextn.* tensors) even though AtomicChat's README doesn't advertise
+        # MTP separately — verified 2026-08-19: self-speculative decoding engages
+        # (26-42% draft acceptance) and measures 13.74 tok/s, matching this recipe's
+        # original AngelSlim-sourced MTP variant (14.0 tok/s, spec/never benchmarked
+        # before the source broke). AngelSlim's own MTP file remains unusable until
+        # someone rebuilds a from-scratch recipe against their patches (defunct) or
+        # confirms their file also now matches mainline.
 
         # ── Stage 1: build ───────────────────────────────────────────────────────────
         FROM nvcr.io/nvidia/cuda:13.0.1-devel-ubuntu24.04 AS build
@@ -43,20 +55,14 @@ services:
                 libcurl4-openssl-dev ca-certificates \
             && rm -rf /var/lib/apt/lists/*
 
-        # Pinned base commit the patches are line-anchored to. Do NOT bump casually.
-        ARG LLAMA_COMMIT=19bba67c1f4db723c60a0d421aa0788bf4ddc699
+        # Pinned to a recent mainline commit (post hy_v3 merge). Bump deliberately,
+        # not casually -- re-verify the model still loads and produces coherent output.
+        ARG LLAMA_COMMIT=947fd9bb2bdeaa72e9dd74b6aa3b5d68f03f3d6a
         ARG CUDA_ARCH=121
 
         WORKDIR /src
         RUN git clone https://github.com/ggml-org/llama.cpp.git . \
             && git checkout -q $${LLAMA_COMMIT}
-
-        # Apply the two hy_v3 patches in order (arch, then MTP+parser).
-        COPY patches/01-hyv3-arch.patch patches/02-hyv3-mtp-tools.patch /src/_patches/
-        RUN git apply --check /src/_patches/01-hyv3-arch.patch \
-            && git apply /src/_patches/01-hyv3-arch.patch \
-            && git apply --check /src/_patches/02-hyv3-mtp-tools.patch \
-            && git apply /src/_patches/02-hyv3-mtp-tools.patch
 
         # Build server + cli with CUDA (GB10 = sm_121), curl for -hf cache resolution.
         # Static ggml (default) so the CUDA driver stub links into the binaries; shared
@@ -107,9 +113,9 @@ services:
     container_name: spark-ai-hub-llamacpp-hy3-iq1m-mtp
     command:
       - -hf
-      - AngelSlim/Hy3-GGUF
+      - AtomicChat/Hy3-GGUF
       - --hf-file
-      - Hy3-IQ1_M-mtp.gguf
+      - Hy3-IQ1_M.gguf
       - --alias
       - hy3
       - -ngl
@@ -138,12 +144,14 @@ services:
       # Python str.format which llama.cpp's minja engine cannot evaluate).
       - --jinja
       # Chat template inlined here so the FULL model behavior (incl. the
-      # reasoning_effort default on line ~34 below) is visible and editable in
-      # the Hub's compose editor -- nothing baked opaquely into the image.
-      # This is AngelSlim's upstream minja-compatible template, unmodified.
+      # reasoning_effort default below) is visible and editable in the Hub's compose
+      # editor -- nothing baked opaquely into the image. This is tencent/Hy3's
+      # upstream chat_template.jinja with its handful of .format() calls flattened
+      # to literal strings (llama.cpp's minja engine can't evaluate str.format;
+      # everything else is unmodified).
       - --chat-template
       - |
-        {#- ----------‑‑‑ special token variables (minja-compatible: 后缀写死 :opensource, 去掉 .format) ‑‑‑---------- -#}
+        {#- ----------‑‑‑ special token variables (minja-compatible: literal :opensource suffix, .format() stripped) ‑‑‑---------- -#}
         {%- set eos_token = '<｜hy_eos:opensource｜>' %}
         {%- set bos_token = '<｜hy_begin_of_sentence:opensource｜>' %}
         {%- set pad_token = '<｜hy_pad:opensource｜>' %}
@@ -182,7 +190,7 @@ services:
         {%- endif %}
 
         {%- if not reasoning_effort is defined %}
-            {%- set reasoning_effort = 'low' %}
+            {%- set reasoning_effort = 'no_think' %}
         {%- elif reasoning_effort not in ['high', 'low', 'no_think'] %}
             {%- if reasoning_effort is none %}
                 {{- raise_exception('reasoning_effort error : None, should be no_think/low/high') }}
