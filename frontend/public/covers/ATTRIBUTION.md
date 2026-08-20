@@ -26,14 +26,14 @@ covers stand for.
   https://commons.wikimedia.org/wiki/File%3AMountain%20View%20%28CA%2C%20USA%29%2C%20Charleston%20Road%2C%20Google-Schild%20--%202022%20--%202896.jpg
 - **inclusion-alipay-hq.jpg** — 201608 Alipay Mansion.jpg · MNXANL · CC BY-SA 3.0  
   https://commons.wikimedia.org/wiki/File%3A201608%20Alipay%20Mansion.jpg
-- **inclusion-ant-a-space.jpg** — Ant A Space, Hangzhou, 2021-12-02.jpg · Siyuwj · CC BY-SA 4.0  
-  https://commons.wikimedia.org/wiki/File%3AAnt%20A%20Space%2C%20Hangzhou%2C%202021-12-02.jpg
 - **meta-golden-gate.jpg** — Golden Gate Bridge and San Francisco skyline from Hawk Hill at Blue Hour dllu.jpg · Daniel L. Lu (user:dllu) · CC BY-SA 4.0  
   https://commons.wikimedia.org/wiki/File%3AGolden%20Gate%20Bridge%20and%20San%20Francisco%20skyline%20from%20Hawk%20Hill%20at%20Blue%20Hour%20dllu.jpg
 - **microsoft-building-92.jpg** — Building92microsoft.jpg · Coolcaesar · CC BY-SA 4.0  
   https://commons.wikimedia.org/wiki/File%3ABuilding92microsoft.jpg
 - **microsoft-seattle-night.jpg** — Seattle I-5 skyline dllu.jpg · Dllu · CC BY-SA 4.0  
   https://commons.wikimedia.org/wiki/File%3ASeattle%20I-5%20skyline%20dllu.jpg
+- **mimo-hq.jpg** — Xiaomi Headquarters.jpg · Justin Sijbolts (Partydoos) · CC BY 4.0  
+  https://commons.wikimedia.org/wiki/File:Xiaomi_Headquarters.jpg
 - **minimax-cray.jpg** — Some cabinets of the Cray XE6 Blue Waters supercomputer.JPG · Stevek ncsa · CC BY-SA 3.0  
   https://commons.wikimedia.org/wiki/File%3ASome%20cabinets%20of%20the%20Cray%20XE6%20Blue%20Waters%20supercomputer.JPG
 - **nvidia-ces-blackwell.jpg** — Jensen Huang - RTX Blackwell - Nvidia Keynote - CES 2025 Las Vegas (2).jpg · Pronoia · CC0  
@@ -118,7 +118,5 @@ covers stand for.
   https://commons.wikimedia.org/wiki/File%3ATencent%20Seafront%20Towers%2C%20the%20Tencent%20HQ%20in%20Shenzhen%20%282026%29%20-%20img%2001.jpg
 - **thinking-machines-murati.jpg** — Guests at the 2026 Met Gala 274.jpg · SWinxy · CC BY 4.0  
   https://commons.wikimedia.org/wiki/File%3AGuests%20at%20the%202026%20Met%20Gala%20274.jpg
-- **zai-shanghai-bund.jpg** — Shanghai bund – Panorama (Greg Zaal via Poly Haven).jpg · Greg Zaal · CC0  
-  https://commons.wikimedia.org/wiki/File%3AShanghai%20bund%20%E2%80%93%20Panorama%20%28Greg%20Zaal%20via%20Poly%20Haven%29.jpg
 
-_56 of 56 covers carry a third-party credit._
+_55 of 55 covers carry a third-party credit._

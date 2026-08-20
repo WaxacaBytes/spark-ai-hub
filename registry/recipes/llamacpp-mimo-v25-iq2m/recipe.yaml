@@ -1,0 +1,64 @@
+name: "MiMo-V2.5 310B-A15B IQ2_M"
+slug: llamacpp-mimo-v25-iq2m
+version: "1.0.0"
+description: "Xiaomi's MiMo-V2.5, a 310B / 15B-active sparse MoE, in Unsloth's Dynamic UD-IQ2_M GGUF on llama.cpp. The largest quant of this model that fits a single Spark with a usable KV pool."
+author: "Xiaomi (MiMo) + Unsloth"
+source: "community"
+website: "https://github.com/ggml-org/llama.cpp"
+upstream: "https://huggingface.co/unsloth/MiMo-V2.5-GGUF"
+category: llm
+tags:
+  - llm
+  - moe
+  - reasoning
+  - coding
+  - agentic
+  - llamacpp
+  - gguf
+  - iq2
+logo: "/logos/mimo.png"
+requirements:
+  min_memory_gb: 105
+  recommended_memory_gb: 125
+  disk_gb: 105
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 35
+  gpu: true
+status: community-verified
+engine: "llama.cpp"
+params_b: 310
+active_params_b: 15
+arch: moe
+quantization: "IQ2_M"
+speculative_method: ""
+artificial_analysis_index: 38
+weights_gb: 96.6
+release_date: "2026-05"
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-08-19"
+tokens_per_second: 22.1
+tokens_per_second_editing: 22.1
+editing_workload: "code-edit"
+benchmarks:
+  prose: 21.65
+  explainer: 22.08
+  code: 22.45
+  code-edit: 22.1
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "mimo-v2.5"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"mimo-v2.5\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+
+cover:
+  image: mimo-hq.jpg
+  caption: "The Xiaomi sign outside its Science and Technology Park campus in Beijing, where MiMo is developed."
+  credit: "Xiaomi Headquarters.jpg · Justin Sijbolts (Partydoos) · CC BY 4.0"
+  source: "https://commons.wikimedia.org/wiki/File:Xiaomi_Headquarters.jpg"

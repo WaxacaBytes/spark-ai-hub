@@ -1,0 +1,80 @@
+services:
+  llama-server:
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        # NOTE the glob: UD-IQ2_M is a 3-shard GGUF and llama.cpp needs every
+        # shard present, not just 00001.
+        # HF_HUB_DOWNLOAD_TIMEOUT: without it a socket that goes quiet mid-shard
+        # blocks the whole download forever instead of failing and resuming.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights HF_HUB_DOWNLOAD_TIMEOUT=30
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('unsloth/MiMo-V2.5-GGUF', allow_patterns=['UD-IQ2_M/MiMo-V2.5-UD-IQ2_M-*-of-00003.gguf'])"
+        FROM ghcr.io/ggml-org/llama.cpp:full-cuda13-b10450
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/llamacpp-mimo-v25-iq2m:full-cuda13-b10450
+    container_name: spark-ai-hub-llamacpp-mimo-v25-iq2m
+    entrypoint:
+      - /app/llama-server
+    command:
+      # Xiaomi MiMo-V2.5, 310B total / 15B active sparse MoE, Unsloth Dynamic
+      # UD-IQ2_M (3 shards, ~96.6 GB). This is the largest quant of this model that
+      # fits a 128 GB Spark alongside a usable KV pool -- UD-Q2_K_XL is 103 GB and
+      # UD-IQ3_S 115 GB, both of which leave no room to serve.
+      # llama.cpp b10450 is the first tagged CUDA-13 image with the `mimo2` arch.
+      - -hf
+      - unsloth/MiMo-V2.5-GGUF
+      - --hf-file
+      - UD-IQ2_M/MiMo-V2.5-UD-IQ2_M-00001-of-00003.gguf
+      - --alias
+      - mimo-v2.5
+      - -ngl
+      - "999"
+      - -c
+      - "32768"
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8080"
+      - -fa
+      - "on"
+      # Unsloth ships chat-template fixes inside the GGUF; --jinja is what reads them.
+      - --jinja
+      # Never hit the network at launch — all shards are prefetched at install.
+      - --offline
+      - --no-mmap
+      - --cont-batching
+      - -np
+      - "1"
+      - -t
+      - "16"
+      - -tb
+      - "16"
+    ports:
+      - "9001:8080"
+    environment:
+      - GGML_CUDA_ENABLE_UNIFIED_MEMORY=1
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - LLAMA_OFFLINE=1
+      - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
