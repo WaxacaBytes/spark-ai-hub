@@ -28,6 +28,8 @@ This is why the cache is not merely inconvenient but forbidden: a cache outlives
 
 Corollary: never reintroduce a store that survives `docker rmi` — no HF cache volumes, no bind-mounted host caches, and no BuildKit `RUN --mount=type=cache` for weights. The last one is the tempting one, offered as a fix for re-downloading after a failed build. Refuse it.
 
+Corollary: a build's base and intermediate images (the vLLM/llama.cpp/CUDA runtime a recipe is built `FROM`) are cache too, even though `docker rmi` on the app's own image never touches them — Docker keeps them tagged in the local store indefinitely once pulled. An image earns a permanent place on disk only by being the exact image a currently-installed recipe runs, or by backing a container that exists right now (running or stopped) — nothing else, including a still-tagged image left over from a version an app no longer uses. Install and uninstall both end by removing everything that no longer qualifies. Reinstalling costs a full re-download, every time, on purpose: that cost is the receipt proving nothing was left behind. The one exception is a base image two currently-installed recipes both still depend on — it stays, because removing it would strand a working app, not because keeping it is convenient.
+
 ### 3. DGX Spark Proven — Built Native, Not Ported
 
 Every app in the hub is tested and verified to run on a single DGX Spark. Not "theoretically compatible" — **proven to run.**

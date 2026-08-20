@@ -207,6 +207,73 @@ async def _prune_build_cache() -> str:
     return "reclaimed 0B"
 
 
+async def _prune_orphaned_images() -> str:
+    """Remove every locally-cached Docker image the Hub no longer needs.
+
+    A build pulls base/intermediate images (the vLLM/llama.cpp/CUDA runtime a
+    recipe is built FROM) as a side effect, and Docker keeps them tagged in
+    the local image store indefinitely once pulled -- nothing else in this
+    file ever cleans them up. Left alone they are exactly the "cache outlives
+    the thing it belongs to" failure _prune_build_cache() exists to prevent,
+    just one layer up: an uninstalled recipe strands its base image forever,
+    and every fresh install grows the store instead of costing a clean
+    re-download. An image is kept only if it is the exact `image:` of a
+    currently-installed recipe, or is referenced by any existing container
+    (running or stopped) -- the latter protects anything outside the Hub's
+    own management (e.g. a manually-run app) without needing to know its
+    name. Everything else, including plain dangling layers, is removed.
+    Individual images still held by a concurrent build fail to remove and are
+    silently skipped, not treated as an error.
+    """
+    keep: set[str] = set()
+    for slug in await get_installed_slugs():
+        keep.update(_parse_compose_images(slug))
+
+    proc = await asyncio.create_subprocess_exec(
+        "docker", "ps", "-a", "--format", "{{.Image}}",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    out, _ = await proc.communicate()
+    keep.update(
+        line.strip() for line in out.decode(errors="replace").splitlines() if line.strip()
+    )
+
+    proc = await asyncio.create_subprocess_exec(
+        "docker", "images", "--format", "{{.Repository}}:{{.Tag}}",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+    )
+    out, _ = await proc.communicate()
+    all_images = [
+        line.strip() for line in out.decode(errors="replace").splitlines() if line.strip()
+    ]
+
+    removed = 0
+    for image in all_images:
+        if "<none>" in image or image in keep:
+            continue
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "rmi", "-f", image,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        rc = await proc.wait()
+        if rc == 0:
+            removed += 1
+
+    # Plain dangling (untagged) layers are always safe to sweep too.
+    proc = await asyncio.create_subprocess_exec(
+        "docker", "image", "prune", "-f",
+        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+    )
+    out, _ = await proc.communicate()
+    text = (out or b"").decode(errors="replace").strip()
+    dangling = "reclaimed 0B"
+    for line in reversed(text.splitlines()):
+        if line.lower().startswith("total reclaimed space:"):
+            dangling = line.strip()
+            break
+    return f"removed {removed} orphaned image(s); dangling layers: {dangling}"
+
+
 async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
@@ -264,6 +331,12 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
         await db.commit()
     finally:
         await db.close()
+
+    # Every install ends by removing whatever base/intermediate images the
+    # local store accumulated that no installed recipe needs anymore (MANIFEST
+    # Principle 2) -- runs for pull-type recipes too, since a bumped `image:`
+    # tag orphans the old pull the same way a rebuilt base image would.
+    yield f"[spark-ai-hub] Pruning orphaned images... {await _prune_orphaned_images()}"
     yield f"[spark-ai-hub] {slug} installed successfully!"
 
 
@@ -312,6 +385,9 @@ async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
         if proc.returncode == 0:
             yield "[spark-ai-hub] Pruning build cache (the image now holds the weights)..."
             yield f"[spark-ai-hub] Build cache {await _prune_build_cache()}"
+            # The rebuild may have left the previous version's image (and its
+            # base images) orphaned -- clean up per MANIFEST Principle 2.
+            yield f"[spark-ai-hub] Pruning orphaned images... {await _prune_orphaned_images()}"
             yield f"[spark-ai-hub] {slug} rebuilt successfully!"
         else:
             yield f"[spark-ai-hub] Rebuild failed with exit code {proc.returncode}"
@@ -364,6 +440,7 @@ async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
     await proc.wait()
 
     if proc.returncode == 0:
+        yield f"[spark-ai-hub] Pruning orphaned images... {await _prune_orphaned_images()}"
         yield f"[spark-ai-hub] {slug} updated successfully!"
     else:
         yield f"[spark-ai-hub] Update failed with exit code {proc.returncode}"
@@ -483,6 +560,11 @@ async def remove_recipe(slug: str) -> str:
             await db.commit()
         finally:
             await db.close()
+        # removable_images only catches this recipe's own final image; its
+        # base/intermediate images (still tagged, now unreferenced) are a
+        # separate leak that a plain `docker rmi` never reaches. Sweep those
+        # too so uninstall really does free every byte (MANIFEST Principle 2).
+        await _prune_orphaned_images()
         return "removed"
     return "failed"
 
@@ -708,4 +790,7 @@ async def purge_recipe(slug: str) -> str:
             if err and "No such image" not in err:
                 errors.append(err)
 
+    # Purge is the "make sure nothing was left" button -- also sweep any
+    # base/intermediate images this recipe orphaned (MANIFEST Principle 2).
+    await _prune_orphaned_images()
     return "purged" if not errors else f"partial: {'; '.join(errors)}"
