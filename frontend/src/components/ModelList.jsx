@@ -111,7 +111,7 @@ function ColumnHeader({ variant }) {
   )
 }
 
-function BuildRow({ recipe, variant, rank, highlight }) {
+function BuildRow({ recipe, variant, rank, highlight, onFrontier }) {
   const v = VARIANTS[variant]
   const installing = useStore((s) => s.installing)
   const updating = useStore((s) => s.updating)
@@ -196,6 +196,18 @@ function BuildRow({ recipe, variant, rank, highlight }) {
         >
           {label}
         </span>
+        {/* Marks a build no other one in the catalog beats on both axes that
+            actually trade off: nothing writes faster AND scores higher on
+            the AA Index. A slower build can still be the right pick for its
+            size or its editing speed — this only ever claims the one thing. */}
+        {onFrontier && (
+          <span
+            className="shrink-0 font-label text-[11px] font-bold leading-none text-success"
+            title="Pareto frontier: no build in the catalog both writes faster and scores higher on the AA Index"
+          >
+            ★
+          </span>
+        )}
       </span>
 
       <Cell className={`text-text-muted ${v.wrap ? '' : 'text-[10px]'}`}>{recipe.engine}</Cell>
@@ -207,12 +219,16 @@ function BuildRow({ recipe, variant, rank, highlight }) {
       }`}>
         {recipe.tokens_per_second ?? '—'}
       </span>
-      {/* Editing gets its own column so the two rates align with their own
-          kind. Dimmer than writing: both are sustained tok/s, but writing is
-          the one every build has, and so the one that ranks them by default. */}
+      {/* Same weight as Writing only when the two numbers actually differ —
+          when a build has no drafter they're identical, and bolding a repeat
+          of the number already in the row to its left says nothing. */}
       <span
-        className={`truncate text-right font-display text-[13px] font-bold tabular-nums ${
-          recipe.tokens_per_second_editing != null ? 'text-secondary' : 'text-text-dim'
+        className={`truncate text-right tabular-nums ${
+          highlight === 'editing'
+            ? 'font-label text-[11px] font-bold text-secondary'
+            : recipe.tokens_per_second_editing !== recipe.tokens_per_second
+              ? 'font-display text-[13px] font-extrabold text-primary'
+              : 'font-label text-[11px] text-text-muted'
         }`}
         title={recipe.tokens_per_second_editing != null ? `${recipe.tokens_per_second_editing} tok/s sustained, reproducing a document with a small change applied (${recipe.editing_workload || 'code-edit'}, thinking off)` : undefined}
       >
@@ -284,7 +300,7 @@ function chunk(items, n) {
   return out
 }
 
-export default function ModelList({ items, variant = 'ranked', highlight = null }) {
+export default function ModelList({ items, variant = 'ranked', highlight = null, frontier = null }) {
   const ref = useRef(null)
   const splittable = variant === 'ranked' && items.length >= SPLIT_THRESHOLD
   const fits = useColumnCount(ref, splittable)
@@ -315,6 +331,7 @@ export default function ModelList({ items, variant = 'ranked', highlight = null 
                 variant={variant}
                 rank={offsets[i] + j + 1}
                 highlight={highlight}
+                onFrontier={frontier?.has(r.slug)}
               />
             ))}
           </div>
@@ -427,7 +444,7 @@ function InstalledChip({ recipe }) {
 // put the rest behind a "+5 more builds" link; that hid two thirds of the
 // catalog behind a control readers never found, and expanding it reflowed the
 // page so you lost your place.
-export function ModelBlock({ group }) {
+export function ModelBlock({ group, frontier = null }) {
   const [logoFailed, setLogoFailed] = useState(false)
   const logoUrl = useThemedLogo(group.lead.logo)
 
@@ -468,7 +485,12 @@ export function ModelBlock({ group }) {
 
       <div className="mt-0.5">
         {group.items.map((r) => (
-          <BuildRow key={r.slug} recipe={r} variant="build" />
+          <BuildRow
+            key={r.slug}
+            recipe={r}
+            variant="build"
+            onFrontier={frontier?.has(r.slug)}
+          />
         ))}
       </div>
     </section>

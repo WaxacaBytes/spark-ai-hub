@@ -177,6 +177,28 @@ export default function Catalog({ search = '' }) {
     return true
   }), [recipes, category, search])
 
+  // A build is on the Pareto frontier of speed vs. capability if no other
+  // build both writes faster and scores higher on the AA Index — i.e. there
+  // is no strictly better choice on the two things that actually trade off
+  // against each other. Computed over every model in the catalog, not just
+  // what search/category currently show, so the badge means the same thing
+  // everywhere it appears. Builds missing either number can't be placed on
+  // a frontier and never get the badge.
+  const frontierSlugs = useMemo(() => {
+    const points = recipes.filter(
+      (r) => isModel(r) && r.tokens_per_second != null && r.artificial_analysis_index != null,
+    )
+    const set = new Set()
+    for (const a of points) {
+      const dominated = points.some((b) => b !== a
+        && b.tokens_per_second >= a.tokens_per_second
+        && b.artificial_analysis_index >= a.artificial_analysis_index
+        && (b.tokens_per_second > a.tokens_per_second || b.artificial_analysis_index > a.artificial_analysis_index))
+      if (!dominated) set.add(a.slug)
+    }
+    return set
+  }, [recipes])
+
   const modelSort = MODEL_SORTS.find((s) => s.id === modelSortId) || MODEL_SORTS[0]
   const comparator = useMemo(() => makeComparator(modelSort), [modelSort])
   const groupByLab = modelSort.id === 'lab'
@@ -407,7 +429,7 @@ export default function Catalog({ search = '' }) {
                       <div className="w-full" style={{ columnWidth: '470px', columnGap: '12px' }}>
                         {items.map((g) => (
                           <div key={g.key} className="mb-3 break-inside-avoid">
-                            <ModelBlock group={g} />
+                            <ModelBlock group={g} frontier={frontierSlugs} />
                           </div>
                         ))}
                       </div>
@@ -421,7 +443,7 @@ export default function Catalog({ search = '' }) {
                       wrap
                     >
                       <div className="w-full">
-                        <ModelList items={items} variant="ranked" highlight={modelSort.id} />
+                        <ModelList items={items} variant="ranked" highlight={modelSort.id} frontier={frontierSlugs} />
                       </div>
                     </CardRow>
                   ))}
