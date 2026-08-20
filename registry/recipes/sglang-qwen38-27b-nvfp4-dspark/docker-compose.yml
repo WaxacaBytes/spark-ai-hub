@@ -1,15 +1,10 @@
 services:
   sglang:
-    # Qwen3.8-27B on **SGLang** instead of vLLM, served from RadixArk's NVFP4
-    # W4A4 checkpoint with the trained DSpark draft model on top.
-    #
-    # Same model as `vllm-qwen38-27b-nvfp4` (dense hybrid GDN VLM, 48 Gated
-    # DeltaNet layers to 16 gated-attention layers, 262K native context), but a
-    # different engine and a different speculator: vLLM can only run the
-    # in-checkpoint MTP head here, because this checkpoint's fp8 KV cache forces
-    # the flashinfer backend and DFlash-style drafting needs non-causal
-    # flash_attn. SGLang ships a DSPARK algorithm that drives a separate
-    # 2.7 GB block drafter, which is what LMSYS benchmarked on DGX Spark.
+    # Qwen3.8-27B on SGLang, served from RadixArk's NVFP4 W4A4 checkpoint
+    # with the trained DSpark block drafter instead of EAGLE tree drafting.
+    # Same weights as sglang-qwen38-27b-nvfp4-eagle — the speedup is decode
+    # strategy, which is output-preserving. DSpark wins on math/agentic
+    # coding; EAGLE wins on mixed/prose (see that recipe for the numbers).
     #
     # Image: `lmsysorg/sglang:qwen38-27b` — the named per-model tag from the
     # SGLang cookbook (arm64 manifest present). A named tag, never a rolling
@@ -41,9 +36,6 @@ services:
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
     ipc: host
     shm_size: 32gb
-    # SGLang's own DGX Spark cell for this model (NVFP4, balanced, single node)
-    # plus the cookbook's DSpark pair, with the memory flags right-sized for a
-    # Spark that runs other apps alongside this one.
     command:
       - sglang
       - serve
@@ -64,53 +56,26 @@ services:
       - --chunked-prefill-size
       - "8192"
       - --disable-prefill-cuda-graph
-      # Static pool (weights + KV + Mamba/GDN state). 0.45 only bought 1.37x the
-      # native 262K context in KV, below the Hub's 1.5x-5x concurrency band;
-      # 0.50 lands around 2x while leaving the Spark ~55 GB for other apps.
+      # Static pool (weights + KV + Mamba/GDN state), matching the EAGLE
+      # recipe's sizing: ~2x native 262K context in KV, ~55 GB left for
+      # other apps.
       - --mem-fraction-static
       - "0.50"
       - --reasoning-parser
       - qwen3
       - --tool-call-parser
       - qwen3_coder
-      # Speculative decoding. Two speculators ship in this image; EAGLE tree
-      # drafting off the checkpoint's own MTP head is the default because it
-      # wins the catalog's mixed benchmark. Measured on this Spark:
-      #
-      #                        mixed(temp0)   coding   GSM8K-style
-      #   no speculation           11.9         -          -
-      #   DSPARK block 7           22.7       29.5       34.7  (peak 41.3)
-      #   EAGLE tree 4/2/8         26.8       28.1       31.7
-      #
-      # Swap to DSpark for math/agentic coding by replacing the four flags
-      # below with:
-      #   - --speculative-algorithm
-      #   - "DSPARK"
-      #   - --speculative-draft-model-path
-      #   - "RadixArk/Qwen3.8-27B-DSpark"
-      #   - --speculative-dspark-block-size
-      #   - "7"
-      #   - --speculative-draft-model-quantization
-      #   - "unquant"
-      # (block size 7 is what the drafter was trained for; 12 and 16 raise
-      # acceptance to 4.6-5.8 but cost more per step and end up slower.)
-      #
-      # Not usable on GB10, all measured, not assumed:
-      #   --enable-gdn-replayssm-spec  -> requires a KDA (kimi_linear) model
-      #   SPS dynamic budget table     -> needs ragged verify, and FlashInfer
-      #                                   refuses it inside CUDA graphs on
-      #                                   SM121 (Triton crashes instead)
-      #   --speculative-accept-threshold-*  -> inert at temperature 0
-      #   Qwen3.8-27B-FP8 target       -> acceptance 4.0 but only 23.4 tok/s;
-      #                                   the heavier weights outweigh it
+      # DSpark: separate 2.7 GB block drafter, trained for block size 7
+      # (12/16 raise acceptance to 4.6-5.8 but cost more per step and end up
+      # slower — measured, not assumed).
       - --speculative-algorithm
-      - "EAGLE"
-      - --speculative-num-steps
-      - "4"
-      - --speculative-eagle-topk
-      - "2"
-      - --speculative-num-draft-tokens
-      - "8"
+      - "DSPARK"
+      - --speculative-draft-model-path
+      - "RadixArk/Qwen3.8-27B-DSpark"
+      - --speculative-dspark-block-size
+      - "7"
+      - --speculative-draft-model-quantization
+      - "unquant"
     deploy:
       resources:
         reservations:

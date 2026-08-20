@@ -15,7 +15,7 @@
 const BUILD_TOKENS = new Set([
   'bf16', 'fp8', 'nvfp4', 'int4', 'mxfp4', 'awq', 'gptq',
   'q8', 'q4', 'iq2m', 'iq1m', 'q3ks',
-  'dflash', 'dspark', 'mtp',
+  'dflash', 'dspark', 'mtp', 'eagle',
 ])
 
 const ENGINE_PREFIX = /^(vllm|sglang|llamacpp|atlas)-/

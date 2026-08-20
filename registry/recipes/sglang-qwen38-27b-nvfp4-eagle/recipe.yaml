@@ -1,7 +1,7 @@
-name: "Qwen3.8-27B NVFP4 DSpark (SGLang)"
-slug: sglang-qwen38-27b-nvfp4-dspark
+name: "Qwen3.8-27B NVFP4 EAGLE (SGLang)"
+slug: sglang-qwen38-27b-nvfp4-eagle
 version: "1.0.0"
-description: "Qwen3.8-27B NVFP4 served by SGLang with the DSpark block drafter instead of EAGLE tree drafting. Same weights as sglang-qwen38-27b-nvfp4-eagle — the speedup is decode strategy, which is output-preserving. Faster than EAGLE on math/agentic coding, slower on mixed/prose. Dense 27B hybrid Gated DeltaNet vision-language model, thinking on by default, 262K context, vision and tool calling live."
+description: "Qwen3.8-27B NVFP4 served by SGLang with EAGLE tree speculative decoding — the same dense 27B hybrid Gated DeltaNet vision-language model as the vLLM recipe (thinking on by default, 262K context, vision and tool calling live), but about 24% faster on this Spark. LMSYS's DSpark block drafter is included in the image and is a one-flag switch, though tree drafting off the in-checkpoint MTP head measured faster here."
 author: "Alibaba Cloud + RadixArk + LMSYS SGLang"
 source: "community"
 website: "https://docs.sglang.io/cookbook/autoregressive/Qwen/Qwen3.8-27B"
@@ -19,7 +19,6 @@ tags:
   - qwen
   - nvfp4
   - speculative-decoding
-  - dspark
 logo: "/logos/qwen.png"
 requirements:
   min_memory_gb: 60
@@ -38,18 +37,19 @@ engine: "SGLang"
 params_b: 27
 arch: dense
 quantization: "NVFP4"
-speculative_method: "dspark"
+speculative_method: "eagle"
 artificial_analysis_index: 52
-weights_gb: 24.6
-release_date: "2026-08-19"
-tokens_per_second: 22.7
-tokens_per_second_editing: 34.7
+weights_gb: 21.9
+release_date: "2026-08-12"
+tokens_per_second: 26.0
+tokens_per_second_editing: 36.9
 editing_workload: "code-edit"
 benchmarks:
-  prose: 22.7
-  code: 29.5
-  code-edit: 34.7
-context_length: 262144
+  prose: 22.96
+  explainer: 25.41
+  code: 30.82
+  code-edit: 36.9
+context_length: 262144  # SGLang serves the native window; no flag caps it
 requires_hf_token: false
 integration:
   api_url: "http://<SPARK_IP>:9001/v1"
