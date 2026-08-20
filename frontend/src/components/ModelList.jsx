@@ -38,9 +38,9 @@ const VARIANTS = {
     aaIndex: false,
   },
   ranked: {
-    columns: '26px minmax(0,1fr) 70px 70px 50px 50px 54px 74px 62px 42px 62px',
+    columns: '26px minmax(200px,1fr) 56px 46px 50px 50px 74px 62px 42px 44px 62px',
     headers: ['Engine', 'Quant'],
-    fixedHeaders: ['Writing', 'Editing', 'AA Index', 'Params', 'On disk', 'Ctx'],
+    fixedHeaders: ['Writing', 'Editing', 'Params', 'On disk', 'Ctx', 'AA Index'],
     first: 'Model · build',
     lead: 'rank',
     wrap: true,
@@ -99,7 +99,9 @@ function ColumnHeader({ variant }) {
       {v.fixedHeaders.map((h) => (
         <span
           key={h}
-          className="text-right font-label text-[9px] font-semibold uppercase tracking-wider text-text-dim"
+          className={`font-label text-[9px] font-semibold uppercase tracking-wider text-text-dim ${
+            h === 'AA Index' ? 'text-center' : 'text-right'
+          }`}
         >
           {h}
         </span>
@@ -216,19 +218,6 @@ function BuildRow({ recipe, variant, rank, highlight }) {
       >
         {recipe.tokens_per_second_editing ?? '—'}
       </span>
-      {/* A capability score, not a speed one — published per base model by
-          Artificial Analysis, so it does not vary with quantization or
-          drafter the way Writing/Editing do. Grouped "build" tables already
-          say it once in the model heading, so this column only exists on the
-          ranked leaderboards, where every row is an independent build. */}
-      {v.aaIndex && (
-        <Cell
-          className={`text-right ${highlight === 'aa-index' ? 'text-secondary font-bold' : 'text-text-muted'}`}
-          title={recipe.artificial_analysis_index != null ? `${recipe.artificial_analysis_index} on the Artificial Analysis Intelligence Index` : undefined}
-        >
-          {recipe.artificial_analysis_index ?? null}
-        </Cell>
-      )}
       <Cell className={`text-right ${highlight === 'params' ? 'text-secondary font-bold' : 'text-text-muted'}`}>
         {recipe.params_b != null ? formatParams(recipe) : null}
       </Cell>
@@ -236,6 +225,19 @@ function BuildRow({ recipe, variant, rank, highlight }) {
         {recipe.weights_gb != null ? `${recipe.weights_gb} GB` : null}
       </Cell>
       <Cell className="text-right text-text-muted">{formatContext(recipe.context_tokens)}</Cell>
+      {/* A capability score, not a speed one — published per base model by
+          Artificial Analysis, so it does not vary with quantization or
+          drafter the way Writing/Editing do. Grouped "build" tables already
+          say it once in the model heading, so this column only exists on the
+          ranked leaderboards, where every row is an independent build. */}
+      {v.aaIndex && (
+        <Cell
+          className={`text-center ${highlight === 'aa-index' ? 'text-secondary font-bold' : 'text-text-muted'}`}
+          title={recipe.artificial_analysis_index != null ? `${recipe.artificial_analysis_index} on the Artificial Analysis Intelligence Index` : undefined}
+        >
+          {recipe.artificial_analysis_index ?? null}
+        </Cell>
+      )}
       <span className="min-w-0">{action}</span>
     </Link>
   )
