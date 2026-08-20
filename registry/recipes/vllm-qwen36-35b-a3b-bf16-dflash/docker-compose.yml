@@ -13,14 +13,14 @@ services:
         RUN --mount=type=secret,id=hf_token \
             HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
             python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3.6-35B-A3B'); snapshot_download('z-lab/Qwen3.6-35B-A3B-DFlash')"
-        FROM vllm/vllm-openai:v0.20.0-aarch64-cu130
+        FROM vllm/vllm-openai:v0.27.1-aarch64-cu129
         RUN apt-get update -qq \
          && apt-get install -y --no-install-recommends git \
          && rm -rf /var/lib/apt/lists/* \
          && pip install --no-cache-dir git+https://github.com/z-lab/dflash.git \
          && pip cache purge || true
         COPY --from=weights /weights /root/.cache/huggingface
-    image: spark-ai-hub/vllm-qwen36-35b-a3b-bf16-dflash:v0.20.0-aarch64-cu130
+    image: spark-ai-hub/vllm-qwen36-35b-a3b-bf16-dflash:v0.27.1-aarch64-cu129
     container_name: spark-ai-hub-vllm-qwen36-35b-a3b-bf16-dflash
     ports:
       - "9001:8000"
@@ -52,6 +52,14 @@ services:
       - "4096"
       - --max-num-seqs
       - "5"
+      # vLLM pinned to v0.27.1 (was v0.20.0): the older build's
+      # unify_kv_cache_spec_page_size() unified this hybrid MoE's
+      # Mamba-layer page size with the DFlash drafter's plain-attention page
+      # size by scaling block_size and asserting exact equality -- that assert
+      # failed here (confirmed crashing twice, 2026-08-19/20, independent of
+      # --enable-prefix-caching). Fixed upstream by vLLM PR #45207 ("Pad Mamba
+      # page size instead of scaling block_size"), merged 2026-07-07, present
+      # in v0.25.0+. Do not downgrade below v0.25.0 without re-verifying.
       - --enable-prefix-caching
       - --attention-backend
       - flash_attn
