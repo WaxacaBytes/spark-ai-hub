@@ -1,7 +1,7 @@
 name: "Laguna-S 2.1 NVFP4"
 slug: vllm-laguna-s-21-nvfp4
 version: "1.0.0"
-description: "poolside's Laguna-S-2.1 (117.6B-A8.5B MoE, 256 experts) served in native NVFP4 on vLLM 0.25.1 (CUDA-13), following the model card's DGX Spark recipe. Blackwell-native FP4 weights (~71 GB) with an FP8 KV cache and DFlash speculative decoding (poolside/Laguna-S-2.1-DFlash-NVFP4, 15 spec tokens) for agentic coding at a 262K context."
+description: "poolside's Laguna-S-2.1 (117.6B-A8.5B MoE, 256 experts) served in native NVFP4 on vLLM 0.25.1 (CUDA-13), following the model card's DGX Spark recipe. Blackwell-native FP4 weights (~71 GB) with an FP8 KV cache and DFlash speculative decoding (poolside/Laguna-S-2.1-DFlash-NVFP4, 15 spec tokens) for agentic coding. Context capped at 65536 — the model's native 262K window needs ~122.5 GiB (weights + draft + KV) against this Spark's ~121 GiB total, so full context does not fit at any gpu-memory-utilization with DFlash active."
 author: "poolside"
 source: "community"
 website: "https://poolside.ai/"
@@ -21,7 +21,7 @@ tags:
   - experimental
 logo: "/logos/poolside.png"
 requirements:
-  min_memory_gb: 100
+  min_memory_gb: 115
   recommended_memory_gb: 120
   disk_gb: 85
   cuda_compute: "12.1"
@@ -48,9 +48,16 @@ integration:
   api_url: "http://<SPARK_IP>:9001/v1"
   model_id: "poolside/Laguna-S-2.1-NVFP4"
   api_key: "not-needed"
-  max_context: "262144"
+  max_context: "65536"
   curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"poolside/Laguna-S-2.1-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512}'"
-tokens_per_second: 23.5
+tokens_per_second: 18.3
+tokens_per_second_editing: 18.3
+editing_workload: "code-edit"
+benchmarks:
+  prose: 15.8
+  explainer: 15.79
+  code: 26.7
+  code-edit: 18.3
 
 cover:
   image: poolside-la-defense.jpg

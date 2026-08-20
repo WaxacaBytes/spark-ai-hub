@@ -64,12 +64,24 @@ services:
       - '{"enable_thinking": true}'
       - --override-generation-config
       - '{"temperature":0.7,"top_p":0.95}'
+      # Full 262144 native context does not fit on a 128GB Spark with this
+      # checkpoint + DFlash active, at any gpu-memory-utilization: weights
+      # (92.85 GiB target + 6.85 GiB draft) + the 20.32 GiB KV cache a full
+      # context window needs adds up to ~122.5 GiB total needed against
+      # ~121 GiB of unified memory that actually exists on the box. Measured,
+      # not assumed (--max-num-batched-tokens 16384 alone was not enough —
+      # tried and still failed at 20.32 GiB needed / 0.67 GiB available).
+      # Capping context to 65536 brings the KV requirement down to ~5 GiB,
+      # comfortably inside the budget with DFlash's draft weights and slot
+      # reservations still in place.
       - --max-num-seqs
       - "32"
+      - --max-num-batched-tokens
+      - "16384"
       - --max-model-len
-      - "262144"
+      - "65536"
       - --gpu-memory-utilization
-      - "0.85"
+      - "0.93"
     deploy:
       resources:
         reservations:
