@@ -52,6 +52,8 @@ covers stand for.
   https://commons.wikimedia.org/wiki/File%3A1515%20Third%20Street.jpg
 - **openai-sf-night.jpg** — San Francisco skyline on a foggy 4th of July night.jpg · Dllu · CC BY-SA 4.0  
   https://commons.wikimedia.org/wiki/File%3ASan%20Francisco%20skyline%20on%20a%20foggy%204th%20of%20July%20night.jpg
+- **ornith-cockatiel.jpg** — Wild cockatiel.jpg · Annette Teng · CC BY-SA 4.0  
+  https://commons.wikimedia.org/wiki/File:Wild_cockatiel_-_panoramio.jpg
 - **poolside-la-defense.jpg** — From Louvre to La Défense, Paris 2012.jpg · Alexander Baxevanis from London, UK · CC BY 2.0  
   https://commons.wikimedia.org/wiki/File%3AFrom%20Louvre%20to%20La%20D%C3%A9fense%2C%20Paris%202012.jpg
 - **poolside-station-f.jpg** — Parvis Alan Turing Station F Paris.jpg · Cahtls · CC BY-SA 4.0  
@@ -119,4 +121,4 @@ covers stand for.
 - **thinking-machines-murati.jpg** — Guests at the 2026 Met Gala 274.jpg · SWinxy · CC BY 4.0  
   https://commons.wikimedia.org/wiki/File%3AGuests%20at%20the%202026%20Met%20Gala%20274.jpg
 
-_55 of 55 covers carry a third-party credit._
+_56 of 56 covers carry a third-party credit._

@@ -1,0 +1,64 @@
+name: "Ornith-1.5-35B-A3B NVFP4"
+slug: vllm-ornith15-35b-a3b-nvfp4
+version: "1.0.0"
+description: "ornith-ai's Ornith-1.5-35B-A3B NVFP4 (4-bit) MoE checkpoint served on vLLM — same Qwen3.5-family hybrid Gated DeltaNet MoE architecture as the Qwen3.6-35B-A3B NVFP4 recipe, modelopt quantization, FlashInfer attention, Marlin MoE, FP8 KV cache, and the checkpoint's own built-in MTP speculative decoding. Reasoning on by default, 262K context, tool calling live."
+author: "Ornith AI (DeepReinforce)"
+source: "community"
+website: "https://huggingface.co/ornith-ai/Ornith-1.5-35B-A3B"
+upstream: "https://huggingface.co/ornith-ai/Ornith-1.5-35B-A3B-NVFP4"
+category: llm
+tags:
+  - llm
+  - moe
+  - reasoning
+  - coding
+  - tool-use
+  - vllm
+  - nvfp4
+  - mtp
+logo: "/logos/ornith.png"
+requirements:
+  min_memory_gb: 40
+  recommended_memory_gb: 56
+  disk_gb: 30
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 6
+  gpu: true
+status: community-verified
+engine: "vLLM"
+params_b: 35
+active_params_b: 3
+arch: moe
+quantization: "NVFP4"
+speculative_method: "mtp"
+weights_gb: 23.4
+release_date: "2026-08"
+requires_hf_token: false
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-08-20"
+tokens_per_second: 62.3
+tokens_per_second_editing: 62.3
+editing_workload: "code-edit"
+benchmarks:
+  prose: 56.37
+  explainer: 62.63
+  code: 69.08
+  code-edit: 62.3
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "ornith-ai/Ornith-1.5-35B-A3B-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"ornith-ai/Ornith-1.5-35B-A3B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
+
+cover:
+  image: ornith-cockatiel.jpg
+  caption: "A wild cockatiel — the species behind Ornith's mascot — foraging in South Australia."
+  credit: "Wild cockatiel.jpg · Annette Teng · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File:Wild_cockatiel_-_panoramio.jpg"

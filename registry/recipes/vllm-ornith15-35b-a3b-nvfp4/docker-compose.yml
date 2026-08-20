@@ -1,0 +1,92 @@
+services:
+  vllm:
+    # ornith-ai's Ornith-1.5-35B-A3B-NVFP4 checkpoint: same Qwen3.5-family
+    # hybrid-GDN MoE arch (Qwen3_5MoeForConditionalGeneration) as
+    # nvidia/Qwen3.6-35B-A3B-NVFP4, same modelopt W4A16_NVFP4 MIXED_PRECISION
+    # quantization shape, same static fp8 KV cache. This recipe reuses that
+    # sibling's known-good vLLM version and flags rather than guessing fresh.
+    #
+    # fp8 KV cache forces the flashinfer attention backend, and DFlash-style
+    # drafting needs non-causal flash_attn — not available here. No DSpark
+    # drafter exists for this checkpoint either (a DSpark repo exists for a
+    # *different* model, Ornith-1.0-35B-AEON, whose weights don't match this
+    # one). The checkpoint ships its own MTP head
+    # (mtp_num_hidden_layers: 1, kept unquantized) — that's what's used.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('ornith-ai/Ornith-1.5-35B-A3B-NVFP4')"
+        FROM vllm/vllm-openai:v0.24.0-aarch64-cu129
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/vllm-ornith15-35b-a3b-nvfp4:v0.24.0-aarch64-cu129
+    container_name: spark-ai-hub-vllm-ornith15-35b-a3b-nvfp4
+    ports:
+      - "9001:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # Matches nvidia/Qwen3.6-35B-A3B-NVFP4's DGX Spark environment — same
+      # quant shape, same MoE kernel requirements.
+      - VLLM_USE_FLASHINFER_MOE_FP4=0
+      - VLLM_FP8_MOE_BACKEND=flashinfer_cutlass
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      - CUTE_DSL_ARCH=sm_121a
+    ipc: host
+    command:
+      - --model
+      - ornith-ai/Ornith-1.5-35B-A3B-NVFP4
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --trust-remote-code
+      - --dtype
+      - auto
+      - --quantization
+      - modelopt
+      - --kv-cache-dtype
+      - fp8
+      - --attention-backend
+      - flashinfer
+      - --moe-backend
+      - marlin
+      - --gpu-memory-utilization
+      - "0.33"
+      - --max-model-len
+      - "262144"
+      - --max-num-seqs
+      - "4"
+      - --max-num-batched-tokens
+      - "8192"
+      - --enable-chunked-prefill
+      - --async-scheduling
+      - --enable-prefix-caching
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":3,"moe_backend":"triton"}'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
