@@ -1,0 +1,101 @@
+services:
+  sglang:
+    # Ornith-1.5-35B-A3B in **BF16** on SGLang with a genuinely separate DFlash
+    # block-diffusion drafter (z-lab/Qwen3.6-35B-A3B-DFlash, ~1.6GB) rather than
+    # the checkpoint's own MTP head. The sibling vLLM recipe
+    # (vllm-ornith15-35b-a3b-nvfp4) serves the NVFP4 build with MTP instead.
+    #
+    # Why BF16 and not NVFP4 here: SGLang v0.5.17 cannot serve
+    # ornith-ai/Ornith-1.5-35B-A3B-NVFP4 correctly at all. That checkpoint mixes
+    # fp8 (linear-attn / self-attn projections) with NVFP4 (MoE), and on this
+    # hybrid Gated DeltaNet arch every completion comes back as "!!!!!!" --
+    # verified with and without speculative decoding, so it is the weight path,
+    # not the drafter. --moe-runner-backend triton is refused outright for NVFP4
+    # MoE, and --kv-cache-dtype bfloat16 does not rescue it either (the
+    # checkpoint declares kv_cache_scheme fp8 while shipping zero k_scale/
+    # v_scale tensors, but fixing that changes nothing here).
+    # DFlash on the NVFP4 target is separately impossible: SGLang's DFlash
+    # greedy head matmuls against the target lm_head, which for NVFP4 is packed
+    # (496640x128), and dies -- "DFLASH draft greedy head kept eager
+    # (reason=quantized lm_head)". BF16 has no quantized lm_head, so DFlash
+    # works, and the arch is served correctly.
+    #
+    # Image: lmsysorg/sglang:v0.5.17-cu130 -- a stable numbered release (not a
+    # rolling dev/nightly tag), arm64 manifest present.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('ornith-ai/Ornith-1.5-35B-A3B'); snapshot_download('z-lab/Qwen3.6-35B-A3B-DFlash')"
+        FROM lmsysorg/sglang:v0.5.17-cu130
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/sglang-ornith15-35b-a3b-bf16-dflash:v0.5.17-cu130
+    container_name: spark-ai-hub-sglang-ornith15-35b-a3b-bf16-dflash
+    ports:
+      - "9001:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    shm_size: 32gb
+    command:
+      - sglang
+      - serve
+      - --model-path
+      - ornith-ai/Ornith-1.5-35B-A3B
+      - --served-model-name
+      - ornith-ai/Ornith-1.5-35B-A3B
+      - --trust-remote-code
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      # SM121 (GB10) has no trtllm_mha path; flashinfer is the cookbook's
+      # backend for every Blackwell SM120/SM121 card.
+      - --attention-backend
+      - flashinfer
+      - --chunked-prefill-size
+      - "8192"
+      - --disable-prefill-cuda-graph
+      # BF16 weights are 71.9GB, so the static pool has to be far larger than
+      # the NVFP4 sibling's 0.35. 0.85 of 128GB leaves ~30GB for KV + the GDN
+      # state after weights and the drafter, which covers full native context.
+      - --mem-fraction-static
+      - "0.85"
+      - --max-total-tokens
+      - "262144"
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      # DFlash block-diffusion drafting. z-lab ships block_size 16 in the
+      # drafter config; --speculative-dflash-block-size overrides it at launch,
+      # and 16 is what z-lab measures as best at concurrency 1 (block 8 is
+      # their pick for higher-concurrency serving).
+      - --speculative-algorithm
+      - "DFLASH"
+      - --speculative-draft-model-path
+      - "z-lab/Qwen3.6-35B-A3B-DFlash"
+      - --speculative-dflash-block-size
+      - "16"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN

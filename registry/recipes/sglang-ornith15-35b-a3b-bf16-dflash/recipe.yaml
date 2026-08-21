@@ -1,0 +1,65 @@
+name: "Ornith-1.5-35B-A3B BF16 DFlash"
+version: "1.0.0"
+slug: sglang-ornith15-35b-a3b-bf16-dflash
+description: "ornith-ai's Ornith-1.5-35B-A3B in BF16, served by SGLang with a genuinely separate DFlash block-diffusion drafter (z-lab/Qwen3.6-35B-A3B-DFlash) instead of the checkpoint's own MTP head. The sibling vLLM recipe serves the NVFP4 build with MTP; SGLang cannot serve that NVFP4 checkpoint at all (its mixed fp8 + NVFP4 weights on this hybrid Gated DeltaNet arch decode to garbage, and DFlash's greedy head cannot read a packed NVFP4 lm_head), so full-precision weights are what makes a real separate drafter possible here. Qwen3.5-family hybrid Gated DeltaNet MoE, reasoning on by default, tool calling live."
+author: "Ornith AI (DeepReinforce)"
+source: "community"
+website: "https://huggingface.co/ornith-ai/Ornith-1.5-35B-A3B"
+upstream: "https://huggingface.co/ornith-ai/Ornith-1.5-35B-A3B"
+category: llm
+tags:
+  - llm
+  - moe
+  - reasoning
+  - coding
+  - tool-use
+  - sglang
+  - bf16
+  - dflash
+  - speculative-decoding
+logo: "/logos/ornith.png"
+requirements:
+  min_memory_gb: 90
+  recommended_memory_gb: 128
+  disk_gb: 105
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 25
+  gpu: true
+status: community-verified
+engine: "SGLang"
+params_b: 35
+active_params_b: 3
+arch: moe
+quantization: "BF16"
+speculative_method: "dflash"
+weights_gb: 71.9
+release_date: "2026-08"
+requires_hf_token: false
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-08-20"
+tokens_per_second: 34.2
+tokens_per_second_editing: 121.7
+editing_workload: "code-edit"
+benchmarks:
+  prose: 24.88
+  explainer: 34.36
+  code: 54.13
+  code-edit: 121.7
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "ornith-ai/Ornith-1.5-35B-A3B"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"ornith-ai/Ornith-1.5-35B-A3B\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
+
+cover:
+  image: ornith-cockatiel.jpg
+  caption: "A wild cockatiel — the species behind Ornith's mascot — foraging in South Australia."
+  credit: "Wild cockatiel.jpg · Annette Teng · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File:Wild_cockatiel_-_panoramio.jpg"

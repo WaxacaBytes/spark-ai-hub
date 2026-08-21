@@ -1,0 +1,81 @@
+services:
+  llama-server:
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('unsloth/MiniMax-M2.7-GGUF', allow_patterns=['UD-IQ2_M/MiniMax-M2.7-UD-IQ2_M-*-of-00003.gguf'])"
+        FROM ghcr.io/ggml-org/llama.cpp:full-cuda13-b10524
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/llamacpp-minimax-m27-iq2m:full-cuda13-b10524
+    container_name: spark-ai-hub-llamacpp-minimax-m27-iq2m
+    entrypoint:
+      - /app/llama-server
+    command:
+      # MiniMax-M2.7 229B-A10B, Unsloth Dynamic UD-IQ2_M (3 shards, ~70GB).
+      # native minimax-m2 arch support (verified via strings on libllama.so),
+      # no custom build needed.
+      - -hf
+      - unsloth/MiniMax-M2.7-GGUF
+      - --hf-file
+      - UD-IQ2_M/MiniMax-M2.7-UD-IQ2_M-00001-of-00003.gguf
+      - --alias
+      - minimax-m2.7
+      - -ngl
+      - "999"
+      # Native context (max_position_embeddings 204800, model card states
+      # 196608 usable). fp16 KV at this size is ~23GB; weights (70GB) + KV +
+      # overhead fit comfortably under 128GB, no need to cap or quantize KV.
+      - -c
+      - "196608"
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8080"
+      - --jinja
+      # MiniMax-M2.7 recommended sampling.
+      - --temp
+      - "1.0"
+      - --top-p
+      - "0.95"
+      - --top-k
+      - "40"
+      # Never hit the network at launch — all shards are prefetched at install.
+      - --offline
+      - --no-mmap
+      - --cont-batching
+      - -np
+      - "1"
+      - -t
+      - "16"
+      - -tb
+      - "16"
+    ports:
+      - "9001:8080"
+    environment:
+      - GGML_CUDA_ENABLE_UNIFIED_MEMORY=1
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - LLAMA_OFFLINE=1
+      - PYTHONUNBUFFERED=1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
