@@ -1,0 +1,101 @@
+services:
+  sglang:
+    # Ling-3.0-flash INT4 on SGLang with the DSpark external draft model —
+    # the setup LMSYS published on 2026-08-21 ("Ling-3.0-flash spec decode on
+    # Blackwell"). The sibling recipe vllm-ling3-flash-int4 serves the same
+    # weights on vLLM with the checkpoint's own single NEXTN/MTP layer; DSpark
+    # replaces that with a trained 5-layer block drafter (2.7 GB) whose
+    # accepted prefixes are far longer (LMSYS measured accept length 9.95 vs
+    # 3.25 for NEXTN on 4xB200).
+    #
+    # Image: `lmsysorg/sglang:dev-cu13-Ling-3.0-flash` — the per-model tag the
+    # SGLang cookbook publishes for this model (arm64 manifest present). Named,
+    # not a rolling dated nightly, so a from-scratch reinstall keeps working.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('inclusionAI/Ling-3.0-flash-int4'); snapshot_download('inclusionAI/Ling-3.0-flash-dspark')"
+        FROM lmsysorg/sglang:dev-cu13-Ling-3.0-flash
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/sglang-ling3-flash-int4-dspark:dev-cu13-Ling-3.0-flash
+    container_name: spark-ai-hub-sglang-ling3-flash-int4-dspark
+    ports:
+      - "9001:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Offline-first: both checkpoints are baked into the image above, so
+      # launch never touches the network.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # Fused KDA verify kernel — LMSYS ships this with every Ling-3.0-flash
+      # speculative recipe; the 35 linear-attention layers are verified in one
+      # pass instead of per draft token.
+      - SGLANG_OPT_FUSED_KDA_VERIFY=1
+    ipc: host
+    shm_size: 32gb
+    command:
+      - sglang
+      - serve
+      - --model-path
+      - inclusionAI/Ling-3.0-flash-int4
+      - --served-model-name
+      - inclusionAI/Ling-3.0-flash-int4
+      - --trust-remote-code
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      # INT4 is compressed-tensors W4A16; the cookbook is explicit that the
+      # MoE runner backend must NOT be forced — SGLang picks the
+      # graph-compatible Triton implementation on Blackwell by itself.
+      - --mem-fraction-static
+      - "0.88"
+      # Native trained context (256K). SGLang reads context_len from the
+      # checkpoint, but the *pool* has to be told: the DSpark drafter is a
+      # 5-layer full-attention model that carries its own KV cache, and at
+      # bf16 it ate 11.8 GB and clamped the pool to 166K tokens -- below the
+      # context the model advertises. fp8 draft KV halves it to 10 GB and the
+      # pool reaches the full 262144 with ~16 GB still free. The drafter only
+      # proposes; the target model verifies every token, so a slightly coarser
+      # draft cache can cost acceptance, never correctness.
+      - --max-total-tokens
+      - "262144"
+      - --speculative-draft-kv-cache-dtype
+      - fp8_e4m3
+      - --reasoning-parser
+      - ling3
+      - --tool-call-parser
+      - ling3
+      # DSpark: external 5-layer block drafter, block size 8 auto-inferred from
+      # the checkpoint. --enable-linear-replayssm-spec is the KDA verify path
+      # that folds per-draft intermediate states onto a fixed ring; the ring
+      # must be a power of two of at least twice the 9-token verify window, so
+      # 32 (the 16 default fails startup validation).
+      - --speculative-algorithm
+      - "DSPARK"
+      - --speculative-draft-model-path
+      - inclusionAI/Ling-3.0-flash-dspark
+      - --enable-linear-replayssm-spec
+      - --linear-replayssm-cache-len
+      - "32"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN

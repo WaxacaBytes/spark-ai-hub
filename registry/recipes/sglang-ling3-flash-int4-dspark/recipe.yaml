@@ -1,0 +1,66 @@
+name: "Ling-3.0-flash INT4 DSpark"
+slug: sglang-ling3-flash-int4-dspark
+version: "1.0.0"
+description: "inclusionAI's 124B-total / 5.1B-active hybrid-linear MoE (35 Kimi Delta Attention + 7 gated MLA layers, 512 experts) in INT4, served by SGLang with the DSpark external block drafter instead of the checkpoint's single NEXTN/MTP layer. Same weights as vllm-ling3-flash-int4 — the speedup is decode strategy, which is output-preserving. Reasoning on by default, ling3 tool calling, 256K context."
+author: "inclusionAI (Ant Group) + LMSYS SGLang"
+source: "community"
+website: "https://huggingface.co/inclusionAI/Ling-3.0-flash"
+upstream: "https://huggingface.co/inclusionAI/Ling-3.0-flash-int4"
+category: llm
+tags:
+  - llm
+  - moe
+  - hybrid-linear
+  - reasoning
+  - coding
+  - agentic
+  - tool-use
+  - long-context
+  - sglang
+  - ling
+  - int4
+  - speculative-decoding
+  - dspark
+logo: "/logos/ling.png"
+requirements:
+  min_memory_gb: 100
+  recommended_memory_gb: 120
+  disk_gb: 115
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 40
+  gpu: true
+status: community-verified
+engine: "SGLang"
+params_b: 124
+active_params_b: 5.1
+arch: moe
+quantization: "INT4"
+speculative_method: "dspark"
+artificial_analysis_index: 38
+weights_gb: 79.7
+release_date: "2026-08-21"
+requires_hf_token: false
+context_length: 262144
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-08-21"
+tokens_per_second: 54.3
+tokens_per_second_editing: 45.5
+editing_workload: "code-edit"
+benchmarks:
+  code: 65.05
+  explainer: 53.88
+  prose: 46.95
+  code-edit: 45.49
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "inclusionAI/Ling-3.0-flash-int4"
+  api_key: "not-needed"
+  max_context: "262144"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"inclusionAI/Ling-3.0-flash-int4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 4096, \"temperature\": 0.6, \"top_p\": 0.95}'"
