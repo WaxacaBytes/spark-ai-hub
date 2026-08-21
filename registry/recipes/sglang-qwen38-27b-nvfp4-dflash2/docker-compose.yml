@@ -1,0 +1,103 @@
+services:
+  sglang:
+    # Qwen3.8-27B NVFP4 on SGLang with **DFlash2** — Inco AI's second-generation
+    # block-diffusion drafter (incoai/Qwen3.8-27B-DFlash2). DFlash2 predicts a
+    # whole block in one pass, keeps the top candidates at every position, and a
+    # lightweight selector traces one coherent path through them. Decoding is
+    # lossless: greedy output matches the target exactly.
+    #
+    # Same weights as sglang-qwen38-27b-nvfp4-eagle / -dspark. The only thing
+    # that changes is the speculator, which is output-preserving.
+    #
+    # Why this needs a nightly and the other three SGLang recipes do not:
+    # DFlash2 landed in sgl-project/sglang#35371 (2026-08-19) and the quantized
+    # target-lm_head path — the one this NVFP4 checkpoint needs, since RadixArk
+    # quantizes `lm_head` to NVFP4 — in #35496 (2026-08-20). Both are newer than
+    # the pinned `lmsysorg/sglang:qwen38-27b` cookbook tag and newer than
+    # v0.5.17, and a build without #35496 refuses to boot with "requires a dense
+    # FP16/BF16/FP32 target lm_head". The cookbook says so in a Warning box and
+    # names this exact image. `dev-nightly-0820` is a dated, immutable nightly
+    # tag — not the rolling `dev` tag — so a from-scratch reinstall keeps
+    # resolving to the same build.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('RadixArk/Qwen3.8-27B-NVFP4'); snapshot_download('incoai/Qwen3.8-27B-DFlash2')"
+        FROM lmsysorg/sglang:dev-nightly-0820
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/sglang-qwen38-27b-nvfp4-dflash2:dev-nightly-0820
+    container_name: spark-ai-hub-sglang-qwen38-27b-nvfp4-dflash2
+    ports:
+      - "9001:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Offline-first: target and drafter are both baked into the image above,
+      # so launch never touches the network.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    shm_size: 32gb
+    # SGLang's own DGX Spark cell for this model (NVFP4, single node) plus the
+    # cookbook's DFLASH2 overlay, with mem-fraction right-sized for a Spark that
+    # runs other apps alongside this one.
+    command:
+      - sglang
+      - serve
+      - --model-path
+      - RadixArk/Qwen3.8-27B-NVFP4
+      - --served-model-name
+      - RadixArk/Qwen3.8-27B-NVFP4
+      - --trust-remote-code
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      # SM121 (GB10) has no trtllm_mha path; flashinfer is the cookbook's
+      # backend for every Blackwell SM120/SM121 card.
+      - --attention-backend
+      - flashinfer
+      # DGX Spark cell values.
+      - --kv-cache-dtype
+      - fp8_e4m3
+      - --chunked-prefill-size
+      - "2048"
+      # Static pool (weights + KV + GDN state). The cookbook cell pins 0.85,
+      # which would claim 109 of the Spark's 128 GB; 0.50 still buys ~4x the
+      # native 262K context in KV once fp8_e4m3 halves the per-token cost
+      # (32.8 KB/token), and leaves ~64 GB for everything else on the box.
+      - --mem-fraction-static
+      - "0.50"
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      # DFlash2 block-diffusion drafting. Block size 8 is baked into the
+      # drafter config (7 draft tokens per verification step), which is what
+      # Inco AI trained and benchmarked it at.
+      - --speculative-algorithm
+      - "DFLASH"
+      - --speculative-draft-model-path
+      - "incoai/Qwen3.8-27B-DFlash2"
+      - --speculative-num-draft-tokens
+      - "8"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN

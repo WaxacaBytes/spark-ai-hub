@@ -1,0 +1,108 @@
+services:
+  sglang:
+    # Qwen3.8-27B in Qwen's own **FP8** checkpoint on SGLang with **DFlash2**,
+    # Inco AI's second-generation block-diffusion drafter
+    # (incoai/Qwen3.8-27B-DFlash2). DFlash2 predicts a whole block in one pass,
+    # keeps the top candidates at every position, and a lightweight selector
+    # traces one coherent path through them. Decoding is lossless: greedy
+    # output matches the target exactly.
+    #
+    # This is the middle rung of the three DFlash2 recipes — BF16 keeps every
+    # bit of the reference weights, NVFP4 is the fast one, and FP8 is Qwen's
+    # own first-party quantization sitting between them.
+    #
+    # Same weights as sglang-qwen38-27b-fp8-dspark; only the speculator
+    # changes, and that change is output-preserving.
+    #
+    # Why this needs a nightly and the EAGLE / DSpark recipes do not: DFlash2
+    # landed in sgl-project/sglang#35371 (2026-08-19), newer than the pinned
+    # `lmsysorg/sglang:qwen38-27b` cookbook tag and newer than v0.5.17. The
+    # cookbook names this exact image in a Warning box. `dev-nightly-0820` is a
+    # dated, immutable nightly tag — not the rolling `dev` tag — so a
+    # from-scratch reinstall keeps resolving to the same build.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen3.8-27B-FP8'); snapshot_download('incoai/Qwen3.8-27B-DFlash2')"
+        FROM lmsysorg/sglang:dev-nightly-0820
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/sglang-qwen38-27b-fp8-dflash2:dev-nightly-0820
+    container_name: spark-ai-hub-sglang-qwen38-27b-fp8-dflash2
+    ports:
+      - "9001:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Offline-first: target and drafter are both baked into the image above,
+      # so launch never touches the network.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    shm_size: 32gb
+    # SGLang's own DGX Spark cell for this model (FP8, single node) plus the
+    # cookbook's DFLASH2 overlay.
+    command:
+      - sglang
+      - serve
+      - --model-path
+      - Qwen/Qwen3.8-27B-FP8
+      - --served-model-name
+      - Qwen/Qwen3.8-27B-FP8
+      - --trust-remote-code
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      # SM121 (GB10) has no trtllm_mha path; flashinfer is the cookbook's
+      # backend for every Blackwell SM120/SM121 card.
+      - --attention-backend
+      - flashinfer
+      # The cookbook cell pins --kv-cache-dtype fp8_e4m3 across all three
+      # quantizations, and the config page's own note says the BF16 and FP8
+      # checkpoints carry no fp8 KV calibration — the KV precision row exists
+      # as the opt-out for exactly them. This checkpoint is one of the two, so
+      # it takes the opt-out, same as the BF16 recipe.
+      - --kv-cache-dtype
+      - bfloat16
+      - --chunked-prefill-size
+      - "2048"
+      # Static pool (weights + KV + GDN state). FP8 weights are ~30 GB and the
+      # drafter another ~1.6, so this sits between the NVFP4 sibling's 0.50 and
+      # the BF16 one's 0.75: 0.60 of 128 GB leaves ~45 GB for KV + GDN state,
+      # about 2.6x the native 262K context at bf16 KV, and keeps ~51 GB free
+      # for the rest of the box.
+      - --mem-fraction-static
+      - "0.60"
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      # DFlash2 block-diffusion drafting. Block size 8 is baked into the
+      # drafter config (7 draft tokens per verification step), which is what
+      # Inco AI trained and benchmarked it at.
+      - --speculative-algorithm
+      - "DFLASH"
+      - --speculative-draft-model-path
+      - "incoai/Qwen3.8-27B-DFlash2"
+      - --speculative-num-draft-tokens
+      - "8"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN

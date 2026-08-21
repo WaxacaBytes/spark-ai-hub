@@ -1,0 +1,67 @@
+name: "Qwen3.8-27B NVFP4 DFlash2 (SGLang)"
+slug: sglang-qwen38-27b-nvfp4-dflash2
+version: "1.0.0"
+description: "Qwen3.8-27B NVFP4 served by SGLang with DFlash2, Inco AI's second-generation block-diffusion drafter. It drafts a whole block in one pass and keeps the top candidates at every position, so acceptance stays high where EAGLE and DSpark fall off. Same weights as the EAGLE and DSpark recipes — decoding is lossless, only the speculator changes. Dense 27B hybrid Gated DeltaNet vision-language model, thinking on by default, 262K context, vision and tool calling live."
+author: "Alibaba Cloud + Inco AI + LMSYS SGLang"
+source: "community"
+website: "https://docs.sglang.io/cookbook/autoregressive/Qwen/Qwen3.8-27B"
+upstream: "https://huggingface.co/incoai/Qwen3.8-27B-DFlash2"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - reasoning
+  - coding
+  - agentic
+  - tool-use
+  - sglang
+  - qwen
+  - nvfp4
+  - speculative-decoding
+  - dflash2
+logo: "/logos/qwen.png"
+requirements:
+  min_memory_gb: 60
+  recommended_memory_gb: 70
+  disk_gb: 48
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  gpu: true
+status: community-verified
+engine: "SGLang"
+params_b: 27
+arch: dense
+quantization: "NVFP4"
+speculative_method: "dflash2"
+artificial_analysis_index: 52
+weights_gb: 24.6
+tokens_per_second: 30.0
+tokens_per_second_editing: 59.1
+editing_workload: "code-edit"
+benchmarks:
+  prose: 23.11
+  explainer: 29.72
+  code: 43.56
+  code-edit: 59.1
+release_date: "2026-08-20"
+context_length: 262144
+requires_hf_token: false
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "RadixArk/Qwen3.8-27B-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"RadixArk/Qwen3.8-27B-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 2048, \"temperature\": 1.0, \"top_p\": 0.95}'"
+
+cover:
+  image: qwen-27b.jpg
+  caption: "The Qwen capybara writing SQL. Shared by Qwen models of 27B parameters."
+  fit: contain
+  grade: false
+  credit: "cfahlgren1/flux-qwen-capybara — a FLUX.1-dev LoRA recreating the Qwen capybara · FLUX.1-dev non-commercial licence"
+  source: "https://huggingface.co/cfahlgren1/flux-qwen-capybara"

@@ -56,9 +56,39 @@ EDIT_PROMPT = (
 )
 
 
+# The Hub API requires auth. Take the key from SAH_API_KEY, else read the admin
+# user's key straight out of the Hub database so the harness keeps working the
+# same way it did before auth landed.
+def _hub_api_key():
+    import os, sqlite3
+    key = os.environ.get("SAH_API_KEY")
+    if key:
+        return key
+    db = Path("/home/abel/sparkforge/data/spark-ai-hub.db")
+    if not db.exists():
+        return None
+    try:
+        con = sqlite3.connect(str(db))
+        row = con.execute(
+            "select api_key from users where role='admin' and status='active' order by id limit 1"
+        ).fetchone()
+        return row[0] if row else None
+    finally:
+        try:
+            con.close()
+        except Exception:
+            pass
+
+
+HUB_API_KEY = _hub_api_key()
+
+
 def http_json(url, data=None, method=None, timeout=30):
     body = json.dumps(data).encode("utf-8") if data is not None else None
-    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"}, method=method)
+    headers = {"Content-Type": "application/json"}
+    if HUB_API_KEY and url.startswith(HUB_API):
+        headers["Authorization"] = f"Bearer {HUB_API_KEY}"
+    req = urllib.request.Request(url, data=body, headers=headers, method=method)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
 
