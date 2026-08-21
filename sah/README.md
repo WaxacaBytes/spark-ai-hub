@@ -7,8 +7,12 @@ Switch models in the Hub UI; clients keep working without reconfiguration.
 ## Install (on a client laptop on the same LAN)
 
 ```sh
-curl http://192.168.3.16:9000/sah/install.sh | sh
+curl http://192.168.3.16:9000/sah/install.sh | sh -s -- --key sah-xxxxxxxx
 ```
+
+The key is your own — copy the whole line from the Hub's **Connect a device**
+panel, or find the key on your **Account** page. A Hub running with
+authentication turned off does not need one.
 
 Override the Hub URL:
 
@@ -49,7 +53,15 @@ sah <client> --restore  # put the client's original settings back
 sah <client> -- <args>  # pass args to the underlying client
 
 sah set-hub http://1.2.3.4:9000   # change the Hub URL
+sah set-key sah-xxxxxxxx          # save your Hub API key on this device
 ```
+
+## Authentication
+
+Every request sah makes to the Hub carries your API key. It is read from
+`$SAH_API_KEY` if set, otherwise from `~/.config/sah/key`, which the installer
+writes (mode 600) when you pass `--key`. If the Hub rejects it, sah says so and
+tells you to run `sah set-key`.
 
 ## How it works
 

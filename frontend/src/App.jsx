@@ -6,6 +6,9 @@ import ThemeToggle from './components/ThemeToggle'
 import HfTokenModal from './components/HfTokenModal'
 import ConnectModal from './components/ConnectModal'
 import LaunchConflictModal from './components/LaunchConflictModal'
+import { useAuth } from './auth'
+import Account, { Avatar } from './pages/Account'
+import Users from './pages/Users'
 import Catalog from './pages/Catalog'
 import Running from './pages/Running'
 import System from './pages/System'
@@ -17,11 +20,17 @@ const NAV_ITEMS = [
   { path: '/about', label: 'About', icon: InfoIcon },
 ]
 
+// Only an admin can reach /users; everything else is open to any active
+// account, so this is the one nav item that is conditional.
+const ADMIN_NAV_ITEM = { path: '/users', label: 'Users', icon: UsersIcon }
+
 const PAGE_TITLES = {
   '/': 'Store',
   '/running': 'Running',
   '/system': 'System',
   '/about': 'About',
+  '/account': 'Account',
+  '/users': 'Users',
 }
 
 export default function App() {
@@ -30,6 +39,7 @@ export default function App() {
   const setNavigate = useStore((s) => s.setNavigate)
   const theme = useStore((s) => s.theme)
   const metrics = useStore((s) => s.metrics)
+  const user = useAuth((s) => s.user)
   const [search, setSearch] = useState('')
   const location = useLocation()
   const navigate = useNavigate()
@@ -61,6 +71,7 @@ export default function App() {
   }, [fetchRecipes])
 
   const runningCount = recipes.filter((r) => r.running || r.starting).length
+  const navItems = user?.role === 'admin' ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS
 
   return (
     <div className="bg-bg text-text flex h-screen overflow-hidden transition-colors duration-300">
@@ -77,7 +88,7 @@ export default function App() {
 
         {/* Nav */}
         <nav className="flex flex-col gap-1 flex-1">
-          {NAV_ITEMS.map((item) => {
+          {navItems.map((item) => {
             const isActive = location.pathname === item.path
             const Icon = item.icon
             return (
@@ -100,8 +111,21 @@ export default function App() {
           })}
         </nav>
 
-        {/* Bottom: System gauges + Theme toggle */}
+        {/* Bottom: Account + System gauges + Theme toggle */}
         <div className="flex flex-col items-center gap-3 mt-auto">
+          {user && (
+            <Link
+              to="/account"
+              title={`${user.name || user.email} — account & API key`}
+              className={`rounded-2xl no-underline transition-shadow ${
+                location.pathname === '/account'
+                  ? 'ring-2 ring-primary/60'
+                  : 'hover:ring-2 hover:ring-outline-dim'
+              }`}
+            >
+              <Avatar user={user} size={36} />
+            </Link>
+          )}
           {metrics && (
             <div className="flex flex-col items-center gap-1">
               <MiniGauge
@@ -174,6 +198,8 @@ export default function App() {
             <Route path="/running" element={<div className="animate-fadeIn"><Running /></div>} />
             <Route path="/system" element={<div className="animate-fadeIn"><System /></div>} />
             <Route path="/about" element={<div className="animate-fadeIn"><About /></div>} />
+            <Route path="/account" element={<Account />} />
+            <Route path="/users" element={<Users />} />
             <Route path="/app/:slug" element={<RecipeDetail />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -183,6 +209,17 @@ export default function App() {
       <ConnectModal />
       <LaunchConflictModal />
     </div>
+  )
+}
+
+function UsersIcon(props) {
+  return (
+    <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
   )
 }
 

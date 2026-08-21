@@ -81,8 +81,13 @@ def _tailscale_info() -> dict | None:
     return {"dns": dns, "ips": ips, "online": bool(self_.get("Online"))}
 
 
-def compute_connect_info(port: int) -> dict:
-    """Return the Hub's reachable addresses plus copy-paste client commands."""
+def compute_connect_info(port: int, api_key: str | None = None) -> dict:
+    """Return the Hub's reachable addresses plus copy-paste client commands.
+
+    `api_key` is the viewer's own key. It is baked into the install one-liner
+    so connecting a new device stays a single paste: the key is per person,
+    so it cannot be baked into the script the Hub serves publicly.
+    """
     hostname = _short_hostname()
     candidates: list[dict] = []
 
@@ -124,7 +129,12 @@ def compute_connect_info(port: int) -> dict:
         "candidates": candidates,
         "agents": SUPPORTED_AGENTS,
         "commands": {
-            "install": f"curl -fsSL {primary}/sah/install.sh | sh",
+            "install": (
+                f"curl -fsSL {primary}/sah/install.sh | sh -s -- --key {api_key}"
+                if api_key else
+                f"curl -fsSL {primary}/sah/install.sh | sh"
+            ),
             "set_hub": f"sah set-hub {primary}",
+            "set_key": f"sah set-key {api_key}" if api_key else None,
         },
     }

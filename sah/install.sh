@@ -4,8 +4,12 @@
 # so the client stores a name that survives the server's IP changing (DHCP).
 #
 # Usage on a client laptop:
-#   curl -fsSL http://<hub>:9000/sah/install.sh | sh
+#   curl -fsSL http://<hub>:9000/sah/install.sh | sh -s -- --key sah-xxxxxxxx
 #   curl -fsSL http://<hub>:9000/sah/install.sh | sh -s -- --hub http://other:9000
+#
+# The key is per person: copy it from the Hub's Account page (the "Connect a
+# device" panel gives you this whole line ready to paste). A Hub running with
+# authentication turned off does not need one.
 set -eu
 
 # Candidate Hub URLs, most-stable first. The Hub replaces the marker below
@@ -16,9 +20,11 @@ case "$CANDIDATES" in *@SAH_CANDIDATES@*) CANDIDATES="" ;; esac
 
 # Explicit overrides win and go to the front of the list.
 HUB="${SAH_HUB:-}"
+KEY="${SAH_API_KEY:-}"
 while [ $# -gt 0 ]; do
     case "$1" in
         --hub) HUB="$2"; shift 2;;
+        --key) KEY="$2"; shift 2;;
         *) echo "unknown arg: $1" >&2; exit 1;;
     esac
 done
@@ -62,9 +68,23 @@ for c in $ORDERED; do
     printf '%s\n' "$c" >> "${CONFIG_DIR}/hub"
 done
 
+# Persist the API key, readable only by this user — it authenticates every
+# call this device makes to the Hub.
+if [ -n "$KEY" ]; then
+    printf '%s\n' "$KEY" > "${CONFIG_DIR}/key"
+    chmod 600 "${CONFIG_DIR}/key"
+fi
+
 echo "Installed: ${BIN_DIR}/sah"
 echo "Hub:      ${DOWNLOAD_HUB}"
 printf 'Saved %s address(es) for automatic reconnection.\n' "$(echo "$ORDERED" | wc -w | tr -d ' ')"
+if [ -n "$KEY" ]; then
+    echo "API key:  saved to ${CONFIG_DIR}/key"
+elif [ ! -f "${CONFIG_DIR}/key" ]; then
+    echo
+    echo "No API key set. If this Hub requires sign-in, copy your key from its"
+    echo "Account page and run:  sah set-key <your-key>"
+fi
 
 # Ensure ${BIN_DIR} is on PATH — both for this session and future shells.
 ensure_path_line() {

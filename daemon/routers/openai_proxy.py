@@ -23,6 +23,7 @@ from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from daemon.config import settings
+from daemon.services import auth_service
 
 router = APIRouter(prefix="/v1", tags=["openai"])
 
@@ -34,6 +35,11 @@ _HOP_BY_HOP = {
     "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
     "te", "trailers", "transfer-encoding", "upgrade", "host", "content-length",
 }
+
+# The client authenticates to the *Hub*, not to the model server behind it.
+# Forwarding the Hub API key onward would hand a user's credential to every
+# container a recipe happens to run, so it stops here.
+_CREDENTIAL_HEADERS = {"authorization", "x-api-key", "api-key", "cookie"}
 
 
 async def _fetch_current_model() -> str | None:
@@ -164,6 +170,92 @@ def _filter_headers(src) -> dict[str, str]:
     return {k: v for k, v in src.items() if k.lower() not in _HOP_BY_HOP}
 
 
+def _upstream_headers(src) -> dict[str, str]:
+    drop = _HOP_BY_HOP | _CREDENTIAL_HEADERS
+    return {k: v for k, v in src.items() if k.lower() not in drop}
+
+
+# ── usage accounting ────────────────────────────────────────────────────────
+
+def _usage_from(payload: Any) -> dict | None:
+    """Pull an OpenAI-shaped usage object out of a response body.
+
+    The Responses API names the same two numbers differently from Chat
+    Completions, so both spellings are read here.
+    """
+    if not isinstance(payload, dict):
+        return None
+    usage = payload.get("usage")
+    if not isinstance(usage, dict):
+        # Responses-API stream events wrap the whole response one level down
+        # (`response.completed` → {"response": {..., "usage": {...}}}).
+        inner = payload.get("response")
+        if isinstance(inner, dict):
+            return _usage_from(inner)
+        return None
+    prompt = usage.get("prompt_tokens", usage.get("input_tokens", 0)) or 0
+    completion = usage.get("completion_tokens", usage.get("output_tokens", 0)) or 0
+    total = usage.get("total_tokens", 0) or (prompt + completion)
+    return {
+        "prompt_tokens": int(prompt),
+        "completion_tokens": int(completion),
+        "total_tokens": int(total),
+        "model": payload.get("model") or "",
+    }
+
+
+def _inspect_sse_line(line: bytes, client_wants_usage: bool) -> tuple[dict | None, bool]:
+    """Read one SSE line. Returns (usage-if-this-was-the-usage-event, drop-it).
+
+    Only a *Chat Completions* usage-only chunk is ours to swallow: it is the
+    one we asked for on the client's behalf by injecting stream_options. The
+    check is deliberately narrow, because the Responses API's terminal
+    `response.completed` event also carries usage and also has no `choices` —
+    dropping that one ends the stream before the client's terminal event and
+    breaks every Responses-API client (Codex, ChatGPT, Muse).
+    """
+    stripped = line.strip()
+    if not stripped.startswith(b"data:"):
+        return None, False
+    payload = stripped[5:].strip()
+    if not payload or payload == b"[DONE]":
+        return None, False
+    try:
+        obj = json.loads(payload)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None, False
+    usage = _usage_from(obj)
+    if not usage:
+        return None, False
+    usage_only_chunk = (
+        obj.get("object") == "chat.completion.chunk"
+        and isinstance(obj.get("usage"), dict)
+        and not obj.get("choices")
+    )
+    return usage, (usage_only_chunk and not client_wants_usage)
+
+
+async def record_call(request: Request, endpoint: str, usage: dict | None) -> None:
+    """Attribute one completed model call to whoever made it.
+
+    Anonymous calls are only possible with auth disabled, and there is nobody
+    to attribute those to, so they are simply not logged.
+    """
+    user = getattr(request.state, "user", None)
+    if not user:
+        return
+    usage = usage or {}
+    await auth_service.record_usage(
+        user["id"],
+        model=usage.get("model", ""),
+        endpoint=endpoint,
+        prompt_tokens=usage.get("prompt_tokens", 0),
+        completion_tokens=usage.get("completion_tokens", 0),
+        total_tokens=usage.get("total_tokens", 0),
+        source=getattr(request.state, "auth_source", "") or "",
+    )
+
+
 def _extract_pdf_text_from_data_url(url: str) -> str | None:
     if not url.startswith("data:application/pdf;base64,"):
         return None
@@ -282,40 +374,81 @@ async def proxy(path: str, request: Request):
             if mutated:
                 raw_body = json.dumps(body).encode()
 
-    headers = _filter_headers(request.headers)
+    upstream_headers = _upstream_headers(request.headers)
 
     streaming = False
+    client_wants_usage = False
     if raw_body:
         try:
             parsed = json.loads(raw_body)
             if isinstance(parsed, dict) and parsed.get("stream"):
                 streaming = True
+                opts = parsed.get("stream_options")
+                client_wants_usage = bool(
+                    isinstance(opts, dict) and opts.get("include_usage")
+                )
+                # A streamed response carries no usage block unless it is asked
+                # for, which would leave every streaming call — i.e. nearly all
+                # of them — unaccounted for. So we always ask, and drop the
+                # extra usage-only chunk again on the way out if the client
+                # did not want it. The client sees byte-identical output.
+                if not client_wants_usage:
+                    parsed["stream_options"] = {
+                        **(opts if isinstance(opts, dict) else {}),
+                        "include_usage": True,
+                    }
+                    raw_body = json.dumps(parsed).encode()
         except (json.JSONDecodeError, UnicodeDecodeError):
             pass
 
     params = dict(request.query_params)
+    endpoint = f"openai:{path.strip('/')}"
 
     if streaming:
         async def gen():
+            captured: dict | None = None
             timeout = aiohttp.ClientTimeout(total=None, sock_read=None)
             async with aiohttp.ClientSession(timeout=timeout) as s:
                 async with s.request(
-                    request.method, url, data=raw_body, headers=headers, params=params
+                    request.method, url, data=raw_body,
+                    headers=upstream_headers, params=params,
                 ) as r:
+                    # Line-buffered so a usage chunk split across two TCP reads
+                    # is still recognised as one SSE event.
+                    buf = b""
                     async for chunk in r.content.iter_any():
-                        if chunk:
-                            yield chunk
+                        if not chunk:
+                            continue
+                        buf += chunk
+                        while b"\n" in buf:
+                            line, buf = buf.split(b"\n", 1)
+                            usage, drop = _inspect_sse_line(line, client_wants_usage)
+                            if usage:
+                                captured = usage
+                            if not drop:
+                                yield line + b"\n"
+                    if buf:
+                        yield buf
+            await record_call(request, endpoint, captured)
 
         return StreamingResponse(gen(), media_type="text/event-stream")
 
     timeout = aiohttp.ClientTimeout(total=600)
     async with aiohttp.ClientSession(timeout=timeout) as s:
         async with s.request(
-            request.method, url, data=raw_body, headers=headers, params=params
+            request.method, url, data=raw_body,
+            headers=upstream_headers, params=params,
         ) as r:
             content = await r.read()
             if request.method == "GET" and path.strip("/") == "models" and r.status == 200:
                 content = await _annotate_models(content)
+            elif r.status == 200 and request.method == "POST":
+                try:
+                    await record_call(
+                        request, endpoint, _usage_from(json.loads(content))
+                    )
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    pass
             resp_headers = _filter_headers(r.headers)
             return Response(
                 content=content,

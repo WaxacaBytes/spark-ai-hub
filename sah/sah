@@ -50,7 +50,33 @@ CONFIG_FILE = CONFIG_DIR / "hub"
 # across clients so a config is recognisable as sah-owned at a glance.
 PROVIDER = "sah"
 PROVIDER_NAME = "Spark AI Hub"
-API_KEY = "sah"
+
+KEY_FILE = CONFIG_DIR / "key"
+
+
+def _load_api_key() -> str:
+    """This device's Hub API key.
+
+    A Hub that is exposed to the internet issues one key per person, so the key
+    is per-install state, not a constant. $SAH_API_KEY wins (handy for one-off
+    shells and CI); otherwise it comes from the file the installer wrote.
+
+    The literal "sah" is the fallback for a Hub running with authentication
+    turned off, which accepts any value — that is what every version of sah
+    before per-user keys always sent.
+    """
+    if v := os.environ.get("SAH_API_KEY"):
+        return v.strip()
+    try:
+        if KEY_FILE.is_file():
+            if key := KEY_FILE.read_text().strip():
+                return key
+    except OSError:
+        pass
+    return "sah"
+
+
+API_KEY = _load_api_key()
 
 _hub_cache: str | None = None
 
@@ -199,10 +225,29 @@ class Model:
         return ["text", "image"] if self.has("vision") else ["text"]
 
 
+def hub_request(url: str) -> urllib.request.Request:
+    """A GET to the Hub carrying this device's key.
+
+    Both headers are sent because the Hub accepts either, and sending both
+    keeps one code path for the OpenAI-shaped and Anthropic-shaped routes.
+    """
+    return urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {API_KEY}", "x-api-key": API_KEY}
+    )
+
+
 def current_model_info() -> dict | None:
     try:
-        with urllib.request.urlopen(f"{api_base()}/models", timeout=2) as r:
+        with urllib.request.urlopen(hub_request(f"{api_base()}/models"), timeout=2) as r:
             data = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            sys.exit(
+                "This Hub rejected your API key.\n\n"
+                "Get your key from the Hub's Account page, then run:\n"
+                "    sah set-key <your-key>"
+            )
+        return None
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
         return None
     items = data.get("data") or []
@@ -752,7 +797,10 @@ class OpenCode(Integration):
                 PROVIDER: {
                     "npm": "@ai-sdk/openai-compatible",
                     "name": PROVIDER_NAME,
-                    "options": {"baseURL": api_base()},
+                    # apiKey is what @ai-sdk/openai-compatible turns into the
+                    # Authorization: Bearer header. Without it OpenCode sends
+                    # no credential at all and an authenticated Hub answers 401.
+                    "options": {"baseURL": api_base(), "apiKey": API_KEY},
                     "models": {model.name: entry},
                 }
             },
@@ -840,6 +888,10 @@ class Codex(Integration):
             f"name = {json.dumps(PROVIDER_NAME)}",
             f"base_url = {json.dumps(self.base_url())}",
             'wire_api = "responses"',
+            # Without env_key Codex sends no Authorization header for a custom
+            # provider, whatever is in the environment, and an authenticated
+            # Hub 401s. launch() exports this variable.
+            'env_key = "OPENAI_API_KEY"',
             "",
         ])
         toml_validate(text, self.profile_path())
@@ -877,6 +929,7 @@ class Codex(Integration):
             "-c", f"model_providers.{CODEX_PROFILE}.name={json.dumps(PROVIDER_NAME)}",
             "-c", f"model_providers.{CODEX_PROFILE}.base_url={json.dumps(self.base_url())}",
             "-c", f'model_providers.{CODEX_PROFILE}.wire_api="responses"',
+            "-c", f'model_providers.{CODEX_PROFILE}.env_key="OPENAI_API_KEY"',
             "-c", f"model_catalog_json={json.dumps(str(self.catalog_path()))}",
         ]
 
@@ -1065,6 +1118,12 @@ class Hermes(Integration):
         text = yaml_upsert(text, ["providers", PROVIDER], {
             "name": PROVIDER_NAME,
             "api": api_base(),
+            # The key has to be on the provider block itself. Hermes resolves a
+            # custom provider's credential from provider.api_key → provider
+            # .key_env → $OPENAI_API_KEY, and falls back to the literal string
+            # "no-key-required" — which it then sends as the bearer token. The
+            # api_key under `model:` below is not consulted on that path.
+            "api_key": API_KEY,
             "default_model": model.name,
             "models": [model.name],
         })
@@ -1449,9 +1508,10 @@ class Muse(Integration):
         settings["endpoint_transport"] = {
             # See resolved_api_base(): Muse's HTTP client does not do mDNS.
             "base_url": resolved_api_base(),
-            # The Hub ignores credentials, and Muse refuses to start on its
-            # default "bearer" unless one is configured.
-            "auth": "none",
+            # "none" sends no Authorization header, which an authenticated Hub
+            # answers with 401. The credential itself lives in auth.json beside
+            # this file — see write_credential().
+            "auth": "bearer",
         }
         ctx = model.context(32768)
         settings["model_catalog"] = [{
@@ -1468,8 +1528,33 @@ class Muse(Integration):
         }]
         return settings
 
+    def auth_path(self) -> Path:
+        return self.config_home() / "muse" / "auth.json"
+
+    def write_credential(self) -> None:
+        """Store the Hub key where Muse looks for a bearer credential.
+
+        Same file and shape `muse auth set --api-key-stdin` produces, written
+        directly because that command reads the key from stdin and sah is
+        launching Muse rather than sitting in front of it. It lands in sah's
+        private Muse config root, so the user's own `muse login` credentials
+        for Meta are never read or overwritten.
+        """
+        path = self.auth_path()
+        creds = read_json(path) or {}
+        creds.setdefault("schema_version", 1)
+        providers = creds.get("providers")
+        if not isinstance(providers, dict):
+            providers = {}
+        providers[self.PROVIDER_ID] = {"api_key": API_KEY}
+        creds["providers"] = providers
+        path.parent.mkdir(parents=True, exist_ok=True)
+        write_json(path, creds)
+        path.chmod(0o600)
+
     def env(self, model: Model) -> dict:
         write_json(self.settings_path(), self.settings(model))
+        self.write_credential()
         return {"XDG_CONFIG_HOME": str(self.config_home())}
 
     def argv(self, model: Model, extra: list[str]) -> list[str]:
@@ -1595,7 +1680,12 @@ class OMP(Integration):
         write_text(paths["omp-models"], yaml_dump({"providers": {PROVIDER: {
             "baseUrl": api_base(),
             "api": "openai-completions",
-            "auth": "none",
+            # OMP's provider auth is "apiKey" | "none" | "oauth". It was "none"
+            # while the Hub ignored credentials; an authenticated Hub 401s that,
+            # and OMP retries the failure rather than reporting it, so the
+            # symptom is a launch that hangs instead of an error.
+            "auth": "apiKey",
+            "apiKey": API_KEY,
             "models": [entry],
         }}}))
         write_text(paths["omp"], yaml_dump({"setupVersion": self.SETUP_VERSION}))
@@ -1908,6 +1998,12 @@ class ChatGPT(Integration):
             f"name = {json.dumps(PROVIDER_NAME)}",
             f"base_url = {json.dumps(api_base().rstrip('/') + '/')}",
             'wire_api = "responses"',
+            # A literal header rather than Codex's env_key, because this is the
+            # desktop app: it is started by the OS from the desktop session, so
+            # it never sees an environment sah could put OPENAI_API_KEY into.
+            # `sah codex` keeps using env_key, which leaves the key out of the
+            # file entirely — it can set the variable because it does the exec.
+            "http_headers = { Authorization = " + json.dumps(f"Bearer {API_KEY}") + " }",
         ])
         toml_validate(text, cfg)
         write_text(cfg, text)
@@ -2289,7 +2385,7 @@ def cmd_info(_args) -> None:
         kv("Fallback hubs", ", ".join(others))
     kv("OpenAI base", api_base())
     kv("Anthropic base", active)
-    kv("API key", f"{API_KEY}  (any value works)")
+    kv("API key", API_KEY if API_KEY != "sah" else "sah  (Hub has authentication off)")
     kv("Current model", info["id"] if info else "(none — launch one in the Hub)")
 
 
@@ -2306,6 +2402,18 @@ def cmd_set_hub(args) -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     write_text(CONFIG_FILE, args.url.rstrip("/") + "\n")
     print(f"Hub set to {args.url}")
+
+
+def cmd_set_key(args) -> None:
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    write_text(KEY_FILE, args.key.strip() + "\n")
+    try:
+        KEY_FILE.chmod(0o600)
+    except OSError:
+        pass
+    print(f"API key saved to {KEY_FILE}")
+    print("Re-run any persistent integration install (sah <client> --install) "
+          "so clients pick up the new key.")
 
 
 # ------------------------------------------------------------------ entrypoint
@@ -2370,6 +2478,10 @@ def main() -> None:
     sp = sub.add_parser("integrations", aliases=["clients"],
                         help="List integration modes and lifecycle commands")
     sp.set_defaults(func=cmd_integrations)
+
+    sp = sub.add_parser("set-key", help=f"Save your {PROVIDER_NAME} API key")
+    sp.add_argument("key", help="The API key from the Hub's Account page")
+    sp.set_defaults(func=cmd_set_key)
 
     sp = sub.add_parser("set-hub", help=f"Set the {PROVIDER_NAME} URL")
     sp.add_argument("url")

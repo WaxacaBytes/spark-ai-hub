@@ -1,39 +1,11 @@
 import { useRef, useState } from 'react'
 import { useStore } from '../store'
+import { copyText } from '../lib/clipboard'
 
 const KIND_LABEL = {
   mdns: 'mDNS name',
   tailscale: 'Tailscale',
   ip: 'LAN IP',
-}
-
-// The Hub is served over plain HTTP on the LAN, which is NOT a secure context,
-// so navigator.clipboard is unavailable. Fall back to a temp-textarea +
-// execCommand('copy'), which works over HTTP.
-async function copyText(text) {
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text)
-      return true
-    }
-  } catch {
-    /* fall through to the legacy path */
-  }
-  try {
-    const ta = document.createElement('textarea')
-    ta.value = text
-    ta.setAttribute('readonly', '')
-    ta.style.position = 'fixed'
-    ta.style.top = '-9999px'
-    document.body.appendChild(ta)
-    ta.select()
-    ta.setSelectionRange(0, text.length)
-    const ok = document.execCommand('copy')
-    document.body.removeChild(ta)
-    return ok
-  } catch {
-    return false
-  }
 }
 
 function CopyRow({ command }) {
@@ -125,6 +97,10 @@ export default function ConnectModal() {
                 Install on a new device
               </div>
               <CopyRow command={info.commands.install} />
+              <p className="text-xs text-text-dim mt-2 m-0 leading-relaxed">
+                This line contains <strong className="text-text-muted">your personal API key</strong> —
+                anyone who runs it can use this Spark as you. Send it only to your own devices.
+              </p>
             </div>
 
             {/* Re-point an existing install */}
@@ -132,7 +108,10 @@ export default function ConnectModal() {
               <div className="text-xs font-semibold text-text-muted font-label uppercase tracking-wide mb-2">
                 Already have sah? Point it here
               </div>
-              <CopyRow command={info.commands.set_hub} />
+              <div className="flex flex-col gap-2">
+                <CopyRow command={info.commands.set_hub} />
+                {info.commands.set_key && <CopyRow command={info.commands.set_key} />}
+              </div>
             </div>
 
             {/* Reachable addresses */}

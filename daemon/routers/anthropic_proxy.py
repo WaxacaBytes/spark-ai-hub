@@ -19,7 +19,9 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from daemon.config import settings
-from daemon.routers.openai_proxy import _fetch_current_model, _no_model_running
+from daemon.routers.openai_proxy import (
+    _fetch_current_model, _no_model_running, _usage_from, record_call,
+)
 
 router = APIRouter(tags=["anthropic"])
 
@@ -271,8 +273,15 @@ def _sse(event: str, data: dict) -> bytes:
 
 
 async def _stream_translate(
-    upstream: aiohttp.ClientResponse, requested_model: str
+    upstream: aiohttp.ClientResponse,
+    requested_model: str,
+    usage_sink: dict | None = None,
 ) -> AsyncIterator[bytes]:
+    """Translate an OpenAI SSE stream into Anthropic events.
+
+    `usage_sink`, when given, is filled in with the upstream token counts as
+    soon as they arrive, so the caller can bill the call after the stream ends.
+    """
     msg_id = _new_id("msg")
     yield _sse("message_start", {
         "type": "message_start",
@@ -312,6 +321,8 @@ async def _stream_translate(
 
             if usage := ev.get("usage"):
                 output_tokens = usage.get("completion_tokens", output_tokens)
+                if usage_sink is not None and (parsed := _usage_from(ev)):
+                    usage_sink.update(parsed)
 
             choices = ev.get("choices") or []
             if not choices:
@@ -399,7 +410,10 @@ async def messages(request: Request):
     url = f"{settings.upstream_openai_url.rstrip('/')}/chat/completions"
 
     if upstream_payload.get("stream"):
+        # _anthropic_to_openai already sets stream_options.include_usage, so
+        # the upstream usage chunk arrives and usage_sink gets filled.
         async def gen():
+            usage_sink: dict = {}
             timeout = aiohttp.ClientTimeout(total=None, sock_read=None)
             async with aiohttp.ClientSession(timeout=timeout) as s:
                 async with s.post(url, json=upstream_payload) as r:
@@ -411,8 +425,9 @@ async def messages(request: Request):
                             "error": {"type": "api_error", "message": err},
                         })
                         return
-                    async for ev in _stream_translate(r, requested_model):
+                    async for ev in _stream_translate(r, requested_model, usage_sink):
                         yield ev
+            await record_call(request, "anthropic:messages", usage_sink or None)
         return StreamingResponse(gen(), media_type="text/event-stream")
 
     timeout = aiohttp.ClientTimeout(total=600)
@@ -435,6 +450,7 @@ async def messages(request: Request):
                     "type": "error",
                     "error": {"type": "api_error", "message": err_msg},
                 })
+    await record_call(request, "anthropic:messages", _usage_from(data))
     return JSONResponse(_openai_to_anthropic(data, requested_model))
 
 

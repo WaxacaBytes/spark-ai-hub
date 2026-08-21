@@ -9,9 +9,13 @@ from fastapi.staticfiles import StaticFiles
 
 from daemon.config import settings
 from daemon.db import init_db
-from daemon.routers import recipes, containers, system, openai_proxy, anthropic_proxy
+from daemon.middleware.auth import AuthMiddleware
+from daemon.routers import (
+    admin, anthropic_proxy, auth, containers, openai_proxy, recipes, system,
+)
 from daemon.services.connect_service import compute_connect_info
 from daemon.services.registry_service import load_recipes, get_recipes
+from daemon.services.auth_service import purge_expired_sessions
 from daemon.services.docker_service import is_recipe_running, start_health_check
 
 DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
@@ -34,11 +38,22 @@ async def _check_running_readiness():
             await start_health_check(slug)
 
 
+async def _session_janitor():
+    """Drop expired sessions hourly so the table cannot grow without bound."""
+    while True:
+        try:
+            await purge_expired_sessions()
+        except Exception:
+            pass
+        await asyncio.sleep(3600)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     load_recipes()
     asyncio.create_task(_check_running_readiness())
+    asyncio.create_task(_session_janitor())
     yield
 
 
@@ -51,7 +66,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Added last, so it wraps outermost and runs *before* CORS and every router:
+# nothing under /api, /ws or /v1 reaches a handler without an account behind
+# it. WebSockets included — hence raw ASGI rather than BaseHTTPMiddleware.
+app.add_middleware(AuthMiddleware)
+
 # API and WebSocket routers first — order matters
+app.include_router(auth.router)
+app.include_router(admin.router)
 app.include_router(recipes.router)
 app.include_router(containers.router)
 app.include_router(system.router)
