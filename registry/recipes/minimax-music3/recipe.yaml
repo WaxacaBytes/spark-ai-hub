@@ -1,0 +1,38 @@
+name: "MiniMax Music 3 Studio"
+slug: minimax-music3
+version: "1.1.0"
+description: "Write a song and hear it. MiniMax Music 3 turns tagged lyrics plus a structured caption into a full track with vocals, streaming chunk by chunk as it generates. Two interfaces on one engine: the Suno-style Studio composer, and a node canvas that exposes the same pipeline as an editable graph."
+author: "MiniMax AI"
+source: "spark-ai-hub"
+website: "https://huggingface.co/MiniMaxAI/MiniMax-Music3"
+upstream: "https://github.com/WaxacaBytes/minimax-music3-spark-ai-hub"
+fork: "https://huggingface.co/spaces/MiniMaxAI/MiniMax-Music3-workflow"
+category: multi-modal
+categories:
+  - multi-modal
+tags:
+  - music
+  - audio
+  - text-to-music
+  - lyrics
+  - minimax
+  - gradio
+  - diffusion
+icon: "🎵"
+logo: "/logos/minimax.png"
+requirements:
+  min_memory_gb: 48
+  recommended_memory_gb: 64
+  disk_gb: 55
+  cuda_compute: "12.1"
+ui:
+  type: web
+  port: 7872
+  path: "/"
+docker:
+  build: true
+  build_time_minutes: 20
+  gpu: true
+status: community-verified
+release_date: "2026-08"
+requires_hf_token: false

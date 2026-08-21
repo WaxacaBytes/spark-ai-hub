@@ -1,0 +1,100 @@
+services:
+  minimax-music3:
+    build:
+      context: .
+      # The runtime (CUDA 13 + torch 2.11 aarch64 + diffusers + the two adapted
+      # Space interfaces) is the prebuilt image below — installing pulls it, it
+      # is never compiled here. Its source is runtime/Dockerfile in this recipe.
+      # All that is built locally is the weights layer.
+      dockerfile_inline: |
+        # ---------------------------------------------------------------------
+        # Model weights. They are part of the app artifact and are baked into
+        # the image, never mounted from a cache volume, so `docker rmi`
+        # reclaims every byte this recipe added.
+        #
+        # Only the seven components MiniMax-Music3's modular_model_index.json
+        # actually declares are fetched (~28 GB). The repo's unused
+        # flowmatching_vae.pth / dav.pth / qwen_7B tree (another ~28 GB) is not.
+        # ---------------------------------------------------------------------
+        FROM python:3.13-slim AS weights
+        ENV HF_HUB_DISABLE_XET=1
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "\
+        from huggingface_hub import snapshot_download; \
+        snapshot_download('MiniMaxAI/MiniMax-Music3', local_dir='/models/MiniMax-Music3', allow_patterns=[ \
+          'modular_model_index.json', 'condition_encoder/*', 'language_model/*', \
+          'rvq_depth_decoder/*', 'scheduler/*', 'tokenizer/*', 'transformer/*', 'vocoder/*'])"
+
+        # The prompt composer. Upstream asks a hosted DeepSeek to draft the lyrics
+        # and structured caption; the Hub talks only to your Spark, so the drafting
+        # model ships with the app. bf16, ~9 GB, loaded lazily on first use.
+        RUN python3 -c "\
+        from huggingface_hub import snapshot_download; \
+        snapshot_download('Qwen/Qwen3.5-4B', local_dir='/models/composer', \
+          ignore_patterns=['*.pth', 'original/*'])"
+
+        # Point every component spec at this directory instead of the repo id.
+        # A repo id sends diffusers to the Hub's model_info() to verify shard
+        # lists even with a fully populated cache; a path never leaves the box.
+        RUN python3 -c "\
+        import json; \
+        p = '/models/MiniMax-Music3/modular_model_index.json'; \
+        d = json.load(open(p)); \
+        [v[2].update(pretrained_model_name_or_path='/models/MiniMax-Music3') \
+         for k, v in d.items() if not k.startswith('_')]; \
+        json.dump(d, open(p, 'w'), indent=2)"
+
+        FROM ghcr.io/waxacabytes/minimax-music3-spark-ai-hub:1.1.0
+        COPY --from=weights /models /models
+    image: spark-ai-hub/minimax-music3:1.1.0
+    container_name: spark-ai-hub-minimax-music3
+    working_dir: /app
+    # Both Spaces on one Gradio server: the Studio composer at / and the node
+    # canvas at /workflow, sharing the single resident pipeline that app.py
+    # loads at import time.
+    command:
+      - python3
+      - -c
+      - |
+        import gradio as gr, uvicorn
+        from fastapi import FastAPI
+        from fastapi.responses import RedirectResponse
+        import app, app_canvas
+        api = FastAPI()
+        # Order matters: a sub-app mounted at "/" matches every path, so the
+        # canvas is mounted first and the bare "/workflow" gets an explicit
+        # redirect (a mount only serves its own trailing-slash form).
+        api.get("/workflow")(lambda: RedirectResponse("/workflow/"))
+        gr.mount_gradio_app(api, app_canvas.demo, path="/workflow")
+        # Gradio 6 ignores `theme=`/`css=` on the Blocks constructor (they moved
+        # to launch()), and mounting skips launch() entirely. Passed explicitly
+        # here or the Space loses the Citrus theme and its CSS -- which is what
+        # hides whichever of the two logo variants the color scheme is not using.
+        gr.mount_gradio_app(api, app.demo, path="/",
+                            theme=gr.themes.Citrus(), css=app.CSS)
+        uvicorn.run(api, host="0.0.0.0", port=7860)
+    ports:
+      - "7872:7860"
+    environment:
+      HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-1}"
+      TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-1}"
+      PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
+      GRADIO_ANALYTICS_ENABLED: "False"
+      # The upstream torch.compile + StaticCache fast path for the 8B
+      # autoregressive stage (~1.9x upstream). Off by default: it costs a
+      # multi-minute compile ladder at every launch. Set to 1 to trade launch
+      # time for generation speed.
+      LM_COMPILE: "0"
+    volumes:
+      - minimax-music3-songs:/data/songs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  minimax-music3-songs:
