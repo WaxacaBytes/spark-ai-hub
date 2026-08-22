@@ -2,9 +2,13 @@ services:
   voicebox:
     image: ghcr.io/waxacabytes/voicebox-spark-ai-hub:latest
     container_name: spark-ai-hub-voicebox
-    ports:
-      - "7867:17493"
+    # No published port: the front-door proxy reaches this container
+    # by name on the shared network, so nothing can collide and the
+    # whole Hub stays behind one port.
+    networks:
+      - spark-ai-hub-net
     environment:
+      GRADIO_ROOT_PATH: "/run/voicebox"
       VOICEBOX_MODELS_DIR: "/models"
     volumes:
       - voicebox-data:/data
@@ -21,3 +25,9 @@ services:
 volumes:
   voicebox-data:
   voicebox-models:
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

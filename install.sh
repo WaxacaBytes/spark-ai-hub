@@ -3,7 +3,8 @@ set -e
 
 REPO="https://github.com/WaxacaBytes/spark-ai-hub.git"
 INSTALL_DIR="$HOME/spark-ai-hub"
-PORT=9000
+PORT=9000          # what the browser and the tunnel talk to (Caddy)
+DAEMON_PORT=9010   # what the daemon itself binds, behind it
 
 echo ""
 echo "  Spark AI Hub Installer"
@@ -94,12 +95,21 @@ source .venv/bin/activate
 echo "[spark-ai-hub] Installing Python dependencies..."
 pip install -q -r requirements.txt
 
+# ---------- front door ----------
+
+# Caddy fronts the whole Hub on $PORT: the UI, the API, and every app under
+# /app/{slug}/. Pulled here rather than on first launch -- once installed, the
+# Hub must come up with no internet at all.
+echo "[spark-ai-hub] Pulling the front-door proxy image..."
+docker pull caddy:2-alpine || echo "[spark-ai-hub] WARNING: could not pull caddy:2-alpine — apps will be unreachable offline until it is present"
+docker network inspect spark-ai-hub-net >/dev/null 2>&1 || docker network create spark-ai-hub-net >/dev/null
+
 # ---------- launch ----------
 
 echo ""
 echo "[spark-ai-hub] Installation complete!"
-echo "[spark-ai-hub] Starting Spark AI Hub on port $PORT..."
+echo "[spark-ai-hub] Starting Spark AI Hub — UI on :$PORT, daemon on :$DAEMON_PORT..."
 echo "[spark-ai-hub] Open http://localhost:$PORT in your browser"
 echo ""
 
-exec uvicorn daemon.main:app --host 0.0.0.0 --port "$PORT"
+exec uvicorn daemon.main:app --host 0.0.0.0 --port "$DAEMON_PORT"

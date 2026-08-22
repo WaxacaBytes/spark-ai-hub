@@ -177,7 +177,7 @@ export default function System() {
                       )}
                       <span className="font-medium text-text">{r.name}</span>
                     </td>
-                    <td className="text-right text-text-dim font-label">{r.ui?.port || '—'}</td>
+                    <td className="text-right text-text-dim font-label">{r.app_url ? `/run/${r.slug}/` : (r.ui?.port || '—')}</td>
                     <td className="text-right">
                       {r.ready ? (
                         <span className="text-success text-xs font-label">Running</span>

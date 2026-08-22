@@ -22,7 +22,10 @@ requirements:
   cuda_compute: "12.1"
 ui:
   type: web
+  # Port inside the container. Nothing is published to the host:
+  # the app is served at /run/facefusion-spark/ on the Hub's own port.
   port: 7860
+  proxy: true
   path: "/"
 docker:
   build: false

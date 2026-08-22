@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
-import { formatParams } from '../components/RecipeCard'
+import { formatParams, openUrl } from '../components/RecipeCard'
 import { backdropFor, posterFor } from '../covers'
 import { speedLabel } from '../models'
 import CoverInfoModal from '../components/CoverInfoModal'
@@ -320,7 +320,7 @@ function RecipeDetailPage({ slug }) {
             {(recipe.running || (recipe.installed && recipe.starting)) && (
               <>
                 {isReady && (
-                  <a href={`http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`} target="_blank" rel="noreferrer"
+                  <a href={openUrl(recipe)} target="_blank" rel="noreferrer"
                     className="btn-primary px-6 py-2.5 text-sm font-bold no-underline inline-block">
                     Open ↗
                   </a>

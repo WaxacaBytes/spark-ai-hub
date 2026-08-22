@@ -2,9 +2,13 @@ services:
   foundation-1:
     image: ghcr.io/waxacabytes/foundation1-spark-ai-hub:latest
     container_name: spark-ai-hub-foundation-1
-    ports:
-      - "7866:7860"
+    # No published port: the front-door proxy reaches this container
+    # by name on the shared network, so nothing can collide and the
+    # whole Hub stays behind one port.
+    networks:
+      - spark-ai-hub-net
     environment:
+      GRADIO_ROOT_PATH: "/run/foundation-1"
       PORT: "7860"
       FOUNDATION_MODELS_ROOT: "/models"
       FOUNDATION_OUTPUT_DIR: "/outputs"
@@ -27,3 +31,9 @@ volumes:
   foundation-1-models:
   foundation-1-hf-home:
   foundation-1-outputs:
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

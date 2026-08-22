@@ -6,6 +6,10 @@ const isModelSlug = (slug) => /^(vllm|llamacpp|atlas)-/.test(slug || '')
 
 function conflictsWith(target, other) {
   if (isModelSlug(target.slug) && isModelSlug(other.slug)) return true
+  // Proxied apps publish nothing to the host and are told apart by container
+  // name, so their ui.port is an internal number -- 14 of them say 7860. Only
+  // recipes that still publish a host port can contend for one.
+  if (target.app_url || other.app_url) return false
   const port = target.ui?.port
   return port != null && other.ui?.port === port
 }

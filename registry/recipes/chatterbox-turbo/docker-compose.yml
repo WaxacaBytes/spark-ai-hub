@@ -2,9 +2,13 @@ services:
   chatterbox-turbo:
     image: ghcr.io/waxacabytes/chatterbox-turbo-spark-ai-hub:latest
     container_name: spark-ai-hub-chatterbox-turbo
-    ports:
-      - "7864:7860"
+    # No published port: the front-door proxy reaches this container
+    # by name on the shared network, so nothing can collide and the
+    # whole Hub stays behind one port.
+    networks:
+      - spark-ai-hub-net
     environment:
+      GRADIO_ROOT_PATH: "/run/chatterbox-turbo"
       PORT: "7860"
       HF_HOME: "/root/.cache/huggingface"
       GRADIO_TEMP_DIR: "/outputs/gradio"
@@ -23,3 +27,9 @@ services:
 volumes:
   chatterbox-turbo-hf-home:
   chatterbox-turbo-outputs:
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

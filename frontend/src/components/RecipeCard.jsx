@@ -4,6 +4,15 @@ import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { speedLabel } from '../models'
 
+// Where "Open" points. Proxied apps are served by the Hub itself at
+// /app/{slug}/, so the link is root-relative and works unchanged over the LAN,
+// through a Cloudflare Tunnel and over Tailscale -- no host, no port. Recipes
+// that still publish a port of their own keep the old direct link.
+export function openUrl(recipe) {
+  if (recipe.app_url) return recipe.app_url
+  return `http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`
+}
+
 // "35B-A3B" for MoE (total + active), plain "27B" for dense.
 export function formatParams(recipe) {
   const b = (n) => (Number.isInteger(n) ? n : n.toFixed(1))
@@ -136,7 +145,7 @@ export default function RecipeCard({ recipe, hideCategories = false, highlight =
           )}
           {!isBusy && recipe.running && recipe.ready && (
             <a
-              href={`http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`}
+              href={openUrl(recipe)}
               target="_blank"
               rel="noreferrer"
               onClick={(e) => e.stopPropagation()}

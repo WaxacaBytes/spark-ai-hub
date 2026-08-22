@@ -2,9 +2,13 @@ services:
   spatialedit:
     image: ghcr.io/waxacabytes/spatialedit-spark-ai-hub:latest
     container_name: spark-ai-hub-spatialedit
-    ports:
-      - "7870:7860"
+    # No published port: the front-door proxy reaches this container
+    # by name on the shared network, so nothing can collide and the
+    # whole Hub stays behind one port.
+    networks:
+      - spark-ai-hub-net
     environment:
+      GRADIO_ROOT_PATH: "/run/spatialedit"
       GRADIO_SERVER_NAME: "0.0.0.0"
       GRADIO_SERVER_PORT: "7860"
       HF_HOME: "/root/.cache/huggingface"
@@ -25,3 +29,9 @@ services:
 volumes:
   spatialedit-hf-cache:
   spatialedit-output:
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

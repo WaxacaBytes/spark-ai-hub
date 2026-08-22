@@ -24,9 +24,24 @@ class RecipeRequirements(BaseModel):
 
 class RecipeUI(BaseModel):
     type: str = "web"
+    # The port *inside* the container. Proxied apps publish nothing to the
+    # host, so this never has to be unique across the catalog -- two apps both
+    # serving 7860 internally is fine, they are told apart by container name.
     port: int = 8080
     path: str = "/"
     health_path: str | None = None
+    # True: served at /run/{slug}/ through the Hub's front door, so the whole
+    # catalog lives behind one port. False: the recipe still publishes its own
+    # host port and is reached directly (the model servers on 9001, which are
+    # already fronted by the OpenAI/Anthropic proxies instead).
+    proxy: bool = False
+    # True (the default): the /run/{slug} prefix is stripped before the request
+    # reaches the container, so the app serves the same paths it would at the
+    # root -- which is what Gradio's GRADIO_ROOT_PATH expects. False: the app
+    # is handed the full path and deals with the prefix itself. Needed by apps
+    # built on `FastAPI(root_path=...)`, where Starlette strips the prefix
+    # itself and a route only matches if the prefix is still on the request.
+    strip_prefix: bool = True
 
 
 class RecipeDocker(BaseModel):
@@ -162,3 +177,18 @@ class Recipe(BaseModel):
             if capability := TAG_CAPABILITIES.get(tag):
                 found.add(capability)
         return sorted(found)
+
+    @computed_field
+    @property
+    def app_url(self) -> str:
+        """Where to send the browser when the user clicks Open.
+
+        Root-relative for proxied apps, so the same string works through a
+        Cloudflare Tunnel, over Tailscale and on the LAN without the daemon
+        having to know its own public hostname. Empty for everything else --
+        the model servers have no UI of their own, and the frontend keeps its
+        existing host:port fallback for any recipe that still publishes a port.
+        """
+        if self.ui and self.ui.proxy and self.ui.type == "web":
+            return f"/run/{self.slug}/"
+        return ""

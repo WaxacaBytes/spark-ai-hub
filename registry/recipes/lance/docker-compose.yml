@@ -2,6 +2,11 @@ services:
   lance:
     image: ghcr.io/waxacabytes/lance-spark-ai-hub:latest
     container_name: spark-ai-hub-lance
+    # No published port: the front-door proxy reaches this container
+    # by name on the shared network, so nothing can collide and the
+    # whole Hub stays behind one port.
+    networks:
+      - spark-ai-hub-net
     command:
       - python
       - lance_gradio_t2v_v2t.py
@@ -11,9 +16,8 @@ services:
       - "7860"
       - --gpus
       - "0"
-    ports:
-      - "7871:7860"
     environment:
+      GRADIO_ROOT_PATH: "/run/lance"
       HF_HUB_OFFLINE: "1"
       TRANSFORMERS_OFFLINE: "1"
       PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
@@ -30,3 +34,9 @@ services:
 
 volumes:
   lance-tmps:
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

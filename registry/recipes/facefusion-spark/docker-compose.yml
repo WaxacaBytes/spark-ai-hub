@@ -2,8 +2,13 @@ services:
   facefusion:
     image: abelpc/facefusion-spark:latest
     container_name: spark-ai-hub-facefusion
-    ports:
-      - "7860:7860"
+    # No published port: the front-door proxy reaches this container
+    # by name on the shared network, so nothing can collide and the
+    # whole Hub stays behind one port.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      GRADIO_ROOT_PATH: "/run/facefusion-spark"
     volumes:
       - facefusion-models:/app/facefusion/.assets/models
       - facefusion-output:/app/output
@@ -19,3 +24,9 @@ services:
 volumes:
   facefusion-models:
   facefusion-output:
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

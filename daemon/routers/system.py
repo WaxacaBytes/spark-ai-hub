@@ -18,7 +18,7 @@ def connect_info(request: Request):
     Sync `def` so FastAPI runs it in a threadpool — it shells out to
     `tailscale` and opens a socket, which must not block the event loop."""
     user = getattr(request.state, "user", None)
-    return compute_connect_info(settings.port, user["api_key"] if user else None)
+    return compute_connect_info(settings.public_port, user["api_key"] if user else None)
 
 
 @router.get("/api/system/hf-token")

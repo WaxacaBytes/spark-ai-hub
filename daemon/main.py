@@ -17,6 +17,7 @@ from daemon.services.connect_service import compute_connect_info
 from daemon.services.registry_service import load_recipes, get_recipes
 from daemon.services.auth_service import purge_expired_sessions
 from daemon.services.docker_service import is_recipe_running, start_health_check
+from daemon.services import proxy_service
 
 DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
@@ -52,6 +53,9 @@ async def _session_janitor():
 async def lifespan(app: FastAPI):
     await init_db()
     load_recipes()
+    # The front door on :9000. Started after the registry loads, because its
+    # config is generated from it -- one /run/{slug}/ route per proxied recipe.
+    await proxy_service.ensure_proxy()
     asyncio.create_task(_check_running_readiness())
     asyncio.create_task(_session_janitor())
     yield
@@ -94,7 +98,7 @@ if SAH_DIR.is_dir():
     def sah_install_script():
         # Sync def → threadpool: compute_connect_info shells out to tailscale.
         text = _SAH_INSTALL.read_text()
-        info = compute_connect_info(settings.port)
+        info = compute_connect_info(settings.public_port)
         candidates = " ".join(c["url"] for c in info["candidates"]) or info["primary"]
         # Replace only the assignment (first occurrence); the guard line keeps
         # the literal marker so a standalone run still detects "not injected".
@@ -129,8 +133,11 @@ if DIST_DIR.is_dir():
         # image stays broken long after the real file lands.
         if Path(full_path).suffix.lower() in ASSET_SUFFIXES:
             return Response(status_code=404)
-        # Fall back to index.html for SPA routing
+        # Fall back to index.html for SPA routing. It must always revalidate:
+        # it names the hashed bundle, so a cached copy pins the browser to a
+        # build that no longer exists on disk. The bundle itself is immutable
+        # (its hash is in the filename), so only this file needs the header.
         index = DIST_DIR / "index.html"
         if index.is_file():
-            return FileResponse(index)
+            return FileResponse(index, headers={"Cache-Control": "no-cache"})
         return Response(status_code=404)

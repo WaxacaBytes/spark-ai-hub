@@ -29,7 +29,10 @@ requirements:
   cuda_compute: "12.1"
 ui:
   type: web
-  port: 7863
+  # Port inside the container. Nothing is published to the host:
+  # the app is served at /run/qwen-image-perspective/ on the Hub's own port.
+  port: 7860
+  proxy: true
   path: "/"
 docker:
   build: true

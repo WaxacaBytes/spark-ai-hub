@@ -5,6 +5,7 @@ import { useThemedLogo } from '../hooks/useThemedLogo'
 import { posterFor } from '../covers'
 import { formatParams } from './RecipeCard'
 import { speedLabel } from '../models'
+import { openUrl as openUrlFor } from './RecipeCard'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -40,7 +41,7 @@ export default function PosterCard({ recipe, highlight = null }) {
 
   const logoUrl = useThemedLogo(recipe.logo)
   const isBusy = !!installing[recipe.slug] || !!updating[recipe.slug]
-  const openUrl = `http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`
+  const openUrl = openUrlFor(recipe)
 
   const status = isBusy
     ? { label: 'Building', dot: 'bg-secondary animate-pulse' }

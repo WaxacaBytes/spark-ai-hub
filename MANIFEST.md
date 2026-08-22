@@ -51,19 +51,35 @@ The same rule applies to companion tools and IDE integrations. If Spark AI Hub a
 
 Future client integrations follow the same contract: `sah <client>` is the non-invasive launcher, `sah <client> --install` makes the plain client use the Hub where a safe persistent config path exists, `sah <client> --restore` returns the client to its previous state, and `sah <client> --status` explains what is active. Persistent installs must create an exact backup before touching user configuration and must preserve unrelated user settings through a documented, schema-aware merge.
 
-### 5. Full Transparency
+### 5. One Address for the Whole Hub
+
+The Hub and every app it runs answer on **one port**. The UI, the API, the
+OpenAI- and Anthropic-compatible endpoints, and each app at `/run/{slug}/` all
+arrive on the same address.
+
+Apps publish no host ports of their own. They share one Docker network, keep
+whatever port suits them inside their container, and a proxy in front of them
+routes by name. Nothing can collide, adding an app never claims a number, and
+exposing the Hub to the internet — a Cloudflare Tunnel, a VPN, a reverse proxy
+— means pointing one origin at one port, not tracking a port per app.
+
+Apps have no accounts of their own, so the Hub's session guards them. Reaching
+`/run/{slug}/` without signing in redirects to the sign-in page, whether the
+request came over the LAN or through a tunnel.
+
+### 6. Full Transparency
 
 The entire Docker Compose configuration for every app is exposed in the interface. There are no hidden configurations, no secrets behind the scenes, no magic that the user cannot inspect or modify.
 
 Users can see exactly what runs, how it runs, and change any parameter. The interface is a window into the container — not a black box.
 
-### 6. Test the Way the User Does
+### 7. Test the Way the User Does
 
 All benchmarks, validation tests, and QA are performed through the Hub's interface — the same way end users will interact with the apps.
 
 We do not test apps by SSH-ing into containers, running scripts from the host, or using developer tooling that the user never sees. If the benchmark doesn't go through the same UI flow the user experiences, it doesn't count.
 
-### 7. Offline Validation Is Mandatory
+### 8. Offline Validation Is Mandatory
 
 Claiming an app works offline while the machine has internet access is not a valid test. Any verification of offline behavior must be performed with the network physically disabled or the container running with `--network none`.
 

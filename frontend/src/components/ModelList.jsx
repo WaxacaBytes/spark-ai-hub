@@ -4,6 +4,7 @@ import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { formatParams } from './RecipeCard'
 import { buildLabel, displayName, speedLabel } from '../models'
+import { openUrl as openUrlFor } from './RecipeCard'
 
 // Model builds, as rows of aligned numbers.
 //
@@ -121,7 +122,7 @@ function BuildRow({ recipe, variant, rank, highlight, onFrontier }) {
   const logoUrl = useThemedLogo(recipe.logo)
 
   const isBusy = !!installing[recipe.slug] || !!updating[recipe.slug]
-  const openUrl = `http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`
+  const openUrl = openUrlFor(recipe)
   const running = recipe.running && recipe.ready
   const state = runState(recipe, isBusy)
 
@@ -370,7 +371,7 @@ function InstalledChip({ recipe }) {
   const isBusy = !!installing[recipe.slug] || !!updating[recipe.slug]
   const state = runState(recipe, isBusy)
   const running = recipe.running && recipe.ready
-  const openUrl = `http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`
+  const openUrl = openUrlFor(recipe)
 
   // Models are told apart by how they were built; apps by their name alone.
   const spec = [recipe.engine, recipe.quantization].filter(Boolean).join(' · ')

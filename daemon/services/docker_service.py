@@ -15,6 +15,7 @@ import aiohttp
 
 from daemon.config import settings
 from daemon.db import get_db
+from daemon.services import proxy_service
 from daemon.models.container import ContainerInfo
 from daemon.services.registry_service import get_recipe_dir, get_recipe
 
@@ -70,15 +71,34 @@ async def start_health_check(slug: str):
     ui_port = recipe.ui.port if recipe.ui else 8080
     ui_path = recipe.ui.path if recipe.ui else "/"
     health_path = recipe.ui.health_path if recipe.ui and recipe.ui.health_path else ui_path
+    proxied = bool(recipe.ui and recipe.ui.proxy)
+    probe_headers = (
+        {proxy_service.PROBE_HEADER: proxy_service.probe_token()} if proxied else {}
+    )
 
     async def _check():
-        url = f"http://127.0.0.1:{ui_port}{health_path}"
+        if proxied:
+            # Poll through the front door, not the container. A proxied app
+            # publishes no host port, and this also proves the /run/{slug}/
+            # path the user is about to click actually serves -- not merely
+            # that something inside the container is listening.
+            url = f"http://127.0.0.1:{settings.public_port}/run/{slug}{health_path}"
+        else:
+            url = f"http://127.0.0.1:{ui_port}{health_path}"
         # Up to 5 minutes of polling
         async with aiohttp.ClientSession() as session:
             for _ in range(300):
                 await asyncio.sleep(1)
                 try:
-                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=3), allow_redirects=True) as resp:
+                    async with session.get(
+                        url,
+                        timeout=aiohttp.ClientTimeout(total=3),
+                        headers=probe_headers,
+                        # The probe route bypasses forward_auth, so a stopped
+                        # app answers 502 rather than a sign-in redirect that
+                        # would otherwise read as success.
+                        allow_redirects=not proxied,
+                    ) as resp:
                         if 200 <= resp.status < 400:
                             mark_ready(slug)
                             print(f"[health] {slug} is ready at {url} ({resp.status})")
@@ -465,6 +485,11 @@ async def launch_recipe(slug: str) -> str:
     runtime_env_file, _ = ensure_runtime_env(recipe_dir)
     if _runtime_env_template_file(recipe_dir).is_file() and runtime_env_file is None:
         return f"Failed to prepare runtime env for {slug}"
+
+    # The shared app network has to exist before compose attaches to it: the
+    # recipes declare it `external: true` precisely so that tearing one app
+    # down cannot delete the network the others are still on.
+    await proxy_service.ensure_network()
 
     cmd = _compose_cmd(slug, recipe_dir) + ["up", "-d"]
     proc = await asyncio.create_subprocess_exec(

@@ -27,7 +27,13 @@ requirements:
   cuda_compute: "12.1"
 ui:
   type: web
-  port: 7872
+  # Port inside the container. Nothing is published to the host:
+  # the app is served at /run/minimax-music3/ on the Hub's own port.
+  port: 7860
+  proxy: true
+  # Two Gradio Spaces mounted on one FastAPI app, which strips the
+  # prefix itself -- so the proxy must leave it on the request.
+  strip_prefix: false
   path: "/"
 docker:
   build: true

@@ -3,8 +3,18 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    port: int = 9000
+    # The daemon's own bind port. Caddy sits in front on `public_port` and
+    # proxies everything back here, so 9010 is an implementation detail --
+    # except as the recovery door when the proxy itself is broken.
+    port: int = 9010
     host: str = "0.0.0.0"
+
+    # The one port the outside world sees: the Hub UI, its API, /v1, and every
+    # app under /run/{slug}/. A Cloudflare Tunnel needs this origin and no
+    # other. Set proxy_enabled=false to go back to the daemon serving :9000
+    # itself, with apps unreachable (they no longer publish host ports).
+    public_port: int = 9000
+    proxy_enabled: bool = True
     base_dir: Path = Path(__file__).resolve().parent.parent
     registry_path: Path = Path(__file__).resolve().parent.parent / "registry" / "recipes"
     data_dir: Path = Path(__file__).resolve().parent.parent / "data"

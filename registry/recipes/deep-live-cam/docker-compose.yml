@@ -15,18 +15,22 @@ services:
       #      tabs if you need to catch small faces in group shots).
       dockerfile_inline: |
         FROM ghcr.io/waxacabytes/deep-live-cam-spark-ai-hub:latest
-        COPY app.py /app/deep-live-cam/app.py
-        COPY modules/face_analyser.py /app/deep-live-cam/modules/face_analyser.py
+        COPY app.py /run/deep-live-cam/app.py
+        COPY modules/face_analyser.py /run/deep-live-cam/modules/face_analyser.py
     image: spark-ai-hub/deep-live-cam:smooth
     container_name: spark-ai-hub-deep-live-cam
-    ports:
-      - "7869:7860"
+    # No published port: the front-door proxy reaches this container
+    # by name on the shared network, so nothing can collide and the
+    # whole Hub stays behind one port.
+    networks:
+      - spark-ai-hub-net
     environment:
+      GRADIO_ROOT_PATH: "/run/deep-live-cam"
       PORT: "7860"
       DLC_DET_SIZE: "320"
     volumes:
-      - deep-live-cam-models:/app/deep-live-cam/models
-      - deep-live-cam-output:/app/deep-live-cam/output
+      - deep-live-cam-models:/run/deep-live-cam/models
+      - deep-live-cam-output:/run/deep-live-cam/output
     deploy:
       resources:
         reservations:
@@ -39,3 +43,9 @@ services:
 volumes:
   deep-live-cam-models:
   deep-live-cam-output:
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

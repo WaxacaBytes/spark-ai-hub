@@ -2,12 +2,16 @@ services:
   hunyuan3d:
     image: abelpc/hunyuan3d-spark:latest
     container_name: spark-ai-hub-hunyuan3d
-    ports:
-      - "7861:7860"
+    # No published port: the front-door proxy reaches this container
+    # by name on the shared network, so nothing can collide and the
+    # whole Hub stays behind one port.
+    networks:
+      - spark-ai-hub-net
     volumes:
       - hunyuan3d-cache:/root/.cache/huggingface
       - hunyuan3d-output:/workspace/Hunyuan3D-2.1/output
     environment:
+      - GRADIO_ROOT_PATH=/run/hunyuan3d-spark
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
     deploy:
@@ -22,3 +26,9 @@ services:
 volumes:
   hunyuan3d-cache:
   hunyuan3d-output:
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

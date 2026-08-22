@@ -2,9 +2,13 @@ services:
   firered-image-edit:
     image: ghcr.io/waxacabytes/firered-image-edit-spark-ai-hub:latest
     container_name: spark-ai-hub-firered-image-edit
-    ports:
-      - "7865:7860"
+    # No published port: the front-door proxy reaches this container
+    # by name on the shared network, so nothing can collide and the
+    # whole Hub stays behind one port.
+    networks:
+      - spark-ai-hub-net
     environment:
+      GRADIO_ROOT_PATH: "/run/firered-image-edit"
       PORT: "7860"
       OUTPUT_DIR: "/data/output"
       HF_HOME: "/root/.cache/huggingface"
@@ -25,3 +29,9 @@ services:
 volumes:
   firered-image-edit-cache:
   firered-image-edit-output:
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

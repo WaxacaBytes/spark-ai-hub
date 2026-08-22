@@ -4,6 +4,7 @@ import { useThemedLogo } from '../hooks/useThemedLogo'
 import { backdropFor } from '../covers'
 import { formatParams } from './RecipeCard'
 import { speedLabel } from '../models'
+import { openUrl as openUrlFor } from './RecipeCard'
 
 const ROTATE_MS = 9000
 
@@ -35,7 +36,7 @@ export default function Hero({ picks }) {
     speedLabel(recipe),
   ].filter(Boolean)
 
-  const openUrl = `http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`
+  const openUrl = openUrlFor(recipe)
 
   return (
     // Tall enough that a 2.56:1 backdrop is only lightly cropped — at 46vh

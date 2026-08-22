@@ -17,9 +17,13 @@ services:
         COPY --from=weights /weights /workspace/cache/huggingface
     image: spark-ai-hub/trellis2-spark:v2.0
     container_name: spark-ai-hub-trellis2
-    ports:
-      - "12156:12156"
+    # No published port: the front-door proxy reaches this container
+    # by name on the shared network, so nothing can collide and the
+    # whole Hub stays behind one port.
+    networks:
+      - spark-ai-hub-net
     environment:
+      GRADIO_ROOT_PATH: "/run/trellis2-spark"
       GRADIO_SERVER_NAME: "0.0.0.0"
       GRADIO_SERVER_PORT: "12156"
       HF_HOME: "/workspace/cache/huggingface"
@@ -41,3 +45,9 @@ services:
 secrets:
   hf_token:
     environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

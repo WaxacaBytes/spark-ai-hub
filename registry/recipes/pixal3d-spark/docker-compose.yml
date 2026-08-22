@@ -17,11 +17,15 @@ services:
         COPY --from=weights /weights /workspace/cache/huggingface
     image: spark-ai-hub/pixal3d-spark:latest
     container_name: spark-ai-hub-pixal3d
-    ports:
-      - "12158:7860"
+    # No published port: the front-door proxy reaches this container
+    # by name on the shared network, so nothing can collide and the
+    # whole Hub stays behind one port.
+    networks:
+      - spark-ai-hub-net
     volumes:
       - pixal3d-output:/workspace/Pixal3D/tmp
     environment:
+      GRADIO_ROOT_PATH: "/run/pixal3d-spark"
       GRADIO_SERVER_NAME: "0.0.0.0"
       GRADIO_SERVER_PORT: "7860"
       HF_HOME: "/workspace/cache/huggingface"
@@ -46,3 +50,9 @@ volumes:
 secrets:
   hf_token:
     environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

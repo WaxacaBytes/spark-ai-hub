@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
+import { openUrl } from '../components/RecipeCard'
 
 export default function Running() {
   const recipes = useStore((s) => s.recipes)
@@ -150,8 +151,9 @@ function RunningCard({ recipe, onSelect, onStop }) {
             )}
           </div>
 
-          {/* Port */}
-          {recipe.ui?.port && (
+          {/* Port — only for recipes that still publish one; a proxied app
+              has no host port to show, it lives under /app/{slug}/ */}
+          {recipe.ui?.port && !recipe.app_url && (
             <span className="text-[11px] font-label text-text-dim bg-surface-high px-2 py-0.5 rounded-md">
               :{recipe.ui.port}
             </span>
@@ -166,7 +168,7 @@ function RunningCard({ recipe, onSelect, onStop }) {
           {/* Actions */}
           {isReady && (
             <a
-              href={`http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`}
+              href={openUrl(recipe)}
               target="_blank"
               rel="noreferrer"
               onClick={(e) => e.stopPropagation()}

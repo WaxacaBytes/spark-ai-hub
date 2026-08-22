@@ -48,6 +48,11 @@ services:
         COPY --from=weights /models /models
     image: spark-ai-hub/minimax-music3:1.1.0
     container_name: spark-ai-hub-minimax-music3
+    # No published port: the front-door proxy reaches this container
+    # by name on the shared network, so nothing can collide and the
+    # whole Hub stays behind one port.
+    networks:
+      - spark-ai-hub-net
     working_dir: /app
     # Both Spaces on one Gradio server: the Studio composer at / and the node
     # canvas at /workflow, sharing the single resident pipeline that app.py
@@ -56,26 +61,36 @@ services:
       - python3
       - -c
       - |
+        import os
         import gradio as gr, uvicorn
         from fastapi import FastAPI
         from fastapi.responses import RedirectResponse
         import app, app_canvas
-        api = FastAPI()
+        # GRADIO_ROOT_PATH is only read by launch(), and mounting skips it --
+        # so the prefix the Hub serves this app under has to be threaded
+        # through FastAPI and both mounts by hand, or every asset URL the two
+        # Spaces emit points at the Hub's own root instead of the app.
+        ROOT = os.environ.get("GRADIO_ROOT_PATH", "")
+        # Starlette strips root_path off the incoming path itself, so this app
+        # wants the prefix left on the request -- hence `strip_prefix: false`
+        # in recipe.yaml. Mounting is what forces the hand-threading here:
+        # GRADIO_ROOT_PATH is only read by launch(), which mounting skips.
+        api = FastAPI(root_path=ROOT)
         # Order matters: a sub-app mounted at "/" matches every path, so the
         # canvas is mounted first and the bare "/workflow" gets an explicit
         # redirect (a mount only serves its own trailing-slash form).
-        api.get("/workflow")(lambda: RedirectResponse("/workflow/"))
-        gr.mount_gradio_app(api, app_canvas.demo, path="/workflow")
+        api.get("/workflow")(lambda: RedirectResponse(ROOT + "/workflow/"))
+        gr.mount_gradio_app(api, app_canvas.demo, path="/workflow",
+                            root_path=ROOT + "/workflow")
         # Gradio 6 ignores `theme=`/`css=` on the Blocks constructor (they moved
         # to launch()), and mounting skips launch() entirely. Passed explicitly
         # here or the Space loses the Citrus theme and its CSS -- which is what
         # hides whichever of the two logo variants the color scheme is not using.
-        gr.mount_gradio_app(api, app.demo, path="/",
+        gr.mount_gradio_app(api, app.demo, path="/", root_path=ROOT,
                             theme=gr.themes.Citrus(), css=app.CSS)
         uvicorn.run(api, host="0.0.0.0", port=7860)
-    ports:
-      - "7872:7860"
     environment:
+      GRADIO_ROOT_PATH: "/run/minimax-music3"
       HF_HUB_OFFLINE: "${HF_HUB_OFFLINE:-1}"
       TRANSFORMERS_OFFLINE: "${TRANSFORMERS_OFFLINE:-1}"
       PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
@@ -98,3 +113,9 @@ services:
 
 volumes:
   minimax-music3-songs:
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true
