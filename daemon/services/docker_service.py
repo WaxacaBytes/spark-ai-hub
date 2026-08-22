@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import json
+import time
 import os
 import re
 import secrets
@@ -108,6 +109,39 @@ async def start_health_check(slug: str):
         print(f"[health] {slug} health check timed out")
 
     _health_tasks[slug] = asyncio.create_task(_check())
+
+
+
+# ── Docker listing cache ────────────────────────────────────────────────────
+# /api/recipes asks "does this recipe have leftovers?" for every catalog entry
+# it has not installed, and each answer used to shell out to docker three or
+# four times -- around 250 `docker` processes per poll, every 5 seconds, per
+# open tab. The queries are global lists (all volumes, all images, images in
+# use); only the membership test is per recipe. So run each list at most once
+# every few seconds and match in Python.
+_DOCKER_LIST_TTL = 3.0
+_docker_lists: dict[str, tuple[float, list[str]]] = {}
+
+
+async def _docker_lines(key: str, args: list[str]) -> list[str]:
+    cached = _docker_lists.get(key)
+    now = time.monotonic()
+    if cached and now - cached[0] < _DOCKER_LIST_TTL:
+        return cached[1]
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, _ = await proc.communicate()
+    lines = stdout.decode(errors="replace").strip().splitlines()
+    _docker_lists[key] = (now, lines)
+    return lines
+
+
+def invalidate_docker_lists():
+    """Drop the cache after anything that adds or removes images/volumes."""
+    _docker_lists.clear()
 
 
 def _compose_project(slug: str) -> str:
@@ -723,13 +757,7 @@ async def _find_project_volumes(slug: str) -> list[str]:
     if base != slug and get_recipe_dir(base) is None:
         prefixes.add(f"spark-ai-hub-{base}_")
 
-    proc = await asyncio.create_subprocess_exec(
-        "docker", "volume", "ls", "-q",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, _ = await proc.communicate()
-    all_volumes = stdout.decode().strip().splitlines()
+    all_volumes = await _docker_lines("volumes", ["docker", "volume", "ls", "-q"])
 
     matched = []
     for v in all_volumes:
@@ -749,24 +777,18 @@ async def _find_project_images(slug: str) -> list[str]:
         return []
 
     # Get images currently in use by running containers
-    proc = await asyncio.create_subprocess_exec(
-        "docker", "ps", "--format", "{{.Image}}",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, _ = await proc.communicate()
-    in_use = set(stdout.decode().strip().splitlines())
+    in_use = set(await _docker_lines("ps_images", ["docker", "ps", "--format", "{{.Image}}"]))
+    # Every image on the box, as repo:tag -- the same form `docker images -q
+    # <img>` used to be asked about one at a time.
+    present = set(await _docker_lines(
+        "images", ["docker", "images", "--format", "{{.Repository}}:{{.Tag}}"]
+    ))
 
     matched = []
     for img in compose_images:
-        # Check exact image:tag exists
-        proc = await asyncio.create_subprocess_exec(
-            "docker", "images", "-q", img,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await proc.communicate()
-        if stdout.decode().strip() and img not in in_use:
+        # docker implies :latest when a reference carries no tag.
+        ref = img if ":" in img.rsplit("/", 1)[-1] else f"{img}:latest"
+        if ref in present and img not in in_use:
             matched.append(img)
 
     return matched
@@ -788,6 +810,7 @@ async def has_recipe_leftovers(slug: str) -> bool:
 async def purge_recipe(slug: str) -> str:
     """Remove all leftover Docker images and volumes for a recipe."""
     errors = []
+    invalidate_docker_lists()
 
     volumes = await _find_project_volumes(slug)
     for vol in volumes:
