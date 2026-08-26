@@ -11,10 +11,14 @@
 // Ultimate, Heretic) correctly keeps a row of its own.
 
 // Trailing slug tokens that describe *how* a model was built, never which model
-// it is: quantization formats and speculative-decoding drafters.
+// it is: quantization formats, per-tensor precision overrides, and
+// speculative-decoding drafters. `bf16head` is the last of those — a checkpoint
+// that leaves the output projection dense while the body stays quantized is a
+// build of the model, not a different model.
 const BUILD_TOKENS = new Set([
   'bf16', 'fp8', 'nvfp4', 'int4', 'mxfp4', 'awq', 'gptq',
   'q8', 'q4', 'iq2m', 'iq1m', 'q3ks',
+  'bf16head',
   'dflash', 'dflash2', 'dspark', 'mtp', 'eagle',
 ])
 

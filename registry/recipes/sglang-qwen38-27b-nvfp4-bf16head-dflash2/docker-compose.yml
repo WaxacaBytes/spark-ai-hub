@@ -1,0 +1,98 @@
+services:
+  sglang:
+    # Qwen3.8-27B NVFP4 with a **dense BF16 lm_head** (RadixArk's
+    # Qwen3.8-27B-NVFP4-BF16-LMHead), served by SGLang with DFlash2.
+    #
+    # Identical in every respect to sglang-qwen38-27b-nvfp4-dflash2 — same
+    # engine build, same drafter, same flags — except the target checkpoint
+    # leaves the output projection in BF16 instead of packing it to NVFP4.
+    # SGLang's finding (2026-08-24) is that FP8 KV cache + a 4-bit lm_head is
+    # where NVFP4 loses the most accuracy, because every logit is computed
+    # from 4-bit weights on top of an already-lossy KV read. This recipe pairs
+    # the same `--kv-cache-dtype fp8_e4m3` with a BF16 head, which is the exact
+    # combination they recommend for stricter accuracy requirements.
+    #
+    # Cost: +1.8 GB on disk, ~3.2 GB more at runtime. This is the accuracy
+    # option, not the speed option — see the sibling recipe for the fast one.
+    #
+    # It is also DFlash2's *native* target shape: DFlash2 originally required a
+    # dense FP16/BF16/FP32 lm_head, and sgl-project/sglang#35496 added the
+    # quantized-head path the sibling recipe depends on. Pinned to the same
+    # dated nightly as the sibling so the two are engine-identical and the
+    # comparison isolates the checkpoint.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead'); snapshot_download('incoai/Qwen3.8-27B-DFlash2')"
+        FROM lmsysorg/sglang:dev-nightly-0820
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/sglang-qwen38-27b-nvfp4-bf16head-dflash2:dev-nightly-0820
+    container_name: spark-ai-hub-sglang-qwen38-27b-nvfp4-bf16head-dflash2
+    ports:
+      - "9001:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Offline-first: target and drafter are both baked into the image above,
+      # so launch never touches the network.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    shm_size: 32gb
+    command:
+      - sglang
+      - serve
+      - --model-path
+      - RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead
+      - --served-model-name
+      - RadixArk/Qwen3.8-27B-NVFP4-BF16-LMHead
+      - --trust-remote-code
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      # SM121 (GB10) has no trtllm_mha path; flashinfer is the cookbook's
+      # backend for every Blackwell SM120/SM121 card.
+      - --attention-backend
+      - flashinfer
+      # DGX Spark cell values. fp8 KV is half the point of this recipe: it is
+      # the combination SGLang benchmarked the BF16 head against.
+      - --kv-cache-dtype
+      - fp8_e4m3
+      - --chunked-prefill-size
+      - "2048"
+      # Same static pool as the sibling recipe so the two are comparable. The
+      # BF16 head costs ~3.2 GB of it; at 0.50 there is ample room left.
+      - --mem-fraction-static
+      - "0.50"
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      # DFlash2 block-diffusion drafting, block size 8 as Inco AI trained it.
+      - --speculative-algorithm
+      - "DFLASH"
+      - --speculative-draft-model-path
+      - "incoai/Qwen3.8-27B-DFlash2"
+      - --speculative-num-draft-tokens
+      - "8"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
