@@ -1,0 +1,71 @@
+name: "DeepSeek-V4-Flash-0731 Abliterated (EXL3 3.0bpw)"
+slug: vllm-deepseek-v4-flash-exl3-abliterated
+version: "1.0.0"
+description: "The uncensored path of the EXL3 DeepSeek-V4-Flash-0731 build: same 284B MoE checkpoint, same NVFP4 KV cache, same DSpark K5 decode path and the same speed as the stock sibling, with a published unit-norm refusal direction projected out of the attention output stream of decoder layers 10-42 at runtime. No weights are modified - one 4096-dim matvec per layer, no measurable throughput or KV cost - which is why the quantized Trellis tensors and the DSpark draft stay untouched. Expected effect for this family: ~96% refusals baseline down to ~2% with thinking off and ~13% with thinking on, since the model can still reason its way to a refusal. Removes safety refusals the upstream model was trained to have; supply your own guardrails."
+author: "DeepSeek AI"
+source: "community"
+website: "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-0731"
+upstream: "https://huggingface.co/0xSero/deepseek-v4-flash-0731-spark"
+category: llm
+tags:
+  - llm
+  - moe
+  - deepseek
+  - deepseek-v4
+  - exl3
+  - trellis
+  - reasoning
+  - agentic
+  - tool-use
+  - long-context
+  - speculative-decoding
+  - dspark
+  - abliterated
+  - uncensored
+logo: "/logos/deepseek.png"
+requirements:
+  min_memory_gb: 120
+  recommended_memory_gb: 128
+  disk_gb: 115
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 150
+  gpu: true
+status: community-verified
+engine: "vLLM"
+params_b: 284
+active_params_b: 13
+arch: moe
+quantization: "EXL3 3.0bpw"
+speculative_method: "dspark"
+context_tokens: 262144
+weights_gb: 99.5
+release_date: "2026-07-31"
+requires_hf_token: false
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-08-26"
+tokens_per_second: 30.2
+tokens_per_second_editing: 48.6
+editing_workload: "code-edit"
+benchmarks:
+  prose: 33.02
+  explainer: 27.73
+  code: 30.23
+  code-edit: 48.6
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "deepseek-v4-flash-0731"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"deepseek-v4-flash-0731\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a correct Python function that returns the first n Fibonacci numbers.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
+
+cover:
+  image: deepseek-hangzhou.jpg
+  caption: "Qianjiang New City in Hangzhou at night — the city DeepSeek and its parent High-Flyer are based in."
+  credit: "Light show in Qianjiang New City 05.png · Y Chen · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ALight%20show%20in%20Qianjiang%20New%20City%2005.png"

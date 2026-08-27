@@ -12,6 +12,10 @@ published writing rate (i.e. within NOISE_THRESHOLD), do not publish two
 slightly-different numbers (e.g. 50.3/50.4) — set tokens_per_second_editing
 equal to the existing tokens_per_second so the pair reads e.g. 50.3/50.3.
 The existing tokens_per_second (writing) value is NEVER touched by this script.
+
+The last model benchmarked is LEFT RUNNING, so it is ready to use the moment
+the script finishes. When several slugs are given, each one is stopped just
+before the next launches, so port 9001 is never contended.
 """
 
 import json
@@ -193,7 +197,13 @@ def call(model_id, prompt, max_tokens=512, thinking=True):
         "temperature": 0,
     }
     if not thinking:
-        payload["chat_template_kwargs"] = {"enable_thinking": False}
+        # Two spellings, because the flag is not standardized across chat
+        # templates: Qwen/Gemma read `enable_thinking`, DeepSeek-V4 reads
+        # `thinking`. Sending only `enable_thinking` to a DeepSeek-V4 server
+        # leaves reasoning ON and the edit measurement stops being an edit
+        # measurement. Templates ignore kwargs they do not reference, so
+        # sending both is inert everywhere else.
+        payload["chat_template_kwargs"] = {"enable_thinking": False, "thinking": False}
     t0 = time.time()
     # Scale the timeout to the request size rather than a fixed 600s: a
     # genuinely slow model (e.g. Gemma 4 31B BF16 at ~3.7 tok/s) needs ~830s
@@ -309,7 +319,11 @@ def process(slug, results):
         stop(slug)
         return
 
-    stop(slug)
+    # Deliberately NOT stopping here. A measured model is a model you want to
+    # try, and tearing it down means a reload of ~100 GB of weights plus graph
+    # capture before anyone can send it a prompt. Successive slugs still get a
+    # clean port 9001 because main() stops the previous one before launching
+    # the next; the LAST slug is simply left running.
 
     final_writing = round(writing_measured, 1)
     rel_diff = abs(editing_measured - writing_measured) / writing_measured if writing_measured else 0
@@ -336,12 +350,24 @@ def main():
         sys.exit(1)
 
     results = {}
+    previous = None
     for slug in slugs:
         if not (RECIPES_DIR / slug).is_dir():
             results[slug] = "RECIPE_NOT_FOUND"
             continue
+        # Free the shared app port before this slug launches. Only the model
+        # left over from the previous iteration can be holding it, and only
+        # because we intentionally left it up.
+        if previous is not None:
+            try:
+                stop(previous)
+            except Exception:
+                pass
+            previous = None
         try:
             process(slug, results)
+            if str(results.get(slug, "")).startswith("OK"):
+                previous = slug
         except Exception as e:
             results[slug] = f"UNEXPECTED_ERROR: {e}"
             try:

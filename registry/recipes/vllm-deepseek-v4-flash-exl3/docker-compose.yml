@@ -1,0 +1,207 @@
+services:
+  deepseek-v4-flash:
+    # DeepSeek-V4-Flash-0731 as EXL3/Trellis 3.0 bpw on ONE DGX Spark, served by
+    # the SparkInfer (formerly b12x) vLLM fork with DSpark K5 speculative
+    # decoding. This is the single-node port of MiaAI-Lab's launcher:
+    #   https://github.com/MiaAI-Lab/DeepSeek-v4-Flash-One-DGX-Spark
+    #
+    # Why EXL3 rather than the GGUF sibling (llamacpp-deepseek-v4-flash-iq2m):
+    # EXL3 is a QTIP-style trellis/codebook format with per-tensor importance
+    # weighting, so 3.0 bpw lands around GGUF Q4_K_M-Q5_K quality rather than
+    # the Q2/Q3 territory a same-size GGUF would give. The checkpoint is
+    # additionally REAP-pruned to K216 (216 of 256 experts per MoE scope);
+    # attention, embeddings, output head, mHC, compressor and indexer stay
+    # FP8/BF16. Serving weights are ~99.5 GiB.
+    #
+    # The official NVIDIA FP4 build of this model needs TP2 across two Sparks.
+    # This one is TP1 and fits a single device.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        # ---------------------------------------------------------------
+        # Stage 1: the launcher's image-patch tree, pinned to one commit.
+        # These are whole-file overrides of files that already exist in the
+        # runtime image; upstream bind-mounts them, we copy them in so the
+        # app stays one self-contained artifact.
+        # ---------------------------------------------------------------
+        FROM alpine/git:latest AS patches
+        RUN git clone https://github.com/MiaAI-Lab/DeepSeek-v4-Flash-One-DGX-Spark /repo \
+         && git -C /repo checkout fdcd538fbf95fb15b2d6850db9613d22b2c889b8
+
+        # ---------------------------------------------------------------
+        # Stage 2: the runtime image + the patches + the weights.
+        # Pinned by digest: this is the only published SparkInfer build.
+        # ---------------------------------------------------------------
+        FROM ghcr.io/0xsero/deepseek-v4-flash-0731-spark-sparkinfer@sha256:2e077489a83a0360952828051fe7f7a32c1801e5ce8436d85f7267583d614ff4
+
+        # Recipe entrypoint that reads the KV record layout from the
+        # environment. The stock copy hardcodes VLLM_DSV4_PADDED_NVFP4=1
+        # (the fat 584-byte FP8-compat record); we serve the native 432-byte
+        # NVFP4 record, which is what makes the ~440k-token KV pool possible.
+        COPY --from=patches /repo/image-patch/entrypoint-256k.sh              /opt/recipe/scripts/entrypoint.sh
+        # Coalescer with a copy fallback when hardlinking is not possible.
+        COPY --from=patches /repo/image-patch/coalesce_rank_sliced_exl3.py    /opt/recipe/scripts/coalesce_rank_sliced_exl3.py
+        # Serve script templated with DEFAULT_CHAT_TEMPLATE_KWARGS_* so the
+        # server-side thinking default is configurable below.
+        COPY --from=patches /repo/image-patch/serve-ds4-flash.sh              /opt/vllm/serve-ds4-flash.sh
+        # SparkInfer backports onto the image's pinned kernel tree (272a84bd),
+        # from local-inference-lab/b12x:
+        #  #150 - preallocate W4A16 route histograms for CUDA-graph capture.
+        #  #228 - keep graphed tiny-decode routes with inactive expert ids in
+        #         range (prevents out-of-range reads on graph padding).
+        COPY --from=patches /repo/image-patch/sparkinfer/moe/fused_moe/_impl.py \
+             /opt/sparkinfer/sparkinfer/moe/fused_moe/_impl.py
+        COPY --from=patches /repo/image-patch/sparkinfer/moe/_shared/kernels/tiny_decode.py \
+             /opt/sparkinfer/sparkinfer/moe/_shared/kernels/tiny_decode.py
+        # NVFP4 dual-cache prefill fixes. Without these the native 432-byte
+        # record path NaNs on any prompt of 7+ tokens: prefill.py threads the
+        # caller's scale_format through the has_extra dispatch (was hardcoded
+        # to the 584-byte layout) and prefill_mg.py gathers NVFP4 records for
+        # dual-cache MAIN and EXTRA tiles.
+        COPY --from=patches /repo/image-patch/sparkinfer/attention/_shared/mla/prefill.py \
+             /opt/sparkinfer/sparkinfer/attention/_shared/mla/prefill.py
+        COPY --from=patches /repo/image-patch/sparkinfer/attention/_shared/mla/prefill_mg.py \
+             /opt/sparkinfer/sparkinfer/attention/_shared/mla/prefill_mg.py
+        # DSpark draft context-KV writer fix: pass use_nvfp4 to the fused
+        # insert so the draft writes records in the selected layout. Without
+        # it the draft writes 584-byte records into a 432-byte cache and
+        # speculative acceptance collapses to ~0%.
+        COPY --from=patches /repo/image-patch/vllm/models/deepseek_v4/nvidia/dspark.py \
+             /opt/vllm/vllm/models/deepseek_v4/nvidia/dspark.py
+        RUN chmod 0755 /opt/recipe/scripts/entrypoint.sh /opt/vllm/serve-ds4-flash.sh
+
+        # xgrammar tool-calling fix for the NVIDIA 26.02 base: vLLM calls
+        # xgrammar.normalize_tool_choice (>= 0.2.4) but the image pins 0.1.27,
+        # and every tool call 500s. Upstream pip-installs this at each boot;
+        # offline launch forbids that, so it is baked here instead. The
+        # transformers reinstall undoes pip's downgrade side effect.
+        RUN /opt/runtime-venv/bin/pip install --no-cache-dir -U "xgrammar>=0.2.4" \
+         && /opt/runtime-venv/bin/pip install --no-cache-dir "transformers==5.13.1"
+
+        # Model weights are part of the app artifact. The published archive is
+        # rank-sliced for TP4, so the build downloads it, coalesces it
+        # losslessly to TP1 (no dequant, no requantization - Trellis payloads
+        # are concatenated along their original tensor-parallel axes), derives
+        # the K64 DSpark draft from the mtp.* tensors, verifies the SHA-256
+        # inventory, and then deletes the source archive. Only the ~99.5 GiB
+        # serving checkpoint plus the draft ship in the image, so `docker rmi`
+        # reclaims every byte this recipe added. Upstream does all of this on
+        # first boot into a host volume; doing it at build time is what makes
+        # launch offline and instant.
+        ENV HF_HUB_DISABLE_XET=1
+        RUN --mount=type=secret,id=hf_token \
+            set -eu; \
+            HF_TOKEN="$$(cat /run/secrets/hf_token 2>/dev/null || true)"; export HF_TOKEN; \
+            /opt/runtime-venv/bin/python -c "import os; from huggingface_hub import snapshot_download; snapshot_download(repo_id='0xSero/deepseek-v4-flash-0731-spark', revision='22f28d32b9b29b4352eaa380ff8c2c170b2847ab', local_dir='/models/source', token=os.environ.get('HF_TOKEN') or None)"; \
+            /opt/runtime-venv/bin/python /opt/recipe/scripts/coalesce_rank_sliced_exl3.py \
+              --input-dir /models/source --output-dir /models/tp1 \
+              --link-carried --reuse-complete --workers 1; \
+            /opt/runtime-venv/bin/python /opt/recipe/scripts/build_dspark_draft.py \
+              --source /models/tp1 --output /models/dspark-draft-k64 \
+              --experts 64 --structured-per-category 32; \
+            /opt/runtime-venv/bin/python /opt/recipe/scripts/verify_tp1_manifest.py /models/tp1; \
+            rm -rf /models/source
+    image: spark-ai-hub/vllm-deepseek-v4-flash-exl3:sparkinfer-26.02
+    container_name: spark-ai-hub-vllm-deepseek-v4-flash-exl3
+    ports:
+      - "9001:8000"
+    ipc: host
+    shm_size: 16gb
+    environment:
+      # Nothing is fetched at launch: the manifest at /models/tp1 is the gate
+      # the entrypoint checks, and it is baked in, so the download/coalesce
+      # branch is never entered.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - HOST=0.0.0.0
+      - PORT=8000
+      - SERVED_MODEL_NAME=deepseek-v4-flash-0731
+      # Native 432-byte NVFP4 KV records (VLLM_DSV4_PADDED_NVFP4=0) instead of
+      # the image's 584-byte FP8-compat padding: ~440k-token pool at util 0.94
+      # against ~270k for the padded layout. KV_FP8_ROPE is a GLM-only knob.
+      - VLLM_DSV4_PADDED_NVFP4=0
+      - KV_FP8_ROPE=0
+      # Single deep-context request at 256K, the Hub's context cap. Upstream
+      # ships 384000 against a ~440k-token pool at util 0.94; that does not
+      # boot here (see GPU_MEMORY_UTILIZATION below), and at the utilization
+      # this host does boot at the pool is ~330k, so 262144 is what keeps a
+      # real margin over the boot-time KV check. Raising MAX_NUM_SEQS shrinks
+      # the pool further - the hybrid cache split routes fewer bytes into the
+      # global cache - so depth trades against concurrency.
+      - MAX_MODEL_LEN=262144
+      - MAX_NUM_SEQS=1
+      # Load-bearing twice: it sizes the profiled activation peak AND warmup
+      # locks it as the SparkInfer compressed-MLA scratch size. Lowering it to
+      # recover KV boots fine and then asserts on a later wide attend.
+      - MAX_NUM_BATCHED_TOKENS=8224
+      # vLLM refuses to start if the driver reports less free memory than
+      # util x 121.69 GiB, so this number is bounded by what the driver
+      # believes is free rather than by what the model needs. Measured across
+      # boots on this machine that figure sits at 113.4-115.5 GiB and drifts
+      # ~2 GiB on its own. 0.94 wants 114.39 and lost that coin flip three
+      # times out of three (113.44 / 113.85 / 113.65) - and notably it kept
+      # losing after the ~1.5 GiB of Chatterbox services were stopped and the
+      # page cache was reclaimed, so the shortfall is GPU-side carveout and
+      # the unified-memory desktop, not user processes. 0.93 wants 113.17 and
+      # has booted every time.
+      #
+      # Budget at 0.93: weights 95.39 GiB, non-KV overhead 9.8-10.6 GiB
+      # (cold boots JIT more), KV gets the rest at 37,380 tokens per GiB ->
+      # 7.2-8.0 GiB, against the 7.01 GiB that 256K needs.
+      #
+      # Upstream's 384K context would need ~0.949 here and is not reachable.
+      # It is also not worth chasing: decode at one sequence is bound by
+      # weight bandwidth and DSpark acceptance, not KV depth, so deeper
+      # context buys exactly 0 tok/s.
+      - GPU_MEMORY_UTILIZATION=0.93
+      # DSpark speculative decoding: fixed K5 draft, 64 routed draft experts,
+      # 32 per structured-output calibration category.
+      - MODE=dspark
+      - DSPARK_TOKENS=5
+      - DSPARK_CAPACITY=0
+      - DSPARK_DYNAMIC_DRAFT_DEPTH=0
+      - DSPARK_DYNAMIC_DRAFT_DEPTH_WINDOW=8
+      - DSPARK_DRAFT_EXPERTS=64
+      - DSPARK_STRUCTURED_EXPERTS_PER_CATEGORY=32
+      - VLLM_USE_B12X_WO_PROJECTION=1
+      # DSpark schedules exactly MAX_NUM_SEQS*(k+1) verifier rows, which at one
+      # sequence and k=5 is 6 - so 6 is the largest decode batch that can ever
+      # occur. Upstream carries 6,12,24 from its 4-seq profile; capturing 12
+      # and 24 here reserves graph memory for batches that never arrive, and on
+      # a machine where KV is the binding constraint that reservation comes
+      # straight out of the context window.
+      - MAX_CUDAGRAPH_CAPTURE_SIZE=6
+      - CUDAGRAPH_CAPTURE_SIZES=6
+      # The memory profiler over-reserves ~0.68 GiB for CUDA graphs while real
+      # usage at this capture profile is ~0.07 GiB; 0 gives that back to KV.
+      - VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=0
+      # Cap each chunked-prefill chunk so a long prefill cannot starve decode.
+      - EXTRA_VLLM_ARGS=--long-prefill-token-threshold 1024
+      # Server-side defaults when a client sends no chat_template_kwargs.
+      # Clients can still override per request.
+      - DEFAULT_CHAT_TEMPLATE_KWARGS_THINKING=true
+      - DEFAULT_CHAT_TEMPLATE_KWARGS_EFFORT=max
+      # The SHA-256 inventory over ~99.5 GiB already ran at build time; a
+      # rerun would add minutes to every launch for a read-only image.
+      - VERIFY_MODEL_CHECKSUMS=0
+      # CPU KV offload stays off: the connector is incompatible with the
+      # image's expandable_segments allocator.
+      - KV_OFFLOAD_GB=0
+      - VLLM_USE_SIMPLE_KV_OFFLOAD=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # NOT unless-stopped: the server intentionally holds ~94% of unified
+    # memory, so a boot that fails the KV check must stop after one failure
+    # rather than loop and push host RAM negative.
+    restart: on-failure:1
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN

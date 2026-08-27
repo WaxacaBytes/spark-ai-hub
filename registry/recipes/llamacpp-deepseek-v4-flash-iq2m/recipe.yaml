@@ -38,6 +38,7 @@ params_b: 284
 active_params_b: 13
 arch: moe
 quantization: "IQ2_M"
+context_tokens: 98304
 speculative_method: ""
 artificial_analysis_index: 52
 weights_gb: 90.9

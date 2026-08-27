@@ -1,0 +1,69 @@
+name: "DeepSeek-V4-Flash-0731 (EXL3 3.0bpw)"
+slug: vllm-deepseek-v4-flash-exl3
+version: "1.0.0"
+description: "DeepSeek-V4-Flash-0731 284B MoE (13B active) as EXL3/Trellis 3.0 bpw on a single DGX Spark, served by the SparkInfer vLLM fork with DSpark K5 speculative decoding and an NVFP4 compressed KV cache. EXL3 is a QTIP-style trellis format with per-tensor importance weighting, so 3.0 bpw lands near GGUF Q4_K_M-Q5_K quality rather than the Q2/Q3 territory a same-size GGUF gives; the checkpoint is REAP-pruned to 216 of 256 experts, with attention, embeddings, head, mHC and indexer kept at FP8/BF16. Deep context: a single 256K-token request. Thinking on with effort max by default, tool calling live."
+author: "DeepSeek AI"
+source: "community"
+website: "https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-0731"
+upstream: "https://huggingface.co/0xSero/deepseek-v4-flash-0731-spark"
+category: llm
+tags:
+  - llm
+  - moe
+  - deepseek
+  - deepseek-v4
+  - exl3
+  - trellis
+  - reasoning
+  - agentic
+  - tool-use
+  - long-context
+  - speculative-decoding
+  - dspark
+logo: "/logos/deepseek.png"
+requirements:
+  min_memory_gb: 120
+  recommended_memory_gb: 128
+  disk_gb: 115
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 150
+  gpu: true
+status: community-verified
+engine: "vLLM"
+params_b: 284
+active_params_b: 13
+arch: moe
+quantization: "EXL3 3.0bpw"
+speculative_method: "dspark"
+context_tokens: 262144
+weights_gb: 99.5
+release_date: "2026-07-31"
+requires_hf_token: false
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-08-26"
+tokens_per_second: 25.3
+tokens_per_second_editing: 55.3
+editing_workload: "code-edit"
+benchmarks:
+  prose: 20.02
+  explainer: 27.39
+  code: 31.32
+  code-edit: 55.3
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "deepseek-v4-flash-0731"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"deepseek-v4-flash-0731\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a correct Python function that returns the first n Fibonacci numbers.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
+
+cover:
+  image: deepseek-hangzhou.jpg
+  caption: "Qianjiang New City in Hangzhou at night — the city DeepSeek and its parent High-Flyer are based in."
+  credit: "Light show in Qianjiang New City 05.png · Y Chen · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ALight%20show%20in%20Qianjiang%20New%20City%2005.png"

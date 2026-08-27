@@ -17,9 +17,16 @@
 // build of the model, not a different model.
 const BUILD_TOKENS = new Set([
   'bf16', 'fp8', 'nvfp4', 'int4', 'mxfp4', 'awq', 'gptq',
-  'q8', 'q4', 'iq2m', 'iq1m', 'q3ks',
+  'q8', 'q4', 'iq2m', 'iq1m', 'q3ks', 'exl3',
   'bf16head',
   'dflash', 'dflash2', 'dspark', 'mtp', 'eagle',
+  // `abliterated` earns its place here for the same reason `bf16head` does:
+  // the EXL3 DeepSeek-V4-Flash pair ships one checkpoint, and the uncensored
+  // build differs only by a refusal direction projected out at runtime. Same
+  // weights, same decode path, same speed — a build of the model, not another
+  // model. A finetune that ships genuinely abliterated *weights* would be a
+  // row of its own and should not use this token in its slug.
+  'abliterated',
 ])
 
 const ENGINE_PREFIX = /^(vllm|sglang|llamacpp|atlas)-/
