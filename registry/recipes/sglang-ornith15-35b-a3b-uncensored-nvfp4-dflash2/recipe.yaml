@@ -1,0 +1,67 @@
+name: "Ornith-1.5-35B-A3B Uncensored NVFP4 DFlash2"
+slug: sglang-ornith15-35b-a3b-uncensored-nvfp4-dflash2
+version: "1.0.0"
+description: "The uncensored Ornith-1.5-35B-A3B — ressl's abliterated NVFP4 master, the same checkpoint the vLLM build serves — moved onto SGLang so it can use jzinno's DFlash2 block-diffusion drafter. The vLLM build has no speculative decoding available to it at all: the ModelOpt export drops the checkpoint's MTP head, and vLLM's n-gram proposer silently empties tool-call arguments. DFlash2 is a real drafter with real weights, measured by its author on a DGX Spark at +44% over target-only decoding against the stock Ornith NVFP4 — and it reproduces here on the abliterated weights it was never trained against: 64.8 tok/s writing against the vLLM build's 37.9, and 198.7 on code edits, where block-diffusion drafting has the most to copy. That is faster than the stock censored NVFP4 recipe on both counts. Refusal behaviour is inherited from the same abliterated master: hard refusals 586/1120 down to 20/1120 across five red-team datasets, GPQA-Diamond 58.6% against the base model's 61.1%. 262K context, reasoning and tool calling live. Removes safety refusals the upstream model was trained to have; supply your own guardrails."
+author: "Ornith AI (DeepReinforce)"
+source: "community"
+website: "https://huggingface.co/ornith-ai/Ornith-1.5-35B-A3B"
+upstream: "https://huggingface.co/jzinno/Ornith-1.5-35B-A3B-DFlash2"
+category: llm
+tags:
+  - llm
+  - moe
+  - reasoning
+  - coding
+  - tool-use
+  - sglang
+  - nvfp4
+  - abliterated
+  - uncensored
+  - speculative-decoding
+  - dflash2
+logo: "/logos/ornith.png"
+requirements:
+  min_memory_gb: 40
+  recommended_memory_gb: 56
+  disk_gb: 32
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 8
+  gpu: true
+status: community-verified
+engine: "SGLang"
+params_b: 35
+active_params_b: 3
+arch: moe
+quantization: "NVFP4"
+speculative_method: "dflash2"
+weights_gb: 23.3
+release_date: "2026-08"
+requires_hf_token: false
+tokens_per_second: 64.8
+tokens_per_second_editing: 198.7
+editing_workload: "code-edit"
+benchmarks:
+  prose: 51.15
+  explainer: 64.23
+  code: 89.22
+  code-edit: 198.7
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-08-30"
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "ressl/Ornith-1.5-35B-A3B-uncensored-NVFP4"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"ressl/Ornith-1.5-35B-A3B-uncensored-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
+
+cover:
+  image: ornith-cockatiel.jpg
+  caption: "A wild cockatiel — the species behind Ornith's mascot — foraging in South Australia."
+  credit: "Wild cockatiel.jpg · Annette Teng · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File:Wild_cockatiel_-_panoramio.jpg"

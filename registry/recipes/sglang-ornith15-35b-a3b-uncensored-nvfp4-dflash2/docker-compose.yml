@@ -1,0 +1,132 @@
+services:
+  sglang:
+    # The uncensored Ornith-1.5-35B-A3B (ressl's abliterated NVFP4 master, the
+    # same checkpoint the vLLM sibling serves) on SGLang with jzinno's DFlash2
+    # block-diffusion drafter. This exists because the vLLM sibling has no
+    # speculative decoding available to it at all: the ModelOpt export drops
+    # the checkpoint's MTP head, and vLLM's weight-free n-gram proposer — the
+    # only other option there — silently returns empty tool-call arguments.
+    # DFlash2 is a real drafter with real weights, and it lives in SGLang.
+    #
+    # Two things had to be true for this pairing to work, and both were
+    # checked before building rather than assumed:
+    #
+    #   * SGLang has to serve an Ornith NVFP4 checkpoint correctly. It cannot
+    #     serve the OFFICIAL one — sglang-ornith15-35b-a3b-bf16-dflash records
+    #     that every completion comes back "!!!!!!" — but that checkpoint mixes
+    #     fp8 (attention) with NVFP4 (MoE). This one is experts-only NVFP4 with
+    #     attention, router and embeddings left BF16, a different weight path,
+    #     and its author validated it under SGLang before publishing.
+    #
+    #   * DFlash's greedy head matmuls against the target's lm_head and dies on
+    #     a packed one ("reason=quantized lm_head"), which is what blocked
+    #     DFlash on the official NVFP4 build. This checkpoint lists `lm_head`
+    #     in its ModelOpt exclude_modules, so the head is BF16 and the greedy
+    #     head has something it can read.
+    #
+    # The drafter was trained against the STOCK Ornith target, not this
+    # abliterated one. The weights it drafts for have had a refusal direction
+    # projected out of 120 residual-writing tensors, so acceptance length is
+    # the number to watch: if it collapses, the drafter is mispredicting the
+    # ablated distribution and this recipe is not worth its disk.
+    #
+    # Image: lmsysorg/sglang:dev-nightly-0820 — the same stock image the Hub's
+    # three Qwen3.8-27B DFlash2 recipes already run on. The stable
+    # v0.5.18-cu130 release was tried first and refused the drafter outright:
+    #
+    #   ValueError: Cannot find model module. 'DFlash2DraftModel' is not a
+    #   registered model in the Transformers library
+    #
+    # DFlash2 draft models declare `architectures: ["DFlash2DraftModel"]` (both
+    # jzinno's and incoai's do), and that class is only registered in the dev
+    # line — which is why the drafter's own card pins a dev COMMIT rather than
+    # a release. Every DFlash2 flag this recipe passes is present in v0.5.18's
+    # --help, so the flags were never the problem; the model registry was.
+    # Revisit when a numbered release registers the class.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('ressl/Ornith-1.5-35B-A3B-uncensored-NVFP4'); snapshot_download('jzinno/Ornith-1.5-35B-A3B-DFlash2')"
+        FROM lmsysorg/sglang:dev-nightly-0820
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/sglang-ornith15-35b-a3b-uncensored-nvfp4-dflash2:dev-nightly-0820
+    container_name: spark-ai-hub-sglang-ornith15-35b-a3b-uncensored-nvfp4-dflash2
+    ports:
+      - "9001:8000"
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    shm_size: 32gb
+    command:
+      - sglang
+      - serve
+      - --model-path
+      - ressl/Ornith-1.5-35B-A3B-uncensored-NVFP4
+      - --served-model-name
+      - ressl/Ornith-1.5-35B-A3B-uncensored-NVFP4
+      - --trust-remote-code
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      # SM121 (GB10) has no trtllm_mha path; flashinfer is the cookbook's
+      # backend for every Blackwell SM120/SM121 card.
+      - --attention-backend
+      - flashinfer
+      - --kv-cache-dtype
+      - fp8_e4m3
+      # Marlin for the NVFP4 MoE, as the drafter's own DGX Spark evaluation ran
+      # it.
+      - --moe-runner-backend
+      - marlin
+      - --chunked-prefill-size
+      - "2048"
+      # Weights are only 22.3GB here, so the static pool is generous at 0.50
+      # and still leaves the GDN state and KV room for full native context.
+      - --mem-fraction-static
+      - "0.50"
+      - --max-total-tokens
+      - "262144"
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      # Hybrid Gated DeltaNet needs its recurrent state handled explicitly:
+      # both flags come from the drafter card's own Spark evaluation.
+      - --mamba-radix-cache-strategy
+      - extra_buffer
+      - --mamba-ssm-dtype
+      - float32
+      # DFlash2 block-diffusion drafting. 10 draft tokens is what the drafter
+      # was evaluated at on DGX Spark (114.2 tok/s, +44% over target-only).
+      - --speculative-algorithm
+      - "DFLASH"
+      - --speculative-draft-model-path
+      - "jzinno/Ornith-1.5-35B-A3B-DFlash2"
+      - --speculative-num-draft-tokens
+      - "10"
+      - --speculative-draft-attention-backend
+      - flashinfer
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
