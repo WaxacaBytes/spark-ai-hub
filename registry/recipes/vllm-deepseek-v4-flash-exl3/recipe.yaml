@@ -57,10 +57,10 @@ benchmarks:
   code: 31.32
   code-edit: 55.3
 integration:
-  api_url: "http://<SPARK_IP>:9001/v1"
+  api_url: "<HUB>/v1"
   model_id: "deepseek-v4-flash-0731"
-  api_key: "not-needed"
-  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"deepseek-v4-flash-0731\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a correct Python function that returns the first n Fibonacci numbers.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
+  api_key: "<API_KEY>"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"deepseek-v4-flash-0731\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a correct Python function that returns the first n Fibonacci numbers.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
 
 cover:
   image: deepseek-hangzhou.jpg

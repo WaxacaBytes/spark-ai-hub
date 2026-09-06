@@ -58,7 +58,7 @@ benchmarks:
   code: 18.05
   code-edit: 19.9
 integration:
-  api_url: "http://<SPARK_IP>:9001/v1"
+  api_url: "<HUB>/v1"
   model_id: "glm-5.3-flash-exl3"
-  api_key: "not-needed"
-  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"glm-5.3-flash-exl3\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}], \"max_tokens\": 512}'"
+  api_key: "<API_KEY>"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"glm-5.3-flash-exl3\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}], \"max_tokens\": 512}'"

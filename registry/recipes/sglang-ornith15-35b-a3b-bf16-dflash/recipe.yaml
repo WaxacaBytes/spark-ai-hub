@@ -53,10 +53,10 @@ benchmarks:
   code: 54.13
   code-edit: 121.7
 integration:
-  api_url: "http://<SPARK_IP>:9001/v1"
+  api_url: "<HUB>/v1"
   model_id: "ornith-ai/Ornith-1.5-35B-A3B"
-  api_key: "not-needed"
-  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"ornith-ai/Ornith-1.5-35B-A3B\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
+  api_key: "<API_KEY>"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"ornith-ai/Ornith-1.5-35B-A3B\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
 
 cover:
   image: ornith-cockatiel.jpg

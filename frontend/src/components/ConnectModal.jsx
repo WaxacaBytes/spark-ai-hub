@@ -3,6 +3,11 @@ import { useStore } from '../store'
 import { copyText } from '../lib/clipboard'
 
 const KIND_LABEL = {
+  // "origin" is the address this page was actually loaded from. The daemon
+  // only lists it when it is not one of the names the box can see on itself
+  // -- i.e. when a tunnel or reverse proxy is in front, which is exactly the
+  // case where nothing computed on the server would have worked.
+  origin: 'This address',
   mdns: 'mDNS name',
   tailscale: 'Tailscale',
   ip: 'LAN IP',
@@ -149,7 +154,7 @@ export default function ConnectModal() {
                 ))}
               </div>
               <p className="text-xs text-text-dim mt-2 m-0 leading-relaxed">
-                The installer saves all of these (stable name first). If the server's IP
+                The installer saves all of these, in this order. If the server's IP
                 changes, <code className="font-mono text-text">sah</code> automatically
                 falls back to the name that still works — no reconfiguration needed.
               </p>

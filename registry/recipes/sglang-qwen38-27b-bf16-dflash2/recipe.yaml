@@ -53,10 +53,10 @@ release_date: "2026-08-20"
 context_length: 262144
 requires_hf_token: false
 integration:
-  api_url: "http://<SPARK_IP>:9001/v1"
+  api_url: "<HUB>/v1"
   model_id: "Qwen/Qwen3.8-27B"
-  api_key: "not-needed"
-  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"Qwen/Qwen3.8-27B\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 2048, \"temperature\": 1.0, \"top_p\": 0.95}'"
+  api_key: "<API_KEY>"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"Qwen/Qwen3.8-27B\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 2048, \"temperature\": 1.0, \"top_p\": 0.95}'"
 
 cover:
   image: qwen-27b.jpg

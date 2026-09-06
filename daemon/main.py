@@ -13,7 +13,7 @@ from daemon.middleware.auth import AuthMiddleware
 from daemon.routers import (
     admin, anthropic_proxy, auth, containers, openai_proxy, recipes, system,
 )
-from daemon.services.connect_service import compute_connect_info
+from daemon.services.connect_service import compute_connect_info, request_origin
 from daemon.services.registry_service import load_recipes, get_recipes
 from daemon.services.auth_service import purge_expired_sessions
 from daemon.services.docker_service import is_recipe_running, start_health_check
@@ -88,17 +88,21 @@ app.include_router(openai_proxy.router)
 
 # Serve the `sah` CLI for `curl ${HUB}/sah/install.sh | sh`.
 # The installer is served dynamically so it bakes in *this* Hub's own stable
-# addresses (mDNS / Tailscale) as the candidate list — never the transient IP
-# the client happened to curl from. Registered before the /sah static mount so
-# it takes precedence over the raw file.
+# addresses (mDNS / Tailscale) as the candidate list. The address this very
+# request came in on leads that list whenever it is not one of them: a device
+# that curls a tunnel URL must keep talking to the tunnel afterwards, and the
+# LAN names the box knows about mean nothing out there. Registered before the
+# /sah static mount so it takes precedence over the raw file.
 if SAH_DIR.is_dir():
     _SAH_INSTALL = SAH_DIR / "install.sh"
 
     @app.get("/sah/install.sh")
-    def sah_install_script():
+    def sah_install_script(request: Request):
         # Sync def → threadpool: compute_connect_info shells out to tailscale.
         text = _SAH_INSTALL.read_text()
-        info = compute_connect_info(settings.public_port)
+        info = compute_connect_info(
+            settings.public_port, origin=request_origin(request)
+        )
         candidates = " ".join(c["url"] for c in info["candidates"]) or info["primary"]
         # Replace only the assignment (first occurrence); the guard line keeps
         # the literal marker so a standalone run still detects "not injected".

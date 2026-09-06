@@ -59,8 +59,8 @@ benchmarks:
   prose: 46.95
   code-edit: 45.49
 integration:
-  api_url: "http://<SPARK_IP>:9001/v1"
+  api_url: "<HUB>/v1"
   model_id: "inclusionAI/Ling-3.0-flash-int4"
-  api_key: "not-needed"
+  api_key: "<API_KEY>"
   max_context: "262144"
-  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"inclusionAI/Ling-3.0-flash-int4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 4096, \"temperature\": 0.6, \"top_p\": 0.95}'"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"inclusionAI/Ling-3.0-flash-int4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 4096, \"temperature\": 0.6, \"top_p\": 0.95}'"

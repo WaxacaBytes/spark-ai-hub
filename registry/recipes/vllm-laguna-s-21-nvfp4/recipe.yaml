@@ -45,11 +45,11 @@ weights_gb: 99.7
 release_date: "2026-07-21"
 requires_hf_token: false
 integration:
-  api_url: "http://<SPARK_IP>:9001/v1"
+  api_url: "<HUB>/v1"
   model_id: "poolside/Laguna-S-2.1-NVFP4"
-  api_key: "not-needed"
+  api_key: "<API_KEY>"
   max_context: "65536"
-  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"poolside/Laguna-S-2.1-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512}'"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"poolside/Laguna-S-2.1-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512}'"
 tokens_per_second: 18.3
 tokens_per_second_editing: 18.3
 editing_workload: "code-edit"

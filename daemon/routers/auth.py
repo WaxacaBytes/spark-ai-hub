@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from daemon.config import settings
 from daemon.services import auth_service
+from daemon.services.connect_service import request_scheme
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -45,10 +46,7 @@ def _is_https(request: Request) -> bool:
     """
     if settings.force_secure_cookie:
         return True
-    proto = request.headers.get("x-forwarded-proto", "")
-    if proto:
-        return proto.split(",")[0].strip().lower() == "https"
-    return request.url.scheme == "https"
+    return request_scheme(request) == "https"
 
 
 def set_session_cookie(response: Response, request: Request, token: str) -> None:

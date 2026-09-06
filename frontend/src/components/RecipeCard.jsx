@@ -3,15 +3,12 @@ import { Link } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { speedLabel } from '../models'
+import { openUrl } from '../lib/urls'
 
-// Where "Open" points. Proxied apps are served by the Hub itself at
-// /app/{slug}/, so the link is root-relative and works unchanged over the LAN,
-// through a Cloudflare Tunnel and over Tailscale -- no host, no port. Recipes
-// that still publish a port of their own keep the old direct link.
-export function openUrl(recipe) {
-  if (recipe.app_url) return recipe.app_url
-  return `http://${location.hostname}:${recipe.ui?.port ?? 8080}${recipe.ui?.path ?? '/'}`
-}
+// Where "Open" points. Lives in lib/urls.js with everything else the Hub says
+// about its own address; re-exported here because ModelList, PosterCard,
+// Hero, Running and RecipeDetail all import it from this module.
+export { openUrl }
 
 // "35B-A3B" for MoE (total + active), plain "27B" for dense.
 export function formatParams(recipe) {

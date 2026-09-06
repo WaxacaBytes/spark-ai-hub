@@ -48,11 +48,11 @@ tested_on:
   dgx_os: "7.2"
   date: "2026-08-13"
 integration:
-  api_url: "http://<SPARK_IP>:9001/v1"
+  api_url: "<HUB>/v1"
   model_id: "inclusionAI/Ling-3.0-tiny"
-  api_key: "not-needed"
+  api_key: "<API_KEY>"
   max_context: "262144"
-  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"inclusionAI/Ling-3.0-tiny\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 4096, \"temperature\": 1.0, \"top_p\": 0.95}'"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"inclusionAI/Ling-3.0-tiny\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 4096, \"temperature\": 1.0, \"top_p\": 0.95}'"
 tokens_per_second: 70.4
 tokens_per_second_editing: 70.4
 editing_workload: "code-edit"

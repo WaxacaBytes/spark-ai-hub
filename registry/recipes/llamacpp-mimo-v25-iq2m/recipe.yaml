@@ -52,10 +52,10 @@ benchmarks:
   code: 22.45
   code-edit: 22.1
 integration:
-  api_url: "http://<SPARK_IP>:9001/v1"
+  api_url: "<HUB>/v1"
   model_id: "mimo-v2.5"
-  api_key: "not-needed"
-  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"mimo-v2.5\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+  api_key: "<API_KEY>"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"mimo-v2.5\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
 
 cover:
   image: mimo-hq.jpg
