@@ -1,0 +1,207 @@
+services:
+  vllm:
+    # Qwen3.8-Flash-Next (Qwen4ExpForConditionalGeneration, model_type
+    # qwen4_exp) served from the Mia-AiLab NVFP4 checkpoint — MXFP8 attention
+    # plus a 4-bit NVFP4 PLE (per-layer-embedding) n-gram table — with that
+    # table MEMORY-MAPPED into vLLM's CPU offload worker instead of pinned.
+    #
+    # Why this exists next to vllm-qwen38-flash-next-nvfp4-ple, which serves
+    # the same model at the same quantization: the sibling keeps the 26.8 GiB
+    # packed PLE table resident in the offload worker's RSS. Here it is
+    # pre-packed into one flat [rows, 90] uint8 file at build time and mapped
+    # with mmap, so it lives in evictable page cache. On GB10 the CPU and the
+    # GPU share one 121.7 GiB pool, so those 26.8 GiB come straight out of the
+    # KV budget when they are not evictable. Mapping them is what pays for
+    # FP8 KV at ~1M tokens and for the decode configuration below.
+    #
+    # Recipe shape and every serving flag follow MiaAI Lab's single-Spark
+    # recipe, pinned to the commit in the ADD line below:
+    #   https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark
+    #   https://x.com/MiaAI_lab/status/2096215535256031243
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        # --- weights stage ---------------------------------------------------
+        # Model weights are part of the app artifact: baked into the final
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        # 51 files, 98.7 GiB, pinned to the checkpoint revision measured.
+        FROM python:3.12-slim AS weights
+        # 60s read timeout: the default 10s aborts the whole download on a
+        # single slow chunk, and this stage pulls 98.7 GiB.
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Mia-AiLab/Qwen3.8-Flash-Next-NVFP4', revision='925d7be6c14c6c9442ef83e8f05b5a3c39304f69', local_dir='/weights', ignore_patterns=['.gitattributes'], max_workers=8)"
+
+        # --- runtime stage ---------------------------------------------------
+        # The stock published vLLM build for this architecture (vLLM
+        # 0.1.dev20073+g8e685d198, arm64). Nothing is compiled here.
+        FROM vllm/vllm-openai:qwen38-flash-next
+        # Pinned to the commit every measurement below was taken on.
+        ADD https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark/archive/ef1af5fa2e1e93d4bd96136568460cda843ccc29.tar.gz /tmp/mia.tar.gz
+        RUN mkdir -p /opt/mia && tar -xzf /tmp/mia.tar.gz -C /opt/mia --strip-components=1 && rm /tmp/mia.tar.gz
+
+        # Four source patches, applied at BUILD time so that launch runs a
+        # plain `vllm serve` with no wrapper and no bind mounts. Each patch
+        # script rewrites the file it was extracted from and refuses to write
+        # anything if one of its anchors is missing, so a future base image
+        # that moved the code fails the build instead of serving silently
+        # unpatched. What they fix, in order:
+        #   ple_offload   two GB10 bugs in vLLM's offload path — CUDA stream
+        #                 memory ops are unsupported on this GPU and deadlocked
+        #                 the worker after graph capture — and the mmap reader
+        #                 for the packed table built further down.
+        #   ple_layer     offloaded PLE rows must carry codes AND block scales.
+        #   modelopt      MXFP8 attention weights in this checkpoint.
+        #   qsa_fp8_kv    lets the QSA kernels store an FP8 KV cache; inert
+        #                 when --kv-cache-dtype is BF16.
+        #   mtp_draft_vocab  reduced-vocabulary drafting; inert unless
+        #                 VLLM_MTP_DRAFT_VOCAB is set, which it is not here.
+        RUN set -eux; \
+            V=/usr/local/lib/python3.12/dist-packages/vllm; F=/opt/mia/files; \
+            cp $$V/models/qwen3_8_flash_next/nvidia/ple_layer.py       $$F/ple_layer_patched.py.orig; \
+            cp $$V/model_executor/layers/quantization/modelopt.py      $$F/modelopt_patched.py.orig; \
+            cp $$V/models/qwen3_8_flash_next/nvidia/ops/qsa.py         $$F/qsa_ops_patched.py.orig; \
+            cp $$V/models/qwen3_8_flash_next/nvidia/qsa.py             $$F/qsa_nvidia_patched.py.orig; \
+            cp $$V/models/qwen3_8_flash_next/nvidia/mtp.py             $$F/mtp_patched.py.orig; \
+            mkdir -p $$F/ple_offload/orig; \
+            cp $$V/model_executor/layers/ple_offload_layer.py          $$F/ple_offload/orig/ple_offload_layer.py; \
+            for f in connector worker protocol; do cp $$V/v1/ple_offload/$$f.py $$F/ple_offload/orig/$$f.py; done; \
+            python3 $$F/patch_ple_layer.py; \
+            python3 $$F/patch_modelopt_mxfp8.py; \
+            python3 $$F/patch_qsa_fp8_kv.py; \
+            python3 $$F/patch_mtp_draft_vocab.py; \
+            python3 $$F/patch_ple_offload.py; \
+            cp $$F/ple_layer_patched.py    $$V/models/qwen3_8_flash_next/nvidia/ple_layer.py; \
+            cp $$F/modelopt_patched.py     $$V/model_executor/layers/quantization/modelopt.py; \
+            cp $$F/qsa_ops_patched.py      $$V/models/qwen3_8_flash_next/nvidia/ops/qsa.py; \
+            cp $$F/qsa_nvidia_patched.py   $$V/models/qwen3_8_flash_next/nvidia/qsa.py; \
+            cp $$F/mtp_patched.py          $$V/models/qwen3_8_flash_next/nvidia/mtp.py; \
+            cp $$F/ple_offload/ple_offload_layer.py $$V/model_executor/layers/ple_offload_layer.py; \
+            for f in connector worker protocol; do cp $$F/ple_offload/$$f.py $$V/v1/ple_offload/$$f.py; done; \
+            python3 -c "import vllm; print('vllm', vllm.__version__)"
+
+        COPY --from=weights /weights /models/Qwen3.8-Flash-Next-NVFP4
+
+        # The packed PLE table: the checkpoint's 128 row shards (4-bit codes +
+        # FP8 block scales) rewritten as one flat file per layer in exactly the
+        # layout the offload worker maps. Built here, from the weights already
+        # in this image, so first launch has nothing to prepare — upstream
+        # builds it on first start into a host cache, which would be state
+        # outliving `docker rmi`. ~27 GiB, CPU only, no GPU needed.
+        RUN python3 /opt/mia/files/build_ple_packed_table.py \
+              /models/Qwen3.8-Flash-Next-NVFP4 /models/ple_packed \
+         && du -sh /models/ple_packed
+    image: spark-ai-hub/vllm-qwen38-flash-next-nvfp4-ple-mmap:mia-ef1af5fa
+    container_name: spark-ai-hub-vllm-qwen38-flash-next-nvfp4-ple-mmap
+    ports:
+      - "9001:8000"
+    ipc: host
+    cap_add:
+      - SYS_NICE
+      - SYS_PTRACE
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    # Host-side cgroup cap = GPU budget (95.6 GiB, see
+    # --gpu-memory-utilization) + 5 GiB of slack, upstream's HOST_SLACK_GIB.
+    # GPU parameter allocations are not charged to it on GB10, so this bounds
+    # the Python processes, pinned buffers and page cache only.
+    mem_limit: 100g
+    memswap_limit: 100g
+    environment:
+      # Offline-first: checkpoint and packed table are both in the image.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # Serve the PLE table CPU-side, from the memory-mapped packed file built
+      # above. Without the directory the worker falls back to a resident copy
+      # and the KV budget below no longer fits.
+      - VLLM_PLE_CPU_OFFLOAD=1
+      - VLLM_PLE_PACKED_TABLE_DIR=/models/ple_packed
+      - VLLM_PLE_OFFLOAD_STEP_TIMEOUT=300
+      # Pin the V2 model runner on every config copy. The target architecture
+      # already selects V2, but the speculative draft copy
+      # (Qwen3_8FlashNextMTP) is not in the V2 default set, falls back to V1
+      # and mutates the compilation_config it shares with the target — which
+      # silently turns the FULL decode graphs below into PIECEWISE.
+      - VLLM_USE_V2_MODEL_RUNNER=1
+      - VLLM_NO_USAGE_STATS=1
+      - DO_NOT_TRACK=1
+    # Entrypoint is `vllm serve`.
+    command:
+      - /models/Qwen3.8-Flash-Next-NVFP4
+      - --served-model-name
+      - Mia-AiLab/Qwen3.8-Flash-Next-NVFP4
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --tensor-parallel-size
+      - "1"
+      - --max-model-len
+      - "262144"
+      # 0.786 x 121.7 GiB = 95.6 GiB, the value upstream derives from
+      # MemTotal - 26 GiB of host reserve. That reserve is not spare room: on
+      # this unified pool vLLM reads MemAvailable as "free GPU memory" and
+      # fills the budget exactly, so anything it takes comes out of the PLE
+      # page cache and the NVIDIA driver's free pages. Raising it hangs the
+      # kernel with no OOM and no logs.
+      - --gpu-memory-utilization
+      - "0.786"
+      # FP8 KV is ~1.85x the pool of BF16 and is what puts a full 262K request
+      # comfortably inside it (measured ~1.0-1.13M tokens, 3.8x a full-length
+      # request). It costs ~4% decode and 11/11 on upstream's reasoning suite.
+      - --kv-cache-dtype
+      - fp8
+      # The GDN recurrent state. The checkpoint asks for float32; the fused
+      # kernel also takes bfloat16, which halves both the ~0.23 GB moved per
+      # sequence per step and the mamba page. Worth +8.5% aggregate decode at
+      # 8 streams with draft acceptance and needle retrieval unchanged.
+      - --mamba-ssm-cache-dtype
+      - bfloat16
+      - --max-num-seqs
+      - "4"
+      - --max-num-batched-tokens
+      - "2048"
+      - --enable-chunked-prefill
+      - --load-format
+      - safetensors
+      - --safetensors-load-strategy
+      - lazy
+      # The PLE offload worker is only spawned by the mp executor; vLLM picks
+      # `uni` at TP1, which leaves the worker out and the model unable to load.
+      - --distributed-executor-backend
+      - mp
+      - --reasoning-parser
+      - qwen3
+      - --tool-call-parser
+      - qwen3_coder
+      - --enable-auto-tool-choice
+      # MTP off the checkpoint's own draft head. K=3 measured best at every
+      # concurrency (K=2 ties, K=1 loses 8-14%, K=0 loses 32-46%).
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":3}'
+      # FULL decode graphs at every verify width the scheduler can build,
+      # (1+3)*S for S in 1..4. vLLM's own list is [1,2,4] plus multiples of 8,
+      # so a 3-sequence batch (12 tokens) would pad up to 16 and a width with
+      # no graph decodes eager. mode 0 = no torch.compile: measured +0.3% at 1
+      # stream, inside noise, on a decode that is bandwidth-bound.
+      - --compilation-config
+      - '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY","cudagraph_capture_sizes":[4,8,12,16]}'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # NOT unless-stopped: the server holds ~79% of unified memory, so a boot
+    # that fails its KV check must stop rather than loop.
+    restart: on-failure:1
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN

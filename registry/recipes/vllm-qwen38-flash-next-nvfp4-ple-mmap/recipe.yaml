@@ -1,0 +1,63 @@
+name: "Qwen3.8-Flash-Next NVFP4 (PLE mmap)"
+slug: vllm-qwen38-flash-next-nvfp4-ple-mmap
+version: "1.0.0"
+description: "Qwen3.8-Flash-Next — the first open-weight release of the architecture behind Qwen4, 177B total parameters over a hybrid linear/full attention stack — served from the Mia-AiLab NVFP4 checkpoint (MXFP8 attention, 4-bit PLE table). 51B of those parameters are a PLE n-gram lookup table; here it is pre-packed at build time and memory-mapped into vLLM's CPU offload worker, so its 26.8 GiB sit in evictable page cache instead of competing with the KV pool for the Spark's single unified memory. That is what buys an FP8 KV cache holding roughly a million tokens at the native 262K context, MTP speculative decoding with FULL decode graphs at every verify width, and BF16 recurrent state. Vision, tool calling and reasoning all work; OpenAI-compatible API. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
+author: "Qwen"
+source: "community"
+website: "https://huggingface.co/Qwen/Qwen3.8-Flash-Next"
+upstream: "https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark"
+category: llm
+logo: "/logos/qwen.png"
+tags:
+  - llm
+  - moe
+  - vllm
+  - nvfp4
+  - qwen
+  - multimodal
+  - vision
+  - reasoning
+  - tool-use
+  - speculative-decoding
+  - mtp
+  - long-context
+requirements:
+  min_memory_gb: 110
+  recommended_memory_gb: 128
+  disk_gb: 150
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 120
+  gpu: true
+status: experimental
+engine: "vLLM"
+params_b: 177
+active_params_b: 6
+arch: moe
+quantization: "NVFP4"
+speculative_method: "mtp"
+weights_gb: 98.7
+release_date: "2026-08-27"
+requires_hf_token: false
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-09-06"
+tokens_per_second: 35.0
+tokens_per_second_editing: 47.9
+editing_workload: "code-edit"
+benchmarks:
+  prose: 32.20
+  explainer: 32.42
+  code: 41.88
+  code-edit: 47.86
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "Mia-AiLab/Qwen3.8-Flash-Next-NVFP4"
+  api_key: "not-needed"
+  max_context: "262144"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"Mia-AiLab/Qwen3.8-Flash-Next-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512}'"

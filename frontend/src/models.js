@@ -17,7 +17,10 @@
 // build of the model, not a different model.
 const BUILD_TOKENS = new Set([
   'bf16', 'fp8', 'nvfp4', 'int4', 'mxfp4', 'awq', 'gptq',
-  'q8', 'q4', 'iq2m', 'iq1m', 'q3ks', 'exl3',
+  'q8', 'q4', 'iq2m', 'iq1m', 'q3ks', 'q2kxl', 'q4km', 'exl3',
+  // `k2` is EXL3's rate label (2-bit trellis), the same kind of fact as q2kxl.
+  // It keeps vllm-glm53-flash-exl3-k2 in the same model row as the GGUF build.
+  'k2',
   'bf16head',
   'dflash', 'dflash2', 'dspark', 'mtp', 'eagle',
   // `abliterated` earns its place here for the same reason `bf16head` does:
@@ -27,6 +30,15 @@ const BUILD_TOKENS = new Set([
   // model. A finetune that ships genuinely abliterated *weights* would be a
   // row of its own and should not use this token in its slug.
   'abliterated',
+  // `ple` marks the Qwen3.8-Flash-Next build whose PLE n-gram table is packed
+  // to NVFP4 and decoded CPU-side. Same checkpoint lineage and same decode
+  // path as a plain NVFP4 build — it is what makes the model fit, not a
+  // different model.
+  'ple',
+  // `mmap` marks the Qwen3.8-Flash-Next build whose packed PLE table is
+  // memory-mapped rather than resident. Same checkpoint lineage, same decode
+  // path — a build of the model, not another model.
+  'mmap',
 ])
 
 const ENGINE_PREFIX = /^(vllm|sglang|llamacpp|atlas)-/
