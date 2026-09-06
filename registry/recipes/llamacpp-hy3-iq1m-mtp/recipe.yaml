@@ -54,10 +54,10 @@ benchmarks:
   code: 18.97
   code-edit: 15.6
 integration:
-  api_url: "http://<SPARK_IP>:9001/v1"
+  api_url: "<HUB>/v1"
   model_id: "hy3"
-  api_key: "not-needed"
-  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"hy3\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+  api_key: "<API_KEY>"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"hy3\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
 
 cover:
   image: tencent-towers.jpg

@@ -3,6 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { formatParams, openUrl } from '../components/RecipeCard'
+import { fillPlaceholders, hubOrigin } from '../lib/urls'
+import { useAuth } from '../auth'
 import { backdropFor, posterFor } from '../covers'
 import { speedLabel } from '../models'
 import CoverInfoModal from '../components/CoverInfoModal'
@@ -547,6 +549,15 @@ function RelatedRecipeCard({ recipe, onSelect }) {
 function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
   const recipes = useStore((s) => s.recipes)
   const selectRecipe = useStore((s) => s.selectRecipe)
+  // /v1 goes through the Hub, so a call needs the caller's own Hub key. The
+  // page never prints it -- it is masked behind a reveal on Account for a
+  // reason -- so the snippets reference the variable `sah env` exports and
+  // the field says where to find it.
+  const authEnabled = useAuth((s) => s.authEnabled)
+  const keyToken = authEnabled ? '$OPENAI_API_KEY' : 'not-needed'
+  const apiKeyHint = authEnabled
+    ? 'Your Hub API key — Account ▸ Your API key'
+    : 'not-needed (this Hub has authentication off)'
   const officialUrl = recipe.website || ''
   const sourceUrl = recipe.upstream || recipe.fork || ''
   const relatedRecipes = (recipe.depends_on || [])
@@ -616,28 +627,35 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
               <div>
                 <div className="text-[11px] uppercase tracking-[0.16em] text-text-dim font-label">API Integration</div>
                 {(recipe.tags?.includes('vllm') || recipe.tags?.includes('sglang') || recipe.tags?.includes('atlas')) && (
-                  <div className="text-[10px] text-text-muted mt-1">Ready-to-serve models are served on port 9001</div>
+                  <div className="text-[10px] text-text-muted mt-1">
+                    The Hub forwards /v1 to whichever model is loaded on port 9001, so this
+                    address keeps working from wherever you reached this page.
+                  </div>
                 )}
               </div>
               <div className="space-y-2.5">
-                <Field label="API URL" value={recipe.integration.api_url.replace('<SPARK_IP>', location.hostname)} />
+                <Field label="API URL" value={fillPlaceholders(recipe.integration.api_url)} />
                 <Field label="Model ID" value={recipe.integration.model_id} />
-                <Field label="API Key" value={recipe.integration.api_key} />
+                <Field label="API Key" value={apiKeyHint} />
                 {recipe.capabilities?.length > 0 && <CapabilityField capabilities={recipe.capabilities} />}
                 {recipe.integration.max_context && <Field label="Max Context" value={recipe.integration.max_context} />}
                 {recipe.integration.max_output_tokens && <Field label="Max Output" value={recipe.integration.max_output_tokens} />}
                 {recipe.integration.curl_example && (
                   <CodeBlock
                     label="curl example"
-                    value={recipe.integration.curl_example.replace(/<SPARK_IP>/g, location.hostname)}
+                    value={fillPlaceholders(recipe.integration.curl_example, { apiKey: keyToken })}
                   />
                 )}
                 <SpeedDetail recipe={recipe} />
                 {(recipe.tags?.includes('vllm') || recipe.tags?.includes('sglang') || recipe.tags?.includes('llama-cpp') || recipe.tags?.includes('atlas')) && (
                   <BenchmarkBlock
                     value={`python3 - <<'EOF'
-import time, urllib.request, json
-HOST = "http://${location.hostname}:9001"
+import os, time, urllib.request, json
+# The Hub's own endpoint, exactly as this page was reached, so the script runs
+# from any machine that can open the Hub. On the Spark itself you can point
+# HOST at http://127.0.0.1:9001 to take the proxy hop out of the measurement.
+HOST = "${hubOrigin()}"
+KEY = os.environ.get("OPENAI_API_KEY", "not-needed")  # eval "$(sah env)" sets it
 MODEL = "${recipe.integration.model_id}"
 PROMPTS = [
     ("code", "Write a quicksort implementation in Python with comments explaining each step."),
@@ -669,7 +687,8 @@ def call(p, mt=512, thinking=True):
     # and reports roughly the mixed-prompt number instead of the peak.
     if not thinking: payload["chat_template_kwargs"] = {"enable_thinking": False}
     body = json.dumps(payload).encode()
-    req = urllib.request.Request(HOST+"/v1/chat/completions", data=body, headers={"Content-Type":"application/json"})
+    headers = {"Content-Type":"application/json","Authorization":"Bearer "+KEY}
+    req = urllib.request.Request(HOST+"/v1/chat/completions", data=body, headers=headers)
     t = time.time()
     with urllib.request.urlopen(req, timeout=600) as r: d = json.loads(r.read())
     return d["usage"]["completion_tokens"], time.time()-t

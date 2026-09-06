@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from daemon.config import settings
 from daemon.models.container import SystemMetrics
 from daemon.services import hf_token
-from daemon.services.connect_service import compute_connect_info
+from daemon.services.connect_service import compute_connect_info, request_origin
 from daemon.services.monitor_service import get_system_metrics
 
 router = APIRouter(tags=["system"])
@@ -15,10 +15,18 @@ router = APIRouter(tags=["system"])
 def connect_info(request: Request):
     """Reachable addresses for wiring up a `sah` client to this Hub.
 
+    The address the browser is on comes off this very request, so a Hub
+    reached through a tunnel hands out the tunnel's URL rather than a LAN
+    name nobody out there can resolve.
+
     Sync `def` so FastAPI runs it in a threadpool — it shells out to
     `tailscale` and opens a socket, which must not block the event loop."""
     user = getattr(request.state, "user", None)
-    return compute_connect_info(settings.public_port, user["api_key"] if user else None)
+    return compute_connect_info(
+        settings.public_port,
+        user["api_key"] if user else None,
+        origin=request_origin(request),
+    )
 
 
 @router.get("/api/system/hf-token")

@@ -55,10 +55,10 @@ benchmarks:
   code: 22.4
   code-edit: 22.2
 integration:
-  api_url: "http://<SPARK_IP>:9001/v1"
+  api_url: "<HUB>/v1"
   model_id: "inkling-small"
-  api_key: "not-needed"
-  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"inkling-small\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
+  api_key: "<API_KEY>"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"inkling-small\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}]}'"
 
 cover:
   image: thinking-machines-murati.jpg

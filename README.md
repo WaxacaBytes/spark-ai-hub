@@ -10,7 +10,10 @@
 curl -fsSL https://raw.githubusercontent.com/WaxacaBytes/spark-ai-hub/main/install.sh | bash
 ```
 
-Open **http://localhost:9000** (or `http://<your-spark-ip>:9000` from another device).
+Open **http://localhost:9000** (or `http://<your-spark-hostname>:9000` from another
+device). Everything the Hub prints about itself — app links, API endpoints, the
+`sah` install line — is built from the address you opened it with, so putting it
+behind a tunnel or reverse proxy needs no configuration.
 
 The first person to open the Hub creates the administrator account — do this
 before exposing the Hub to anything beyond your own machine.

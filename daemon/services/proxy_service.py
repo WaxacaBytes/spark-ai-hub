@@ -141,6 +141,16 @@ def render_caddyfile() -> str:
         "{",
         "\tadmin 0.0.0.0:2019",
         "\tauto_https off",
+        # Without this, Caddy rewrites X-Forwarded-Proto to the scheme *it*
+        # was spoken to — always plain http — and the daemon behind it can
+        # never tell that the user arrived over https. That is how the Hub
+        # ends up printing http:// links for an https tunnel and setting a
+        # session cookie without Secure. cloudflared/nginx/ngrok all sit on
+        # a private address, so trust the forwarded headers from there and
+        # let the real client's scheme and hostname through.
+        "\tservers {",
+        "\t\ttrusted_proxies static private_ranges",
+        "\t}",
         "}",
         "",
         f":{settings.public_port} {{",

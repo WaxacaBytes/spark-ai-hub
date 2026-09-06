@@ -4,20 +4,28 @@ One CLI command per OpenAI-compatible client. `sah opencode` launches
 OpenCode wired to whatever LLM the Spark AI Hub is currently serving.
 Switch models in the Hub UI; clients keep working without reconfiguration.
 
-## Install (on a client laptop on the same LAN)
+## Install (on any device that can open the Hub)
 
 ```sh
-curl http://192.168.3.16:9000/sah/install.sh | sh -s -- --key sah-xxxxxxxx
+curl <the URL in your browser's address bar>/sah/install.sh | sh -s -- --key sah-xxxxxxxx
 ```
 
-The key is your own — copy the whole line from the Hub's **Connect a device**
-panel, or find the key on your **Account** page. A Hub running with
-authentication turned off does not need one.
+Use the Hub's own address exactly as you reach it — `http://spark.local:9000`
+on the LAN, or the https hostname if it is behind a Cloudflare Tunnel. The
+Hub's **Connect an app to your model** panel prints this whole line ready to
+paste, filled in with the address you are browsing from and your own key.
+
+The key is your own — the panel includes it, or find it on your **Account**
+page. A Hub running with authentication turned off does not need one.
+
+The Hub serves this script with its own reachable addresses baked in — the one
+you fetched it from, plus its mDNS name, Tailscale name and LAN IP — and `sah`
+falls back through them, so a changed DHCP lease never breaks the client.
 
 Override the Hub URL:
 
 ```sh
-curl http://192.168.3.16:9000/sah/install.sh | sh -s -- --hub http://other-host:9000
+curl http://<hub>:9000/sah/install.sh | sh -s -- --hub http://other-host:9000
 ```
 
 ## Usage
