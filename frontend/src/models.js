@@ -19,7 +19,8 @@ const BUILD_TOKENS = new Set([
   'bf16', 'fp8', 'nvfp4', 'int4', 'mxfp4', 'awq', 'gptq',
   'q8', 'q4', 'iq2m', 'iq1m', 'q3ks', 'q2kxl', 'q4km', 'exl3',
   // `k2` is EXL3's rate label (2-bit trellis), the same kind of fact as q2kxl.
-  // It keeps vllm-glm53-flash-exl3-k2 in the same model row as the GGUF build.
+  // It keeps vllm-glm53-flash-exl3-k2 in the GLM-5.3-Flash model row rather
+  // than splitting off a row of its own.
   'k2',
   'bf16head',
   'dflash', 'dflash2', 'dspark', 'mtp', 'eagle',

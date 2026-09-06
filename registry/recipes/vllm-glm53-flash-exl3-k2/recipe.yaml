@@ -1,0 +1,64 @@
+name: "GLM-5.3-Flash (EXL3 K2)"
+slug: vllm-glm53-flash-exl3-k2
+version: "1.0.0"
+description: "Z.AI GLM-5.3-Flash, 320B total / 18B active on a hybrid stack alternating linear attention with DeepSeek-style sparse attention, as an EXL3 K2 pack: a QTIP-style 2-bit MCG trellis applied to the 288 routed MoE experts only, with attention, shared experts, embeddings, lm_head, the vision tower and the MTP block all left at source-native BF16. 91.0 GiB against a GGUF Q2_K_XL build's 108.7 GB, and unlike llama.cpp this runtime uses the checkpoint's own MTP block for speculative decoding, which is where the speed comes from. 64K context. EXPERIMENTAL: served by a community vLLM fork shipped as prebuilt aarch64 wheels; stock vLLM cannot load this pack."
+author: "Z.AI"
+source: "community"
+website: "https://huggingface.co/zai-org/GLM-5.3-Flash"
+upstream: "https://huggingface.co/vcruz305/GLM-5.3-Flash-EXL3-K2"
+category: llm
+tags:
+  - llm
+  - moe
+  - zhipu
+  - exl3
+  - trellis
+  - multimodal
+  - vision
+  - reasoning
+  - tool-use
+  - speculative-decoding
+  - mtp
+  - experimental
+  - 2-bit
+logo: "/logos/zai.svg"
+requirements:
+  min_memory_gb: 118
+  recommended_memory_gb: 128
+  disk_gb: 110
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 90
+  gpu: true
+status: experimental
+engine: "vLLM"
+params_b: 320
+active_params_b: 18
+arch: moe
+quantization: "EXL3 K2"
+speculative_method: "mtp"
+context_tokens: 65536
+weights_gb: 97.7
+release_date: "2026-08-30"
+requires_hf_token: false
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-08-31"
+tokens_per_second: 16.2
+tokens_per_second_editing: 19.9
+editing_workload: "code-edit"
+benchmarks:
+  prose: 14.27
+  explainer: 16.91
+  code: 18.05
+  code-edit: 19.9
+integration:
+  api_url: "http://<SPARK_IP>:9001/v1"
+  model_id: "glm-5.3-flash-exl3"
+  api_key: "not-needed"
+  curl_example: "curl http://<SPARK_IP>:9001/v1/chat/completions -H 'Content-Type: application/json' -d '{\"model\": \"glm-5.3-flash-exl3\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}], \"max_tokens\": 512}'"
