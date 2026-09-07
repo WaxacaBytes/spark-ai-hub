@@ -253,9 +253,13 @@ def run_benchmark(model_id):
     return writing_measured, editing_measured, per_workload
 
 
-def update_recipe_yaml(slug, writing_value, editing_value, workload_dict):
+def update_recipe_yaml(slug, editing_value, workload_dict):
     p = RECIPES_DIR / slug / "recipe.yaml"
     content = p.read_text()
+    m = re.search(r'^tokens_per_second:\s*([\d.]+)', content, re.M)
+    if not m:
+        raise RuntimeError(f"could not find tokens_per_second: line in {p}")
+    existing_writing = m.group(1)
 
     # Strip any pre-existing tokens_per_second_editing / editing_workload /
     # benchmarks block (wherever they are) so we can re-insert a clean, complete
@@ -270,8 +274,13 @@ def update_recipe_yaml(slug, writing_value, editing_value, workload_dict):
         if k in workload_dict:
             benchmarks_lines += f"  {k}: {workload_dict[k]}\n"
 
+    # tokens_per_second is deliberately re-emitted UNCHANGED, from the file.
+    # This script fills the Editing column; the writing headline is not its to
+    # set, and overwriting it with one run's measurement (they vary ~5% here)
+    # silently replaced whatever had been established. The line is matched and
+    # rewritten only because the editing fields are inserted directly after it.
     replacement = (
-        f"tokens_per_second: {writing_value:.1f}\n"
+        f"tokens_per_second: {existing_writing}\n"
         f"tokens_per_second_editing: {editing_value:.1f}\n"
         f'editing_workload: "code-edit"\n'
         f"{benchmarks_lines}"
@@ -325,22 +334,26 @@ def process(slug, results):
     # clean port 9001 because main() stops the previous one before launching
     # the next; the LAST slug is simply left running.
 
-    final_writing = round(writing_measured, 1)
-    rel_diff = abs(editing_measured - writing_measured) / writing_measured if writing_measured else 0
+    # Compared against the PUBLISHED writing rate, which is what the Editing
+    # column is shown next to -- not against this run's own writing figure.
+    baseline = writing_published if writing_published else writing_measured
+    final_writing = baseline
+    rel_diff = abs(editing_measured - baseline) / baseline if baseline else 0
     if rel_diff <= NOISE_THRESHOLD:
-        final_editing = final_writing
+        final_editing = round(baseline, 1)
         verdict = "NOISE -> snapped to writing value"
     else:
         final_editing = round(editing_measured, 1)
         verdict = "REAL EDITING GAIN" if editing_measured > writing_measured else "REAL EDITING SLOWDOWN"
 
-    print(f"  writing(measured)={writing_measured:.2f}  editing(measured)={editing_measured:.2f}  => {verdict} => writing={final_writing} editing={final_editing}")
+    print(f"  writing(published, unchanged)={final_writing}  writing(measured this run)={writing_measured:.2f}  "
+          f"editing(measured)={editing_measured:.2f}  => {verdict} => editing={final_editing}")
     # Keep the per-workload breakdown (detail-page panel) consistent with the
     # headline number it's shown alongside — if editing was snapped to the
     # writing value, the code-edit row must show that same snapped value too.
     workload_dict["code-edit"] = final_editing
-    update_recipe_yaml(slug, final_writing, final_editing, workload_dict)
-    results[slug] = f"OK writing={final_writing} editing={final_editing} ({verdict})"
+    update_recipe_yaml(slug, final_editing, workload_dict)
+    results[slug] = f"OK writing={final_writing} (unchanged) editing={final_editing} ({verdict})"
 
 
 def main():
