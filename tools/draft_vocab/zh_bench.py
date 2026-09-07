@@ -31,5 +31,5 @@ for p in PROMPTS:
         v = call(p); rates.append(v); print(f"    {v:.2f} tok/s", flush=True)
 mean = statistics.mean(rates)
 json.dump({"tag": tag, "rates": rates, "mean": mean},
-          open(fWORK + "/zh-{tag}.json", "w"), indent=2)
+          open(f"{WORK}/zh-{tag}.json", "w"), indent=2)
 print(f"MEAN zh {tag}: {mean:.2f} tok/s")

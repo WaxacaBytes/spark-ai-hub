@@ -47,7 +47,7 @@ def main():
                for k in ("prose", "explainer", "code", "writing", "code-edit")}
     out = {"tag": tag, "repeats": repeats, "rows": rows, "mean": summary,
            "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
-    path = fWORK + "/bench-{tag}.json"
+    path = f"{WORK}/bench-{tag}.json"
     with open(path, "w") as f:
         json.dump(out, f, indent=2)
     print("\nMEAN:", json.dumps(summary), flush=True)
