@@ -16,9 +16,17 @@ Address preference, most stable first:
              works fully offline on the LAN, no DNS server needed)
   2. Tailscale MagicDNS — reachable on-LAN *and* remotely, if tailscale is up
   3. LAN IPv4 — always works right now but changes when the box moves
+
+Every candidate also carries a `scope` (lan / vpn / remote), and the reply
+says whether the *caller* is on this box's own LAN (`client_local`) — the
+daemon can see the client's source address, so this is measured, not
+guessed. A client that is told it is local can prefer the LAN addresses
+over a Tailscale or tunnel hostname that would otherwise send its traffic
+out to the internet and back.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 import socket
@@ -87,6 +95,83 @@ def _tailscale_info() -> dict | None:
     return {"dns": dns, "ips": ips, "online": bool(self_.get("Online"))}
 
 
+# ── Is the caller on this box's LAN? ────────────────────────────────────────
+#
+# A `sah` client saves the Hub's addresses once and then keeps using them, so
+# it can end up talking to a Tailscale or tunnel hostname long after it has
+# moved back onto the same LAN as the Hub — every token round-tripping through
+# the internet for a machine two metres away. It cannot work that out on its
+# own (its own IP says nothing about where the Hub is), but the daemon can:
+# it sees the source address of the request and knows its own interfaces.
+
+_SCOPE_BY_KIND = {"mdns": "lan", "ip": "lan", "tailscale": "vpn", "origin": "remote"}
+
+
+def _local_networks() -> list[ipaddress.IPv4Network]:
+    """Every IPv4 subnet this box has an interface on.
+
+    Read from `ip -o -4 addr`, which reports the prefix length — a client on
+    192.168.3.x is only "local" if this box actually holds 192.168.3.0/24, and
+    assuming /24 around our own address would be a guess. Loopback is dropped;
+    docker/bridge subnets are kept, since a caller from one of those is a
+    container on this very host and could not be more local.
+    """
+    try:
+        out = subprocess.run(
+            ["ip", "-o", "-4", "addr", "show"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if out.returncode != 0:
+            return []
+    except (OSError, subprocess.SubprocessError):
+        return []
+    nets: list[ipaddress.IPv4Network] = []
+    for line in out.stdout.splitlines():
+        parts = line.split()
+        if "inet" not in parts:
+            continue
+        cidr = parts[parts.index("inet") + 1]
+        try:
+            net = ipaddress.ip_network(cidr, strict=False)
+        except ValueError:
+            continue
+        if isinstance(net, ipaddress.IPv4Network) and not net.is_loopback:
+            nets.append(net)
+    return nets
+
+
+def client_ip(request) -> str | None:
+    """Caller's address, preferring what a tunnel or reverse proxy says it was.
+
+    Behind Caddy (the Hub's own front door) every request arrives from a docker
+    bridge address, which would make every caller in the world look local; the
+    forwarded headers carry the address that actually matters.
+    """
+    for header in ("cf-connecting-ip", "x-forwarded-for", "x-real-ip"):
+        if val := request.headers.get(header):
+            candidate = val.split(",")[0].strip()
+            if candidate:
+                return candidate
+    return request.client.host if request.client else None
+
+
+def is_local_client(ip: str | None) -> bool:
+    """True when `ip` sits inside one of this box's own IPv4 subnets."""
+    if not ip:
+        return False
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    if not isinstance(addr, ipaddress.IPv4Address):
+        # A Tailscale or public IPv6 caller is not on the LAN; a loopback one
+        # (::1) is this box itself, which is as local as it gets.
+        return addr.is_loopback
+    if addr.is_loopback:
+        return True
+    return any(addr in net for net in _local_networks())
+
+
 # ── The address the caller actually used ────────────────────────────────────
 #
 # Everything below this line is a guess about how the outside world reaches
@@ -148,7 +233,10 @@ def request_origin(request) -> str | None:
 
 
 def compute_connect_info(
-    port: int, api_key: str | None = None, origin: str | None = None
+    port: int,
+    api_key: str | None = None,
+    origin: str | None = None,
+    caller_ip: str | None = None,
 ) -> dict:
     """Return the Hub's reachable addresses plus copy-paste client commands.
 
@@ -161,6 +249,12 @@ def compute_connect_info(
     fronted by something the box knows nothing about — a tunnel, a reverse
     proxy, a custom domain — and that address is the only one the client can
     be told to use, so it leads the list.
+
+    `caller_ip` (see `client_ip`) decides `client_local`: whether the caller is
+    on one of this box's own subnets. The displayed order is left alone — the
+    address someone is reading the page on is still the safest one to paste —
+    but a `sah` client reads `client_local` and `scope` and re-sorts its saved
+    candidates so a machine on the LAN stops routing through the internet.
     """
     hostname = _short_hostname()
     candidates: list[dict] = []
@@ -175,6 +269,7 @@ def compute_connect_info(
             "host": host,
             "url": url,
             "kind": kind,
+            "scope": _SCOPE_BY_KIND.get(kind, "remote"),
             "note": note,
             "recommended": recommended,
         })
@@ -206,6 +301,7 @@ def compute_connect_info(
             "host": origin.split("://", 1)[1],
             "url": origin,
             "kind": "origin",
+            "scope": "remote",
             "note": "The address you are using right now — works wherever this "
                     "page loaded from.",
             "recommended": True,
@@ -222,6 +318,10 @@ def compute_connect_info(
     # to later.
     install_from = origin or primary
 
+    # Where the caller is standing. `local_url` is the address a client on this
+    # LAN should be using right now — recomputed on every request, so a client
+    # that asks again after a DHCP lease change gets the new one for free.
+    local = [c for c in candidates if c["scope"] == "lan"]
     return {
         "hostname": hostname,
         "port": port,
@@ -229,6 +329,10 @@ def compute_connect_info(
         "external_origin": external,
         "primary": primary,
         "candidates": candidates,
+        "client_ip": caller_ip,
+        "client_local": is_local_client(caller_ip),
+        "local_url": next((c["url"] for c in local if c["kind"] == "ip"), None),
+        "local_urls": [c["url"] for c in local],
         "agents": SUPPORTED_AGENTS,
         "commands": {
             "install": (

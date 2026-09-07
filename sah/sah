@@ -13,6 +13,9 @@ where sah previously did something of its own; the handful of deliberate
 divergences are each commented with the reason at the point of divergence.
 
 Hub URL discovery, in order: $SAH_HUB, ~/.config/sah/hub, http://localhost:9000.
+The saved list is not frozen at install time: the Hub restates its own current
+addresses on every /api/system/connect call, so a changed server IP — or a
+laptop that has come back onto the Hub's LAN — is picked up automatically.
 """
 from __future__ import annotations
 
@@ -131,25 +134,111 @@ def _is_alive(base: str, timeout: float = 1.5) -> bool:
     return False
 
 
+# How long a saved candidate list is trusted before we ask the Hub to confirm
+# it. The Hub's LAN IP can change under it at any time (DHCP), so the list is
+# refreshed periodically rather than only at install time — but a `sah` command
+# is interactive, so this is not something to re-check on every invocation.
+HUB_REFRESH_TTL = 6 * 3600
+
+
+def _config_age() -> float | None:
+    """Seconds since the candidate list was last written, or None if unsaved."""
+    try:
+        return time.time() - CONFIG_FILE.stat().st_mtime
+    except OSError:
+        return None
+
+
+def _refresh_candidates(base: str) -> str:
+    """Ask the Hub where it is right now; re-sort and re-save our address list.
+
+    The install-time list goes stale in two ways the client cannot see for
+    itself. The Hub's LAN IP changes when its DHCP lease moves, and — more
+    quietly — a laptop that saved a Tailscale or tunnel address comes home and
+    keeps using it, sending every token out to the internet and back to a box
+    on the same switch. Only the Hub can settle either question: it recomputes
+    its own addresses per request, and it can see our source address, so it
+    knows whether we are on its LAN.
+
+    Returns the address to use for the rest of this run (the current one unless
+    a local address answered and is closer).
+    """
+    try:
+        req = hub_request(f"{base}/api/system/connect")
+        with urllib.request.urlopen(req, timeout=3) as r:
+            info = json.loads(r.read())
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError):
+        return base  # offline, old Hub, or bad key — keep what already works
+
+    fresh = [c["url"].rstrip("/") for c in info.get("candidates") or []
+             if c.get("url")]
+    if not fresh:
+        return base
+    local = [c["url"].rstrip("/") for c in info["candidates"]
+             if c.get("scope") == "lan" and c.get("url")]
+
+    # On the Hub's own LAN the LAN addresses lead, so the next run reaches it
+    # directly. Anywhere else the address that just worked stays in front:
+    # from outside, a `.local` name or a 192.168.x.x is not merely slower, it
+    # is unreachable, and probing it would cost a timeout on every command.
+    order = (local if info.get("client_local") else []) + [base] + fresh
+    ordered: list[str] = []
+    for url in order:
+        if url and url not in ordered:
+            ordered.append(url)
+
+    if ordered != _hub_candidates():
+        write_text(CONFIG_FILE, "\n".join(ordered) + "\n")
+    else:
+        # Unchanged, but confirmed fresh — restart the TTL so the next command
+        # does not ask again.
+        try:
+            os.utime(CONFIG_FILE, None)
+        except OSError:
+            pass
+
+    if ordered[0] != base and _is_alive(ordered[0]):
+        return ordered[0]
+    return base
+
+
 def hub_url() -> str:
     """First reachable Hub address, cached for the life of the process.
 
     With a single candidate we skip the probe (fast path, matches an explicit
     override). With several — the install-time list — we probe in order and use
     the first that answers, so a changed server IP self-heals via the stable
-    mDNS/Tailscale name without the user touching anything."""
+    mDNS/Tailscale name without the user touching anything.
+
+    Whenever the preferred address did not answer, or the saved list has gone
+    stale, the Hub is asked to restate its current addresses (see
+    `_refresh_candidates`) — that is the only way a client learns the box's new
+    IP, or that it is now sitting on the same LAN as the Hub."""
     global _hub_cache
     if _hub_cache:
         return _hub_cache
     candidates = _hub_candidates()
+    chosen: str | None = None
+    fell_back = False
     if len(candidates) == 1:
-        _hub_cache = candidates[0]
+        chosen = candidates[0]
+    else:
+        for i, base in enumerate(candidates):
+            if _is_alive(base):
+                chosen, fell_back = base, i > 0
+                break
+    if chosen is None:
+        _hub_cache = candidates[0]  # nothing answered — most stable candidate
         return _hub_cache
-    for base in candidates:
-        if _is_alive(base):
-            _hub_cache = base
-            return base
-    _hub_cache = candidates[0]  # nothing answered — most stable candidate
+
+    # Set the cache before refreshing: _refresh_candidates issues a Hub request,
+    # and hub_request → api_base → hub_url would otherwise recurse.
+    _hub_cache = chosen
+    if os.environ.get("SAH_HUB"):
+        return _hub_cache  # explicit override: never rewrite the saved list
+    age = _config_age()
+    if age is not None and (fell_back or age > HUB_REFRESH_TTL):
+        _hub_cache = _refresh_candidates(chosen)
     return _hub_cache
 
 
@@ -2398,6 +2487,24 @@ def cmd_env(args) -> None:
         print(f"export OPENAI_API_KEY={API_KEY}")
 
 
+def cmd_refresh_hub(_args) -> None:
+    """Force the periodic address refresh that hub_url() does on its own."""
+    candidates = _hub_candidates()
+    base = next((c for c in candidates if _is_alive(c)), None)
+    if base is None:
+        sys.exit(
+            f"No Hub answered on any saved address:\n    "
+            + "\n    ".join(candidates)
+            + "\n\nCheck the Hub is running, or point sah at it with: sah set-hub <url>"
+        )
+    global _hub_cache
+    _hub_cache = base
+    _hub_cache = _refresh_candidates(base)
+    kv("Hub", _hub_cache)
+    if others := [c for c in _hub_candidates() if c != _hub_cache]:
+        kv("Fallback hubs", ", ".join(others))
+
+
 def cmd_set_hub(args) -> None:
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     write_text(CONFIG_FILE, args.url.rstrip("/") + "\n")
@@ -2482,6 +2589,10 @@ def main() -> None:
     sp = sub.add_parser("set-key", help=f"Save your {PROVIDER_NAME} API key")
     sp.add_argument("key", help="The API key from the Hub's Account page")
     sp.set_defaults(func=cmd_set_key)
+
+    sp = sub.add_parser("refresh-hub",
+                        help="Re-read the Hub's current addresses and re-sort them")
+    sp.set_defaults(func=cmd_refresh_hub)
 
     sp = sub.add_parser("set-hub", help=f"Set the {PROVIDER_NAME} URL")
     sp.add_argument("url")

@@ -291,5 +291,102 @@ class SahCliTests(unittest.TestCase):
                 self.sah.CONFIG_DIR = old_config_dir
 
 
+    # ---------------------------------------------------- Hub address refresh
+    #
+    # The saved candidate list goes stale on its own: the Hub's LAN IP moves
+    # with its DHCP lease, and a laptop carries a tunnel/Tailscale address back
+    # onto the Hub's own LAN. Both are only fixable by asking the Hub, which is
+    # what these cover.
+
+    def _connect_reply(self, client_local):
+        return {
+            "candidates": [
+                {"url": "https://hub.example.com", "scope": "remote"},
+                {"url": "http://spark.local:9000", "scope": "lan"},
+                {"url": "http://spark.tailnet.ts.net:9000", "scope": "vpn"},
+                {"url": "http://192.168.3.219:9000", "scope": "lan"},
+            ],
+            "client_local": client_local,
+        }
+
+    def _refresh(self, tmp, saved, reply, alive, base=None):
+        """Refresh from `base` — the address hub_url() found answering."""
+        config = Path(tmp) / "hub"
+        config.write_text("".join(f"{u}\n" for u in saved))
+        old = self.sah.CONFIG_FILE
+        self.sah.CONFIG_FILE = config
+        try:
+            with mock.patch.object(
+                self.sah.urllib.request, "urlopen",
+                return_value=io.BytesIO(json.dumps(reply).encode()),
+            ), mock.patch.object(
+                self.sah, "_is_alive", side_effect=lambda u, timeout=1.5: u in alive
+            ):
+                chosen = self.sah._refresh_candidates(base or saved[0])
+        finally:
+            self.sah.CONFIG_FILE = old
+        return chosen, config.read_text().split()
+
+    def test_refresh_promotes_lan_addresses_for_a_local_client(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            chosen, saved = self._refresh(
+                tmp,
+                ["https://hub.example.com"],
+                self._connect_reply(client_local=True),
+                alive={"http://spark.local:9000", "https://hub.example.com"},
+            )
+        # Reached over the tunnel, told it is on the Hub's LAN: switch now, and
+        # keep the tunnel as a fallback for when it leaves again.
+        self.assertEqual(chosen, "http://spark.local:9000")
+        self.assertEqual(saved[:2],
+                         ["http://spark.local:9000", "http://192.168.3.219:9000"])
+        self.assertIn("https://hub.example.com", saved)
+
+    def test_refresh_keeps_the_working_address_first_for_a_remote_client(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            chosen, saved = self._refresh(
+                tmp,
+                ["https://hub.example.com"],
+                self._connect_reply(client_local=False),
+                alive={"https://hub.example.com"},
+            )
+        # From outside, a .local name is not slower — it is unreachable, and
+        # probing it would cost a timeout on every single command.
+        self.assertEqual(chosen, "https://hub.example.com")
+        self.assertEqual(saved[0], "https://hub.example.com")
+
+    def test_refresh_drops_a_stale_ip_and_learns_the_current_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            chosen, saved = self._refresh(
+                tmp,
+                ["http://192.168.3.16:9000", "http://spark.tailnet.ts.net:9000"],
+                self._connect_reply(client_local=True),
+                alive={"http://spark.local:9000"},
+                # The old lease is gone, so hub_url() fell through to the
+                # Tailscale name; that is what the refresh is handed.
+                base="http://spark.tailnet.ts.net:9000",
+            )
+        self.assertEqual(chosen, "http://spark.local:9000")
+        self.assertNotIn("http://192.168.3.16:9000", saved)
+        self.assertIn("http://192.168.3.219:9000", saved)
+
+    def test_refresh_leaves_the_saved_list_alone_when_the_hub_cannot_answer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / "hub"
+            config.write_text("http://spark.local:9000\n")
+            old = self.sah.CONFIG_FILE
+            self.sah.CONFIG_FILE = config
+            try:
+                with mock.patch.object(
+                    self.sah.urllib.request, "urlopen",
+                    side_effect=self.sah.urllib.error.URLError("offline"),
+                ):
+                    chosen = self.sah._refresh_candidates("http://spark.local:9000")
+            finally:
+                self.sah.CONFIG_FILE = old
+            self.assertEqual(chosen, "http://spark.local:9000")
+            self.assertEqual(config.read_text(), "http://spark.local:9000\n")
+
+
 if __name__ == "__main__":
     unittest.main()

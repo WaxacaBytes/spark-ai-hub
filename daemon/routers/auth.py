@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from daemon.config import settings
 from daemon.services import auth_service
-from daemon.services.connect_service import request_scheme
+from daemon.services.connect_service import client_ip as _client_ip, request_scheme
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -134,7 +134,7 @@ async def register(body: Credentials, request: Request, response: Response):
     token = await auth_service.create_session(
         user["id"],
         user_agent=request.headers.get("user-agent", ""),
-        ip=_client_ip(request),
+        ip=_client_ip(request) or "",
     )
     set_session_cookie(response, request, token)
     return {"status": "active", "user": auth_service.public_user(user)}
@@ -163,7 +163,7 @@ async def login(body: LoginBody, request: Request, response: Response):
     token = await auth_service.create_session(
         user["id"],
         user_agent=request.headers.get("user-agent", ""),
-        ip=_client_ip(request),
+        ip=_client_ip(request) or "",
     )
     set_session_cookie(response, request, token)
     return {"status": "active", "user": auth_service.public_user(user)}
@@ -240,10 +240,3 @@ async def my_usage(user: dict = Depends(current_user)):
     }
 
 
-def _client_ip(request: Request) -> str:
-    """Caller's address, preferring what the tunnel/proxy says it was."""
-    for header in ("cf-connecting-ip", "x-forwarded-for", "x-real-ip"):
-        val = request.headers.get(header)
-        if val:
-            return val.split(",")[0].strip()
-    return request.client.host if request.client else ""
