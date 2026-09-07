@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react'
 import { useStore } from '../store'
 import { copyText } from '../lib/clipboard'
+import { hasSecret, maskIn } from '../lib/secret'
+import { useApiKey } from '../hooks/useApiKey'
 
 const KIND_LABEL = {
   // "origin" is the address this page was actually loaded from. The daemon
@@ -13,9 +15,17 @@ const KIND_LABEL = {
   ip: 'LAN IP',
 }
 
-function CopyRow({ command }) {
+function CopyRow({ command, secret }) {
   const [state, setState] = useState('idle') // idle | copied | failed
+  const [shown, setShown] = useState(false)
   const codeRef = useRef(null)
+  // Same contract as Account's key card and the model page's benchmark
+  // snippet: the key is masked on screen behind a Show, and Copy hands over
+  // the real command. This modal is opened next to somebody most of the time
+  // -- that is what it is for -- so the key not being readable over a shoulder
+  // matters more here than anywhere else.
+  const carries = hasSecret(command, secret)
+  const display = maskIn(command, secret, shown)
 
   const copy = async () => {
     const ok = await copyText(command)
@@ -24,7 +34,10 @@ function CopyRow({ command }) {
       setTimeout(() => setState('idle'), 1500)
       return
     }
-    // Last resort: select the text so the user can hit Ctrl/Cmd+C.
+    // Last resort: select the text so the user can hit Ctrl/Cmd+C. Reveal
+    // first -- what is selected is what gets copied, and a masked selection
+    // would hand over dots that fail against the Hub.
+    setShown(true)
     const el = codeRef.current
     if (el) {
       const range = document.createRange()
@@ -45,8 +58,17 @@ function CopyRow({ command }) {
         ref={codeRef}
         className="flex-1 px-3 py-2.5 rounded-xl bg-surface-low text-text border border-outline-dim text-xs font-mono overflow-x-auto whitespace-nowrap"
       >
-        {command}
+        {display}
       </code>
+      {carries && (
+        <button
+          onClick={() => setShown(!shown)}
+          className="shrink-0 px-2.5 rounded-xl bg-transparent border border-outline-dim text-text-dim hover:text-primary text-[11px] font-label cursor-pointer transition-colors"
+          title={shown ? 'Hide your API key' : 'Reveal your API key'}
+        >
+          {shown ? 'Hide' : 'Show'}
+        </button>
+      )}
       <button
         onClick={copy}
         className="shrink-0 px-3 rounded-xl bg-primary text-primary-on border-none text-xs font-bold cursor-pointer hover:opacity-90 transition-opacity whitespace-nowrap"
@@ -62,6 +84,7 @@ export default function ConnectModal() {
   const open = useStore((s) => s.connectOpen)
   const info = useStore((s) => s.connectInfo)
   const close = useStore((s) => s.closeConnect)
+  const apiKey = useApiKey()
 
   if (!open) return null
 
@@ -101,7 +124,7 @@ export default function ConnectModal() {
               <div className="text-xs font-semibold text-text-muted font-label uppercase tracking-wide mb-2">
                 Install on a new device
               </div>
-              <CopyRow command={info.commands.install} />
+              <CopyRow command={info.commands.install} secret={apiKey} />
               <p className="text-xs text-text-dim mt-2 m-0 leading-relaxed">
                 This line contains <strong className="text-text-muted">your personal API key</strong> —
                 anyone who runs it can use this Spark as you. Send it only to your own devices.
@@ -115,7 +138,7 @@ export default function ConnectModal() {
               </div>
               <div className="flex flex-col gap-2">
                 <CopyRow command={info.commands.set_hub} />
-                {info.commands.set_key && <CopyRow command={info.commands.set_key} />}
+                {info.commands.set_key && <CopyRow command={info.commands.set_key} secret={apiKey} />}
               </div>
             </div>
 

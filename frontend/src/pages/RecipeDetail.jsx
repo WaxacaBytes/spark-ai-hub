@@ -4,7 +4,8 @@ import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { formatParams, openUrl } from '../components/RecipeCard'
 import { fillPlaceholders, hubOrigin } from '../lib/urls'
-import { maskKey } from '../lib/secret'
+import { hasSecret, maskIn } from '../lib/secret'
+import { useApiKey } from '../hooks/useApiKey'
 import { useAuth } from '../auth'
 import { backdropFor, posterFor } from '../covers'
 import { speedLabel } from '../models'
@@ -561,16 +562,7 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
   // export first. The key is rendered blurred (see BenchmarkBlock): it is in
   // the DOM, so Copy and text selection both take the working value, but it is
   // not readable on screen or in a screenshot of this page.
-  const [benchKey, setBenchKey] = useState(null)
-  useEffect(() => {
-    if (!authEnabled) return
-    let alive = true
-    fetch('/api/auth/me')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => alive && d?.api_key && setBenchKey(d.api_key))
-      .catch(() => {})
-    return () => { alive = false }
-  }, [authEnabled])
+  const benchKey = useApiKey()
   const benchKeyLiteral = benchKey || (authEnabled ? '$OPENAI_API_KEY' : 'not-needed')
   const apiKeyHint = authEnabled
     ? 'Your Hub API key — Account ▸ Your API key'
@@ -981,8 +973,8 @@ function BenchmarkBlock({ value, secret }) {
   // Copy hands over the real thing. The snippet needs a working key baked in
   // -- it is meant to run on another machine with nothing set up -- but this
   // page is open all day, so the key is not readable until asked for.
-  const hasSecret = Boolean(secret) && value.includes(secret)
-  const display = hasSecret && !shown ? value.replaceAll(secret, maskKey(secret)) : value
+  const carries = hasSecret(value, secret)
+  const display = maskIn(value, secret, shown)
   const copy = () => {
     const text = String(value)
     if (navigator.clipboard?.writeText) {
@@ -996,7 +988,7 @@ function BenchmarkBlock({ value, secret }) {
     <div className="pt-2">
       <div className="flex items-center justify-between mb-1">
         <span className="text-[10px] text-text-dim font-label">benchmark inference speed</span>
-        {hasSecret && (
+        {carries && (
           <button
             onClick={() => setShown(!shown)}
             className="text-[10px] font-label bg-transparent border-none cursor-pointer text-text-dim hover:text-primary transition-colors p-0"

@@ -10,3 +10,17 @@ export function maskKey(key) {
   if (key.length <= 12) return '•'.repeat(key.length)
   return `${key.slice(0, 8)}${'•'.repeat(24)}${key.slice(-4)}`
 }
+
+/* Mask every occurrence of a secret inside a larger blob of text -- a shell
+ * one-liner, a Python snippet -- so the block can be shown on screen while the
+ * copied value stays the real one. Callers pair this with a Show control. */
+export function maskIn(text, secret, shown) {
+  if (!text || !secret || shown) return text
+  return text.replaceAll(secret, maskKey(secret))
+}
+
+/* Does this text carry the secret at all? Drives whether a Show control is
+ * worth rendering. */
+export function hasSecret(text, secret) {
+  return Boolean(text && secret && text.includes(secret))
+}
