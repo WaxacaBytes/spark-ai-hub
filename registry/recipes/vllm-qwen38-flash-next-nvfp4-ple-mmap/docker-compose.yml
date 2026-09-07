@@ -58,8 +58,8 @@ services:
         #   modelopt      MXFP8 attention weights in this checkpoint.
         #   qsa_fp8_kv    lets the QSA kernels store an FP8 KV cache; inert
         #                 when --kv-cache-dtype is BF16.
-        #   mtp_draft_vocab  reduced-vocabulary drafting; inert unless
-        #                 VLLM_MTP_DRAFT_VOCAB is set, which it is not here.
+        #   mtp_draft_vocab  reduced-vocabulary drafting (FR-Spec); reads
+        #                 VLLM_MTP_DRAFT_VOCAB, set below.
         RUN set -eux; \
             V=/usr/local/lib/python3.12/dist-packages/vllm; F=/opt/mia/files; \
             cp $$V/models/qwen3_8_flash_next/nvidia/ple_layer.py       $$F/ple_layer_patched.py.orig; \
@@ -95,7 +95,32 @@ services:
         RUN python3 /opt/mia/files/build_ple_packed_table.py \
               /models/Qwen3.8-Flash-Next-NVFP4 /models/ple_packed \
          && du -sh /models/ple_packed
-    image: spark-ai-hub/vllm-qwen38-flash-next-nvfp4-ple-mmap:mia-ef1af5fa
+
+        # The reduced draft vocabulary (FR-Spec). The MTP drafter reads its own
+        # 1.18 GiB BF16 lm_head over the full 248,320-token vocabulary once per
+        # draft step -- three of the four lm_head reads in an MTP-3 engine step
+        # -- only to take an argmax. Slicing it to these 65,536 ids leaves
+        # 0.31 GiB and saves 2.61 GiB of the bytes every step moves, on a decode
+        # that is bandwidth-bound. Drafts for tokens outside the subset are
+        # rejected at verification, so this trades a little acceptance for
+        # bandwidth and CANNOT change what the server emits: the target model
+        # verifies every drafted token and its own choice is what gets stored.
+        #
+        # Upstream ships the patch but not a vocabulary -- theirs is a generated
+        # artifact kept out of their repo -- so this one was built here with
+        # their files/build_draft_vocab.py method, 2026-09-06:
+        #   wikitext-103 raw (515 MiB) + Python source (47 MiB x3)
+        #   + Chinese Wikipedia (256 MiB) + this model's own output, English
+        #     and Chinese, at temperature 0.8 (124 generations, x20)
+        #   = 231.1M token occurrences, 159,449 distinct ids -> top 65,536.
+        # Coverage of the selected vocabulary, by corpus: English 99.3%,
+        # Python 98.9%, Chinese 98.0%, the model's own output 97.7% (en) and
+        # 96.8% (zh). The Chinese half of that corpus is load-bearing, not
+        # thoroughness: an English+code-only vocabulary covered 32.8% of the
+        # model's Chinese output and measured 24.5% SLOWER than no reduction at
+        # all on Chinese prose, while this one is 17.6% faster.
+        COPY draft_vocab.txt /models/draft_vocab.txt
+    image: spark-ai-hub/vllm-qwen38-flash-next-nvfp4-ple-mmap:mia-ef1af5fa-frspec
     container_name: spark-ai-hub-vllm-qwen38-flash-next-nvfp4-ple-mmap
     ports:
       - "9001:8000"
@@ -122,6 +147,9 @@ services:
       - VLLM_PLE_CPU_OFFLOAD=1
       - VLLM_PLE_PACKED_TABLE_DIR=/models/ple_packed
       - VLLM_PLE_OFFLOAD_STEP_TIMEOUT=300
+      # Reduced-vocabulary drafting, from the file baked in above. Without this
+      # the patch is inert and the drafter keeps the full head.
+      - VLLM_MTP_DRAFT_VOCAB=/models/draft_vocab.txt
       # Pin the V2 model runner on every config copy. The target architecture
       # already selects V2, but the speculative draft copy
       # (Qwen3_8FlashNextMTP) is not in the V2 default set, falls back to V1
@@ -183,7 +211,10 @@ services:
       # MTP off the checkpoint's own draft head. K=3 measured best at every
       # concurrency (K=2 ties, K=1 loses 8-14%, K=0 loses 32-46%).
       - --speculative-config
-      - '{"method":"mtp","num_speculative_tokens":3}'
+      # use_local_argmax_reduction routes the speculator through
+      # get_top_tokens(), the only path that reads the sliced head; without it
+      # the vocabulary file above is loaded and never used.
+      - '{"method":"mtp","num_speculative_tokens":3,"use_local_argmax_reduction":true}'
       # FULL decode graphs at every verify width the scheduler can build,
       # (1+3)*S for S in 1..4. vLLM's own list is [1,2,4] plus multiples of 8,
       # so a 3-sequence batch (12 tokens) would pad up to 16 and a width with
