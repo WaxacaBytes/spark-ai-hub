@@ -108,17 +108,30 @@ services:
         #
         # Upstream ships the patch but not a vocabulary -- theirs is a generated
         # artifact kept out of their repo -- so this one was built here with
-        # their files/build_draft_vocab.py method, 2026-09-06:
+        # their files/build_draft_vocab.py method, 2026-09-07:
         #   wikitext-103 raw (515 MiB) + Python source (47 MiB x3)
-        #   + Chinese Wikipedia (256 MiB) + this model's own output, English
-        #     and Chinese, at temperature 0.8 (124 generations, x20)
-        #   = 231.1M token occurrences, 159,449 distinct ids -> top 65,536.
-        # Coverage of the selected vocabulary, by corpus: English 99.3%,
-        # Python 98.9%, Chinese 98.0%, the model's own output 97.7% (en) and
-        # 96.8% (zh). The Chinese half of that corpus is load-bearing, not
-        # thoroughness: an English+code-only vocabulary covered 32.8% of the
-        # model's Chinese output and measured 24.5% SLOWER than no reduction at
-        # all on Chinese prose, while this one is 17.6% faster.
+        #   + this model's own output at temperature 0.8 (88 generations, x20)
+        #   = 160.7M token occurrences, 98,871 distinct ids -> top 65,536.
+        # Coverage: English 99.9%, Python 99.9%, the model's own output 100%.
+        #
+        # This vocabulary is ENGLISH AND CODE ONLY, deliberately. The 65,536
+        # slots are a fixed budget, so ids spent on one language are taken from
+        # another. A variant that added Chinese Wikipedia and Chinese
+        # generations was measured on this box: it took Chinese from 23.1 to
+        # 36.0 tok/s but cost 4-5% of English (writing 43.3 -> 41.4, code-edit
+        # 55.8 -> 53.5). This Hub is prompted in English, so the English-only
+        # vocabulary is the right end of that trade here.
+        #
+        # It is a real trade for EVERY language that is not English, and only
+        # Chinese was measured: on Chinese prose this file is 24.5% SLOWER than
+        # no reduction at all, because it covers 32.8% of what the model emits
+        # in Chinese and every miss is a rejected draft. Latin-script languages
+        # share most of their subwords with English and should sit far closer
+        # to the English end, but that is reasoning, not a measurement -- none
+        # was taken. Nothing about OUTPUT changes in any language: the target
+        # model verifies every drafted token, so this is a speed trade only.
+        # Serving another language heavily means rebuilding the vocabulary with
+        # it in the corpus (tools/draft_vocab/).
         COPY draft_vocab.txt /models/draft_vocab.txt
     image: spark-ai-hub/vllm-qwen38-flash-next-nvfp4-ple-mmap:mia-ef1af5fa-frspec
     container_name: spark-ai-hub-vllm-qwen38-flash-next-nvfp4-ple-mmap
