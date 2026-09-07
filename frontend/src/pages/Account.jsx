@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../auth'
 import { copyText } from '../lib/clipboard'
+import { maskKey } from '../lib/secret'
 
 /* Your own account: who you are, how you sign in, and the API key every
  * client on this Hub authenticates with. */
@@ -80,7 +81,7 @@ function ApiKeyCard({ apiKey, onRotated }) {
     }
   }
 
-  const masked = `${apiKey.slice(0, 8)}${'•'.repeat(24)}${apiKey.slice(-4)}`
+  const masked = maskKey(apiKey)
 
   return (
     <Card

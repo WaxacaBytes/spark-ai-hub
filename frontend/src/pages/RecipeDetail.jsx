@@ -4,6 +4,7 @@ import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { formatParams, openUrl } from '../components/RecipeCard'
 import { fillPlaceholders, hubOrigin } from '../lib/urls'
+import { maskKey } from '../lib/secret'
 import { useAuth } from '../auth'
 import { backdropFor, posterFor } from '../covers'
 import { speedLabel } from '../models'
@@ -555,6 +556,22 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
   // the field says where to find it.
   const authEnabled = useAuth((s) => s.authEnabled)
   const keyToken = authEnabled ? '$OPENAI_API_KEY' : 'not-needed'
+  // The benchmark snippet is meant to be copied and run with nothing else set
+  // up, so it carries the real key rather than a variable the reader has to
+  // export first. The key is rendered blurred (see BenchmarkBlock): it is in
+  // the DOM, so Copy and text selection both take the working value, but it is
+  // not readable on screen or in a screenshot of this page.
+  const [benchKey, setBenchKey] = useState(null)
+  useEffect(() => {
+    if (!authEnabled) return
+    let alive = true
+    fetch('/api/auth/me')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => alive && d?.api_key && setBenchKey(d.api_key))
+      .catch(() => {})
+    return () => { alive = false }
+  }, [authEnabled])
+  const benchKeyLiteral = benchKey || (authEnabled ? '$OPENAI_API_KEY' : 'not-needed')
   const apiKeyHint = authEnabled
     ? 'Your Hub API key — Account ▸ Your API key'
     : 'not-needed (this Hub has authentication off)'
@@ -649,13 +666,14 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
                 <SpeedDetail recipe={recipe} />
                 {(recipe.tags?.includes('vllm') || recipe.tags?.includes('sglang') || recipe.tags?.includes('llama-cpp') || recipe.tags?.includes('atlas')) && (
                   <BenchmarkBlock
+                    secret={benchKey}
                     value={`python3 - <<'EOF'
-import os, time, urllib.request, json
+import os, time, urllib.request, urllib.error, json
 # The Hub's own endpoint, exactly as this page was reached, so the script runs
 # from any machine that can open the Hub. On the Spark itself you can point
 # HOST at http://127.0.0.1:9001 to take the proxy hop out of the measurement.
 HOST = "${hubOrigin()}"
-KEY = os.environ.get("OPENAI_API_KEY", "not-needed")  # eval "$(sah env)" sets it
+KEY = "${benchKeyLiteral}"  # your own Hub key, already filled in
 MODEL = "${recipe.integration.model_id}"
 PROMPTS = [
     ("code", "Write a quicksort implementation in Python with comments explaining each step."),
@@ -687,10 +705,19 @@ def call(p, mt=512, thinking=True):
     # and reports roughly the mixed-prompt number instead of the peak.
     if not thinking: payload["chat_template_kwargs"] = {"enable_thinking": False}
     body = json.dumps(payload).encode()
-    headers = {"Content-Type":"application/json","Authorization":"Bearer "+KEY}
+    # A User-Agent is required, not decoration: Cloudflare answers the default
+    # Python-urllib one with 403 (its error 1010) before the request ever
+    # reaches the Hub, so a tunnelled Hub fails while a LAN one works.
+    headers = {"Content-Type":"application/json","Authorization":"Bearer "+KEY,
+               "User-Agent":"spark-ai-hub-benchmark"}
     req = urllib.request.Request(HOST+"/v1/chat/completions", data=body, headers=headers)
     t = time.time()
-    with urllib.request.urlopen(req, timeout=600) as r: d = json.loads(r.read())
+    try:
+        with urllib.request.urlopen(req, timeout=600) as r: d = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        raise SystemExit(f"HTTP {e.code} from {HOST}: {e.read().decode(errors='replace')[:300]}")
+    except urllib.error.URLError as e:
+        raise SystemExit(f"Cannot reach {HOST}: {e.reason}")
     return d["usage"]["completion_tokens"], time.time()-t
 print("warmup (discarded)..."); call("hi", 32)
 total_tok = total_t = 0
@@ -947,8 +974,15 @@ function CodeBlock({ label, value }) {
   )
 }
 
-function BenchmarkBlock({ value }) {
+function BenchmarkBlock({ value, secret }) {
   const [copied, setCopied] = useState(false)
+  const [shown, setShown] = useState(false)
+  // Same contract as Account's key card: masked on screen behind a Show, and
+  // Copy hands over the real thing. The snippet needs a working key baked in
+  // -- it is meant to run on another machine with nothing set up -- but this
+  // page is open all day, so the key is not readable until asked for.
+  const hasSecret = Boolean(secret) && value.includes(secret)
+  const display = hasSecret && !shown ? value.replaceAll(secret, maskKey(secret)) : value
   const copy = () => {
     const text = String(value)
     if (navigator.clipboard?.writeText) {
@@ -960,7 +994,18 @@ function BenchmarkBlock({ value }) {
   }
   return (
     <div className="pt-2">
-      <span className="text-[10px] text-text-dim font-label block mb-1">benchmark inference speed</span>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] text-text-dim font-label">benchmark inference speed</span>
+        {hasSecret && (
+          <button
+            onClick={() => setShown(!shown)}
+            className="text-[10px] font-label bg-transparent border-none cursor-pointer text-text-dim hover:text-primary transition-colors p-0"
+            title={shown ? 'Hide your API key' : 'Reveal your API key'}
+          >
+            {shown ? 'Hide' : 'Show'} key
+          </button>
+        )}
+      </div>
       <div className="relative bg-surface rounded-xl border border-outline-dim overflow-hidden">
         <div className="px-3 py-2 border-b border-outline-dim bg-surface-high/40">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[10px] font-label">
@@ -974,7 +1019,7 @@ function BenchmarkBlock({ value }) {
           <div className="text-[10px] text-text-dim font-label mt-1">512 tok · temp=0 · warmup discarded</div>
         </div>
         <pre className="p-3 pr-10 text-[11px] text-text-muted font-mono overflow-x-auto whitespace-pre-wrap break-all m-0 leading-relaxed">
-          {value}
+          {display}
         </pre>
         <button onClick={copy} className="absolute top-2 right-2 p-1.5 bg-surface border-none rounded-lg cursor-pointer text-text-dim hover:text-primary transition-colors" title="Copy">
           {copied ? (
