@@ -104,7 +104,20 @@ async def launch(slug: str):
         raise HTTPException(status_code=404, detail="Recipe not found")
     set_pending(slug, "launching")
     clear_ready(slug)
-    result = await launch_recipe(slug)
+    # A build-type recipe whose image is missing gets built by `compose up`
+    # itself, which can run for an hour. Record that output in the same place
+    # install/update put theirs, so /ws/build and the log panel can show it
+    # instead of leaving the user on "Waiting for container to start...".
+    build_recipe = bool(recipe.docker and recipe.docker.build)
+    on_line = None
+    if build_recipe and not (slug in _builds and not _builds[slug]["done"]):
+        _builds[slug] = {"lines": [], "done": False}
+        on_line = _builds[slug]["lines"].append
+    try:
+        result = await launch_recipe(slug, on_line=on_line)
+    finally:
+        if on_line is not None:
+            _builds[slug]["done"] = True
     if result == "launched":
         # Start background health check (will clear_pending when ready)
         await start_health_check(slug)
@@ -262,11 +275,26 @@ async def container_log_ws(websocket: WebSocket, slug: str):
         container = None
         deadline_ticks = 60  # ~60s at 1s/tick
         announced_wait = False
+        build_seen = 0
         while deadline_ticks > 0:
             container = await get_container_name(slug)
             if container:
                 break
-            if not announced_wait:
+            # If a build is running for this slug there IS something to show:
+            # stream it here rather than a static line, and hold the door open
+            # for as long as it runs. build_seen > 0 keeps a build that
+            # finishes mid-wait streaming to its last line; a build that was
+            # already done when we arrived is somebody else's history and is
+            # left alone.
+            build = _builds.get(slug)
+            if build is not None and (not build["done"] or build_seen > 0):
+                lines = build["lines"]
+                while build_seen < len(lines):
+                    await websocket.send_text(lines[build_seen])
+                    build_seen += 1
+                if not build["done"]:
+                    deadline_ticks = 60
+            elif not announced_wait:
                 await websocket.send_text("[spark-ai-hub] Waiting for container to start...")
                 announced_wait = True
             await asyncio.sleep(1)
@@ -275,6 +303,16 @@ async def container_log_ws(websocket: WebSocket, slug: str):
             await websocket.send_text("[spark-ai-hub] Container not running")
             await websocket.close()
             return
+
+        # The container appearing is what ends the loop above, so a build that
+        # produced it still has its last lines ("#8 DONE", "Container Started")
+        # unsent. Flush them before handing over to container logs.
+        build = _builds.get(slug)
+        if build is not None and build_seen > 0:
+            lines = build["lines"]
+            while build_seen < len(lines):
+                await websocket.send_text(lines[build_seen])
+                build_seen += 1
 
         # Start health check alongside log streaming
         await start_health_check(slug)

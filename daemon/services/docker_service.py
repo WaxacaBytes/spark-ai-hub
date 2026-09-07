@@ -511,7 +511,7 @@ def _launch_env() -> dict:
     return env
 
 
-async def launch_recipe(slug: str) -> str:
+async def launch_recipe(slug: str, on_line=None) -> str:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
         return f"Recipe directory not found for {slug}"
@@ -533,7 +533,23 @@ async def launch_recipe(slug: str) -> str:
         cwd=str(recipe_dir),
         env=_launch_env(),
     )
-    output = await proc.stdout.read()
+    # Read line by line rather than to EOF: `compose up -d` builds the image
+    # inline when it is missing, and on a weights-in-image recipe that is an
+    # hour of output the caller needs to see. on_line lets the router mirror it
+    # into the build log the UI streams; the full text is still returned.
+    chunks: list[bytes] = []
+    async for raw in proc.stdout:
+        chunks.append(raw)
+        if on_line is not None:
+            text = raw.decode(errors="replace").rstrip()
+            if '\r' in text:
+                text = text.rsplit('\r', 1)[-1]
+            if text:
+                try:
+                    on_line(text)
+                except Exception:
+                    pass
+    output = b"".join(chunks)
     await proc.wait()
 
     if proc.returncode == 0:
@@ -546,6 +562,14 @@ async def launch_recipe(slug: str) -> str:
             await db.commit()
         finally:
             await db.close()
+        # `compose up` builds the image itself when it is missing, and that
+        # build leaves BuildKit holding a second copy of everything it pulled
+        # -- 240 GB after one weights-in-image recipe. install/update prune
+        # after building; this path did not, so a launch-triggered build
+        # silently re-introduced the leak MANIFEST principle 2 exists to stop.
+        text = output.decode(errors="replace")
+        if "Built" in text or "DONE" in text:
+            await _prune_build_cache()
         return "launched"
     return output.decode(errors="replace")
 
