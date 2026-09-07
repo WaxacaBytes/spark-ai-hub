@@ -51,7 +51,7 @@ tokens_per_second: 41.0
 tokens_per_second_editing: 56.2
 editing_workload: "code-edit"
 benchmarks:
-  prose: 36.47
+  prose: 38
   explainer: 41.09
   code: 46.73
   code-edit: 56.18
