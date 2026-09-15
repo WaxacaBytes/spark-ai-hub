@@ -1,0 +1,69 @@
+name: "Qwen3.8-Flash-Next Uncensored NVFP4 (PLE mmap)"
+slug: vllm-qwen38-flash-next-uncensored-nvfp4-ple-mmap
+version: "1.0.0"
+description: "The uncensored path of the Qwen3.8-Flash-Next single-Spark build — Keys' abliterated checkpoint, which is the same Mia-AiLab NVFP4 quantization the stock recipe serves with the QSA attention output projection spliced and requantized at nine layers (15 through 47). The PLE table, the routed experts, the MTP draft head and the chat template are untouched, so nine of the thirty-four shards differ in content and none differ in length: it is the same 98.7 GiB, the same architecture, the same memory arithmetic, and every serving flag carries over unchanged. That means the whole single-Spark configuration comes with it — the 26.8 GiB PLE n-gram table pre-packed at build time and memory-mapped into vLLM's CPU offload worker so it sits in evictable page cache instead of competing with KV for the Spark's one unified pool, an FP8 KV cache holding roughly a million tokens at the native 262K context, MTP speculative decoding on a reduced 65,536-token draft vocabulary, and BF16 recurrent state. Unlike the abliterated builds elsewhere in the hub, this is not a refusal direction projected out at runtime: the weights themselves were edited, which is why it is a model of its own rather than a switch on the stock one. Vision, tool calling and reasoning all work; OpenAI-compatible API. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty. Removes safety refusals the upstream model was trained to have; supply your own guardrails. The weights are behind a Hugging Face terms gate (18+): accept them on the checkpoint page with the account whose token the Hub holds, or the install fails with a 403."
+author: "Qwen"
+source: "community"
+website: "https://huggingface.co/Qwen/Qwen3.8-Flash-Next"
+upstream: "https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark"
+category: llm
+logo: "/logos/qwen.png"
+tags:
+  - llm
+  - moe
+  - vllm
+  - nvfp4
+  - qwen
+  - multimodal
+  - vision
+  - reasoning
+  - tool-use
+  - speculative-decoding
+  - mtp
+  - long-context
+  - uncensored
+requirements:
+  min_memory_gb: 110
+  recommended_memory_gb: 128
+  disk_gb: 150
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 120
+  gpu: true
+status: experimental
+engine: "vLLM"
+params_b: 177
+active_params_b: 6
+arch: moe
+quantization: "NVFP4"
+speculative_method: "mtp"
+weights_gb: 98.7
+release_date: "2026-09-05"
+tokens_per_second: 41.6
+tokens_per_second_editing: 53.6
+editing_workload: "code-edit"
+benchmarks:
+  prose: 43.25
+  explainer: 39.6
+  code: 42.02
+  code-edit: 53.6
+requires_hf_token: true
+# Terms-gated: the token account must have accepted the agreement on this
+# page (18+, stated intended use, prohibited uses, Qwen Community License)
+# or every file 403s. The Hub checks this before the build starts.
+gated_repos:
+  - "drowzeys/keys-Qwen3.8-flash-next-ablit-Mia-Single-Spark-only"
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-09-08"
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "drowzeys/keys-Qwen3.8-flash-next-ablit-Mia-Single-Spark-only"
+  api_key: "<API_KEY>"
+  max_context: "262144"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"drowzeys/keys-Qwen3.8-flash-next-ablit-Mia-Single-Spark-only\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512}'"
