@@ -40,7 +40,7 @@ params_b: 27
 arch: dense
 quantization: "FP8"
 speculative_method: "dspark"
-artificial_analysis_index: 52
+artificial_analysis_index: 41
 weights_gb: 30.6
 release_date: "2026-08"
 tokens_per_second: 15.4

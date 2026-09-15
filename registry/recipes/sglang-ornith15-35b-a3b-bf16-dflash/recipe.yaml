@@ -38,6 +38,7 @@ active_params_b: 3
 arch: moe
 quantization: "BF16"
 speculative_method: "dflash"
+artificial_analysis_index: null
 weights_gb: 71.9
 release_date: "2026-08"
 requires_hf_token: false

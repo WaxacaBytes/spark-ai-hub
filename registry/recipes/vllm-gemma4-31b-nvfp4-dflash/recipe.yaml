@@ -42,7 +42,7 @@ params_b: 31
 arch: dense
 quantization: "NVFP4"
 speculative_method: "dflash"
-artificial_analysis_index: 39
+artificial_analysis_index: 22
 weights_gb: 32.6
 release_date: "2026-05"
 integration:

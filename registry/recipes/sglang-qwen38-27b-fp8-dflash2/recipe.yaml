@@ -39,7 +39,7 @@ params_b: 27
 arch: dense
 quantization: "FP8"
 speculative_method: "dflash2"
-artificial_analysis_index: 52
+artificial_analysis_index: 41
 weights_gb: 30.2
 tokens_per_second: 23.1
 tokens_per_second_editing: 46.3

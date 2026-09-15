@@ -36,7 +36,7 @@ params_b: 27
 arch: dense
 quantization: "BF16"
 speculative_method: "dflash"
-artificial_analysis_index: 38
+artificial_analysis_index: 29
 weights_gb: 55.6
 release_date: "2026-05-04"
 requires_hf_token: true

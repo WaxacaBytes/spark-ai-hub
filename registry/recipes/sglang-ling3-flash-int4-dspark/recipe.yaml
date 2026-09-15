@@ -42,7 +42,7 @@ active_params_b: 5.1
 arch: moe
 quantization: "INT4"
 speculative_method: "dspark"
-artificial_analysis_index: 38
+artificial_analysis_index: 27
 weights_gb: 79.7
 release_date: "2026-08-21"
 requires_hf_token: false

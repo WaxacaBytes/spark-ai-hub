@@ -40,7 +40,7 @@ active_params_b: 12
 arch: moe
 quantization: "IQ2_M"
 speculative_method: ""
-artificial_analysis_index: 41
+artificial_analysis_index: 32
 weights_gb: 82.4
 release_date: "2026-07-30"
 tested_on:

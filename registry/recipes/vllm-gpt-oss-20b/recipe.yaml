@@ -35,7 +35,7 @@ active_params_b: 3.6
 arch: moe
 quantization: "MXFP4"
 speculative_method: ""
-artificial_analysis_index: 15
+artificial_analysis_index: 9
 weights_gb: 13.8
 release_date: "2025-08"
 tested_on:

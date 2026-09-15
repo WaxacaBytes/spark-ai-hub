@@ -39,7 +39,7 @@ params_b: 27
 arch: dense
 quantization: "BF16"
 speculative_method: "dflash2"
-artificial_analysis_index: 52
+artificial_analysis_index: 41
 weights_gb: 55.6
 tokens_per_second: 12.0
 tokens_per_second_editing: 27.9

@@ -36,7 +36,7 @@ active_params_b: 12
 arch: moe
 quantization: "NVFP4"
 speculative_method: ""
-artificial_analysis_index: 26
+artificial_analysis_index: 19
 weights_gb: 80.3
 release_date: "2026-03"
 tested_on:

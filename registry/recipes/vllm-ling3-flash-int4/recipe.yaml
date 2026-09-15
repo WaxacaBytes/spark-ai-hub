@@ -40,7 +40,7 @@ active_params_b: 5.1
 arch: moe
 quantization: "INT4"
 speculative_method: "mtp"
-artificial_analysis_index: 38
+artificial_analysis_index: 27
 weights_gb: 77.0
 release_date: "2026-08-09"
 requires_hf_token: false

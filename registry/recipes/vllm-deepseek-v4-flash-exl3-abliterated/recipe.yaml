@@ -43,6 +43,7 @@ active_params_b: 13
 arch: moe
 quantization: "EXL3 3.0bpw"
 speculative_method: "dspark"
+artificial_analysis_index: 41
 context_tokens: 262144
 weights_gb: 99.5
 release_date: "2026-07-31"

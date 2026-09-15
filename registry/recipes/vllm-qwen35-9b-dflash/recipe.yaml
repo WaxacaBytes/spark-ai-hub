@@ -36,7 +36,7 @@ params_b: 9
 arch: dense
 quantization: "BF16"
 speculative_method: "dflash"
-artificial_analysis_index: 22
+artificial_analysis_index: 15
 weights_gb: 19.3
 release_date: "2026-04-30"
 integration:

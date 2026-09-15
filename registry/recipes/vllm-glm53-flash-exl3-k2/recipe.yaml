@@ -42,6 +42,7 @@ active_params_b: 18
 arch: moe
 quantization: "EXL3 K2"
 speculative_method: "mtp"
+artificial_analysis_index: 46
 context_tokens: 65536
 weights_gb: 97.7
 release_date: "2026-08-30"

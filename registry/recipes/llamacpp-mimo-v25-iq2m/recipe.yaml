@@ -37,7 +37,7 @@ active_params_b: 15
 arch: moe
 quantization: "IQ2_M"
 speculative_method: ""
-artificial_analysis_index: 38
+artificial_analysis_index: 28
 weights_gb: 96.6
 release_date: "2026-05"
 tested_on:

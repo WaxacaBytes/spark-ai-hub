@@ -35,7 +35,7 @@ active_params_b: 3
 arch: moe
 quantization: "BF16"
 speculative_method: ""
-artificial_analysis_index: 18
+artificial_analysis_index: 12
 weights_gb: 63.2
 release_date: "2026-03"
 tested_on:

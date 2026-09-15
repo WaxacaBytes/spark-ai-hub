@@ -40,6 +40,7 @@ active_params_b: 3
 arch: moe
 quantization: "NVFP4"
 speculative_method: "dflash2"
+artificial_analysis_index: null
 weights_gb: 23.3
 release_date: "2026-08"
 requires_hf_token: false

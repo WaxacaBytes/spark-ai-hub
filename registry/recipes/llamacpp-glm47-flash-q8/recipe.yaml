@@ -36,7 +36,7 @@ active_params_b: 3
 arch: moe
 quantization: "Q8_0"
 speculative_method: ""
-artificial_analysis_index: 23
+artificial_analysis_index: 17
 weights_gb: 31.8
 release_date: "2026-01-19"
 tested_on:

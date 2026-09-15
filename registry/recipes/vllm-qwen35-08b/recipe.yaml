@@ -36,7 +36,7 @@ params_b: 0.8
 arch: dense
 quantization: "BF16"
 speculative_method: "mtp"
-artificial_analysis_index: 5
+artificial_analysis_index: 1
 weights_gb: 1.7
 release_date: "2026-02"
 tested_on:

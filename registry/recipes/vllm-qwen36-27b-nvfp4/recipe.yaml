@@ -39,7 +39,7 @@ params_b: 27
 arch: dense
 quantization: "NVFP4"
 speculative_method: "mtp"
-artificial_analysis_index: 38
+artificial_analysis_index: 29
 weights_gb: 21.9
 release_date: "2026-06-30"
 requires_hf_token: true

@@ -40,7 +40,7 @@ arch: moe
 quantization: "IQ2_M"
 context_tokens: 98304
 speculative_method: ""
-artificial_analysis_index: 52
+artificial_analysis_index: 41
 weights_gb: 90.9
 release_date: "2026-07-31"
 tested_on:

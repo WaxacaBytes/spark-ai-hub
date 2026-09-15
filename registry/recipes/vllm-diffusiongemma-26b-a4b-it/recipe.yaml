@@ -40,7 +40,7 @@ active_params_b: 3.8
 arch: moe
 quantization: "BF16"
 speculative_method: ""
-artificial_analysis_index: null
+artificial_analysis_index: 8
 weights_gb: 51.6
 release_date: "2026-06-13"
 requires_hf_token: false
