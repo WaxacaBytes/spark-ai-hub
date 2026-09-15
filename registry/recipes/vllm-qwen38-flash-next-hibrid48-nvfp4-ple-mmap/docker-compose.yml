@@ -1,0 +1,153 @@
+services:
+  vllm:
+    # Qwen3.8-Flash-Next (Qwen4ExpForConditionalGeneration, model_type
+    # qwen4_exp) served from myllmbox's hibrid48 checkpoint on their published
+    # single-Spark image.
+    #
+    # Why this exists next to vllm-qwen38-flash-next-nvfp4-ple-mmap, which
+    # serves the same model: hibrid48 stores the output head as NVFP4 W4A16
+    # (0.33 GiB instead of a 1.18 GiB BF16 matrix). MTP reads that head about
+    # four times per engine step, and it was 27% of the step, so the 4-bit head
+    # moves engine steps from 14.4 to 17.7 per second. The PLE n-gram table
+    # ships in the checkpoint already packed (8 `ple-nvfp4-*` shards, 26.9 GiB)
+    # and the image memory-maps it, so there is no table to build here.
+    #
+    # Recipe shape and every serving flag follow bilikaz's solo recipe, v3,
+    # pinned to commit b570be67ef:
+    #   https://github.com/bilikaz/qwen38-flash-next-recipe
+    #   https://x.com/vr8vr8/status/2099416741478568221
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        # --- weights stage ---------------------------------------------------
+        # Model weights are part of the app artifact: baked into the final
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        # 42 files, 98.1 GiB, pinned to the checkpoint revision measured.
+        FROM python:3.12-slim AS weights
+        # 60s read timeout: the default 10s aborts the whole download on a
+        # single slow chunk, and this stage pulls 98.1 GiB.
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('myllmbox/Qwen3.8-Flash-Next-hibrid48', revision='e316057ddc794cbf76c3ef28bfd1c7b62b20128c', local_dir='/weights', ignore_patterns=['.gitattributes'], max_workers=8)"
+
+        # --- runtime stage ---------------------------------------------------
+        # The publisher's image, pinned by digest: stock vllm/vllm-openai:v0.29.0
+        # (arm64, CUDA 13) plus eight source patches, listed in its
+        # `mbx.patches` label. Nothing is compiled or patched here. Stock 0.29
+        # cannot load this checkpoint: it builds the output head without the
+        # checkpoint's quantization config and fails on a shape mismatch.
+        #   ple-nvfp4-v029            NVFP4 PLE table loader
+        #   qsa-pre-indexer-rope-clamp, qsa-fused-draft   QSA RoPE clamp, fused MTP draft
+        #   lm-head-quant-config      the 4-bit output head (hibrid48)
+        #   qsa-fp8-kv-v029           FP8 KV on the QSA path (vLLM PR #54846)
+        #   loader-drop-page-cache-v029   drops each shard's page cache once loaded
+        #   ple-mmap-v029, ple-mmap-dual-v029   the memory-mapped table: direct
+        #                             NVMe reads during boot, mmap gather after
+        FROM myllmbox/qwen38-flash-next-vllm:v3@sha256:61d2bc6ba5977024895734d0ef94918ac806d936c4e17a263906e246599f9862
+        COPY --from=weights /weights /models/Qwen3.8-Flash-Next-hibrid48
+    image: spark-ai-hub/vllm-qwen38-flash-next-hibrid48-nvfp4-ple-mmap:mbx-v3
+    container_name: spark-ai-hub-vllm-qwen38-flash-next-hibrid48-nvfp4-ple-mmap
+    ports:
+      - "9001:8000"
+    ipc: host
+    # The GB10's ten Cortex-X925 cores (3.9 GHz); 0-4 and 10-14 are the
+    # 2.8 GHz A725s. Upstream measured +2-3% at every concurrency.
+    cpuset: "5-9,15-19"
+    # No mem_limit, as upstream. The PLE table lives in page cache on purpose,
+    # and a cgroup cap would charge those file pages to this container and
+    # evict table rows the GPU is about to gather.
+    environment:
+      # Offline-first: the checkpoint, with its PLE table, is in the image.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # The n-gram (PLE) table is never allocated. Its 8 shard files are mapped
+      # and the GPU gathers rows straight out of the mapping. "auto" reads
+      # directly from NVMe during boot and gathers from the mmap afterwards;
+      # PREWARM=auto pulls the whole table into memory once, right after boot.
+      - MBX_PLE_MMAP=1
+      - MBX_PLE_MMAP_MODE=auto
+      - MBX_PLE_MMAP_PREWARM=auto
+      - PYTHONUNBUFFERED=1
+      # Marlin small-N fast path (self-gating).
+      - VLLM_MARLIN_USE_ATOMIC_ADD=1
+      - TORCH_CUDA_ARCH_LIST=12.1a
+      - FLASHINFER_CUDA_ARCH_LIST=12.1a
+      # glibc returns large freed blocks to the OS immediately. Otherwise the
+      # loader's garbage stays resident and ends up in swap.
+      - MALLOC_MMAP_THRESHOLD_=65536
+      - MALLOC_TRIM_THRESHOLD_=131072
+      - VLLM_NO_USAGE_STATS=1
+      - DO_NOT_TRACK=1
+    # Entrypoint is `vllm serve`.
+    command:
+      - /models/Qwen3.8-Flash-Next-hibrid48
+      - --served-model-name
+      - Qwen/Qwen3.8-Flash-Next
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      # Fastest MoE kernel for NVFP4 W4A16 on GB10 in vLLM 0.29.
+      - --moe-backend
+      - marlin
+      # The PLE path needs the mp executor. vLLM picks `uni` at TP1.
+      - --distributed-executor-backend
+      - mp
+      # With --kv-cache-memory pinned, this does not size the KV pool.
+      - --gpu-memory-utilization
+      - "0.70"
+      # 8 GB of FP8 KV = 447,935 tokens (upstream measured). The table uses
+      # the rest of the box, so a bigger pin leaves fewer table rows resident
+      # and does not make serving faster.
+      - --kv-cache-memory
+      - "8000000000"
+      # The image's port of PR #54846. At K=3 it costs no draft acceptance
+      # (3.41 FP8 vs 3.32 BF16).
+      - --kv-cache-dtype
+      - fp8
+      - --max-model-len
+      - "262144"
+      # vLLM 0.29 rounds every FULL decode-graph size up to a multiple of
+      # K+1 (= 4) and drops sizes past the largest one listed. The list must
+      # therefore reach seats x 4 = 32, or the upper seats decode with no graph.
+      - --compilation-config
+      - '{"cudagraph_mode":"FULL_AND_PIECEWISE","cudagraph_capture_sizes":[1,2,4,8,12,16,20,24,28,32],"compile_ranges_endpoints":[32]}'
+      # Each running request holds about 12% of the pool in GDN state at any
+      # length. 8 seats fit about 3K tokens of context each, 4 seats about 50K,
+      # and 1-2 seats the full 262K.
+      - --max-num-seqs
+      - "8"
+      # Also the image-encoder budget (a full-resolution image is ~4.1K
+      # tokens). Keep it if you send images.
+      - --max-num-batched-tokens
+      - "8192"
+      - --enable-prefix-caching
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_xml
+      - --reasoning-parser
+      - qwen3
+      # K=3: acceptance about 3.4 on code, 2.8 on reasoning. Upstream measured
+      # K=4 at +3-8% tok/s, but the 8th seat no longer fits the 8 GB pool.
+      - --speculative-config
+      - '{"method":"mtp","num_speculative_tokens":3}'
+      # +9-12% throughput at 4-5 concurrent streams, neutral at 8.
+      - --async-scheduling
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # NOT unless-stopped: the server holds most of unified memory, so a boot
+    # that fails must stop instead of looping.
+    restart: on-failure:1
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
