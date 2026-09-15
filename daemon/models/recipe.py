@@ -137,6 +137,12 @@ class Recipe(BaseModel):
     weights_gb: float | None = None       # actual weight download size on disk, in GB
     depends_on: list[str] = []
     requires_hf_token: bool = False
+    # HuggingFace repos behind a terms gate, which a token alone does not open:
+    # the account holding it has to have accepted that repo's agreement, and
+    # until it has, every download 403s. Nothing about the token says so, so
+    # declaring the repos here is what lets the Hub check access before a build
+    # spends an hour to fail on the weights stage.
+    gated_repos: list[str] = []
     runtime_env_path: str = ""
     tokens_per_second: float | None = None
     # Two sustained rates, not a number and a spike. Throughput tracks how much

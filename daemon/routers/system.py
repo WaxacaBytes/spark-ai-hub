@@ -1,10 +1,10 @@
 import asyncio
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from daemon.config import settings
 from daemon.models.container import SystemMetrics
-from daemon.services import hf_token
+from daemon.services import hf_token, registry_service
 from daemon.services.connect_service import (
     client_ip,
     compute_connect_info,
@@ -50,6 +50,21 @@ class HFTokenBody(BaseModel):
 async def set_hf_token(body: HFTokenBody):
     hf_token.write_token(body.token)
     return {"status": "saved"}
+
+
+@router.get("/api/system/hf-access/{slug}")
+async def get_hf_access(slug: str):
+    """Can the stored token download this recipe's gated repos?
+
+    Answers before an install rather than after: a terms gate is invisible in
+    the token and only surfaces as a 403 in the weights stage, which for these
+    recipes is an hour of downloading in.
+    """
+    recipe = registry_service.get_recipe(slug)
+    if recipe is None:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    repos = await hf_token.check_repo_access(recipe.gated_repos)
+    return {"ok": all(r["accessible"] for r in repos), "repos": repos}
 
 
 @router.get("/api/system/metrics", response_model=SystemMetrics)

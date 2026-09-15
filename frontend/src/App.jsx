@@ -4,6 +4,7 @@ import { useStore } from './store'
 import { useMetrics } from './hooks/useMetrics'
 import ThemeToggle from './components/ThemeToggle'
 import HfTokenModal from './components/HfTokenModal'
+import HfAccessModal from './components/HfAccessModal'
 import ConnectModal from './components/ConnectModal'
 import LaunchConflictModal from './components/LaunchConflictModal'
 import { useAuth } from './auth'
@@ -206,6 +207,7 @@ export default function App() {
         </main>
       </div>
       <HfTokenModal />
+      <HfAccessModal />
       <ConnectModal />
       <LaunchConflictModal />
     </div>

@@ -41,6 +41,10 @@ export const useStore = create((set, get) => ({
   // When non-null, a global modal prompts for an HF token before the
   // pending action (`install` or `launch`) on the given slug proceeds.
   hfTokenRequest: null,
+  // When non-null, a global modal explains that the recipe's weights are
+  // behind a HuggingFace terms gate the token holder has not accepted yet:
+  // { slug, action, repos: [{ repo_id, url }] }.
+  hfAccessRequest: null,
   // When non-null, a global modal asks to stop what is already running
   // before launching: { slug, blockers: [slug] }.
   launchRequest: null,
@@ -132,6 +136,56 @@ export const useStore = create((set, get) => ({
   },
 
   cancelHfToken: () => set({ hfTokenRequest: null }),
+
+  // True when the stored token can actually download the recipe's gated repos.
+  // A token opens a private repo; it does not open a terms gate — that needs
+  // the account behind it to have accepted the repo's agreement on the web,
+  // which nobody can do on the user's behalf. Returns false having raised the
+  // modal, so callers stop where they would have started an hour-long build
+  // that ends in a 403 on the weights stage.
+  ensureHfAccess: async (slug, action) => {
+    const recipe = get().recipes.find((r) => r.slug === slug)
+    if (!recipe?.gated_repos?.length) return true
+    try {
+      const res = await fetch(`/api/system/hf-access/${slug}`)
+      if (!res.ok) return true
+      const { ok, repos } = await res.json()
+      if (ok) return true
+      set({ hfAccessRequest: { slug, action, repos: repos.filter((r) => !r.accessible) } })
+      return false
+    } catch (e) {
+      // Never let the pre-flight itself be what blocks an install.
+      console.warn('HF access check failed, proceeding anyway:', e)
+      return true
+    }
+  },
+
+  // Re-run the check after the user has accepted the terms in the other tab,
+  // and carry on into the action they originally asked for.
+  recheckHfAccess: async () => {
+    const req = get().hfAccessRequest
+    if (!req) return { ok: false, error: 'No pending request' }
+    try {
+      const res = await fetch(`/api/system/hf-access/${req.slug}`)
+      if (!res.ok) return { ok: false, error: 'Access check failed' }
+      const { ok, repos } = await res.json()
+      if (!ok) {
+        set({ hfAccessRequest: { ...req, repos: repos.filter((r) => !r.accessible) } })
+        return { ok: false, error: 'Still no access. Accept the terms on the page above, then check again.' }
+      }
+    } catch {
+      return { ok: false, error: 'Access check failed' }
+    }
+    set({ hfAccessRequest: null })
+    if (req.action === 'install') {
+      get().installRecipe(req.slug)
+    } else if (req.action === 'launch') {
+      get().launchRecipe(req.slug)
+    }
+    return { ok: true }
+  },
+
+  cancelHfAccess: () => set({ hfAccessRequest: null }),
 
   openConnect: async () => {
     set({ connectOpen: true })
@@ -260,6 +314,7 @@ export const useStore = create((set, get) => ({
         console.warn('HF token check failed, proceeding anyway:', e)
       }
     }
+    if (!(await get().ensureHfAccess(slug, 'install'))) return
 
     set((s) => {
       const failed = { ...s.lastInstallFailed }
@@ -390,6 +445,7 @@ export const useStore = create((set, get) => ({
         console.warn('HF token check failed, proceeding anyway:', e)
       }
     }
+    if (!(await get().ensureHfAccess(slug, 'launch'))) return
     const blockers = get().recipes
       .filter((r) => r.slug !== slug && (r.running || r.starting) && conflictsWith(recipe, r))
       .map((r) => r.slug)

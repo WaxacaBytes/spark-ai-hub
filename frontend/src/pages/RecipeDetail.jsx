@@ -36,6 +36,7 @@ function RecipeDetailPage({ slug }) {
   const updating = useStore((s) => s.updating)
   const removing = useStore((s) => s.removing)
   const installRecipe = useStore((s) => s.installRecipe)
+  const ensureHfAccess = useStore((s) => s.ensureHfAccess)
   const updateRecipe = useStore((s) => s.updateRecipe)
   const launchRecipe = useStore((s) => s.launchRecipe)
   const stopRecipe = useStore((s) => s.stopRecipe)
@@ -145,6 +146,7 @@ function RecipeDetailPage({ slug }) {
         return
       }
     }
+    if (!(await ensureHfAccess(recipe.slug, 'launch'))) return
     setLaunching(true)
     await launchRecipe(recipe.slug)
     setLaunching(false)
@@ -163,6 +165,7 @@ function RecipeDetailPage({ slug }) {
       if (!res.ok) throw new Error('Failed to save token')
       setShowHfModal(false)
       setHfToken('')
+      if (!(await ensureHfAccess(recipe.slug, 'launch'))) return
       setLaunching(true)
       await launchRecipe(recipe.slug)
       setLaunching(false)
