@@ -1,0 +1,66 @@
+name: "Qwen3.8-Flash-Next Uncensored hibrid48 NVFP4 (PLE mmap)"
+slug: vllm-qwen38-flash-next-uncensored-hibrid48-nvfp4-ple-mmap
+version: "1.0.0"
+description: "The uncensored path of the hibrid48 single-Spark build: OrcaRouter's abliterated Qwen3.8-Flash-Next body, which removes one refusal direction from 149 residual-writing matrices, carrying myllmbox's hibrid48 quantization. The abliteration never touched the output head, so the head is the same NVFP4 tensor as in hibrid48. The PLE table and the requantized MTP drafter are also unchanged. Tensor shapes and precisions match hibrid48 exactly, so every serving flag carries over and the speed is the same. That brings the whole hibrid48 configuration with it: the 4-bit output head that cuts the per-step bytes speculative decoding moves, the 26.9 GiB PLE n-gram table memory-mapped out of the checkpoint so it sits in evictable page cache, an 8 GB FP8 KV cache holding about 448K tokens at the native 262K context, MTP K=3 decoding with async scheduling, and the Spark's ten performance cores. On upstream's thinking-on evaluation it scores HumanEval 94.5, GSM8K 97.5, IFEval 94.5/96.2 and MMLU-Pro 82.9 (hibrid48: 95.7, 98.0, 91.5/93.4, 84.9), and it reasons shorter: median reasoning is 8% shorter and the 90th percentile 27% shorter. Vision, tool calling and reasoning all work; OpenAI-compatible API. It is a reasoning model — the chain-of-thought arrives in the reasoning field, so allow a few hundred max_tokens or the visible answer comes back empty. Removes safety refusals the upstream model was trained to have; supply your own guardrails. The weights are behind a Hugging Face terms gate: accept them on the checkpoint page with the account whose token the Hub holds, or the install fails with a 403."
+author: "Qwen"
+source: "community"
+website: "https://huggingface.co/myllmbox/Qwen3.8-Flash-Next-hibrid48-uncensored"
+upstream: "https://github.com/bilikaz/qwen38-flash-next-recipe"
+category: llm
+logo: "/logos/qwen.png"
+tags:
+  - llm
+  - moe
+  - vllm
+  - nvfp4
+  - qwen
+  - multimodal
+  - vision
+  - reasoning
+  - tool-use
+  - speculative-decoding
+  - mtp
+  - long-context
+  - uncensored
+requirements:
+  min_memory_gb: 110
+  recommended_memory_gb: 128
+  disk_gb: 120
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 9001
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 60
+  gpu: true
+status: experimental
+engine: "vLLM"
+params_b: 177
+active_params_b: 6
+arch: moe
+quantization: "NVFP4"
+speculative_method: "mtp"
+weights_gb: 98.2
+release_date: "2026-09-13"
+requires_hf_token: true
+# Terms-gated: the token account must have accepted the agreement on this
+# page (lawful use, own moderation layer, intended use, Qwen Community
+# License) or every file 403s. The Hub checks this before the build starts.
+gated_repos:
+  - "myllmbox/Qwen3.8-Flash-Next-hibrid48-uncensored"
+tokens_per_second: 40.9
+tokens_per_second_editing: 60.2
+editing_workload: "code-edit"
+benchmarks:
+  prose: 37.34
+  explainer: 41.26
+  code: 45.48
+  code-edit: 60.2
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "Qwen/Qwen3.8-Flash-Next-Uncensored"
+  api_key: "<API_KEY>"
+  max_context: "262144"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"Qwen/Qwen3.8-Flash-Next-Uncensored\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512}'"
