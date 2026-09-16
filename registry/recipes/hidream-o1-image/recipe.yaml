@@ -1,0 +1,52 @@
+name: "HiDream-O1-Image"
+slug: hidream-o1-image
+version: "1.0.0"
+description: "Generate and edit images with HiDream-O1-Image, HiDream's 8B pixel-native unified transformer (the undistilled base model), served by HiDream's own inference server with its own samplers: text-to-image, instruction editing from one image, and subject personalization from two or more. 50 steps at guidance 5, HiDream's pick for editing quality. Your coding agents reach it through the Hub's image tools (generate_image / edit_image). MIT license."
+author: "HiDream.ai"
+source: "community"
+website: "https://huggingface.co/HiDream-ai/HiDream-O1-Image"
+upstream: "https://github.com/WaxacaBytes/hidream-o1-spark-ai-hub"
+category: image-gen
+categories:
+  - image-gen
+tags:
+  - hidream-app
+  - text-to-image
+  - image-edit
+  - multi-image
+  - hidream
+  - diffusion
+  - bf16
+icon: "\U0001F5BC️"
+requirements:
+  min_memory_gb: 40
+  recommended_memory_gb: 56
+  disk_gb: 90
+  cuda_compute: "12.1"
+ui:
+  # HiDream's server also has a web UI at /, but the Hub's MCP image tools call
+  # its API. Proxied so the Hub reaches it at /run/hidream-o1-image/ with no
+  # host port.
+  type: api-only
+  port: 7860
+  proxy: true
+  path: "/"
+  health_path: "/"
+docker:
+  build: true
+  build_time_minutes: 25
+  gpu: true
+status: experimental
+release_date: "2026-05"
+engine: "HiDream"
+params_b: 8
+arch: dense
+quantization: "BF16"
+weights_gb: 32.8
+requires_hf_token: false
+# HiDream's server fixes the schedule per model type (app.py, dev branch): the
+# full model runs 50 steps, guidance 5.0, shift 3.0. Nothing to send; these
+# defaults only document it.
+image_defaults:
+  notes: "Set by HiDream's server for the full model: 50 steps, guidance 5.0, shift 3.0. Native resolution 2048x2048."
+  source: "https://github.com/HiDream-ai/HiDream-O1-Image/blob/dev/app.py"

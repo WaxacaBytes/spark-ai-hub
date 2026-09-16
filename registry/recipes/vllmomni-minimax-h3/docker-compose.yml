@@ -1,0 +1,93 @@
+services:
+  vllm-omni:
+    # MiniMax-H3 (MiniMax), served by vLLM-Omni on the OpenAI videos API:
+    # POST /v1/videos (multipart) queues a job, GET /v1/videos/{id} reports
+    # progress, GET /v1/videos/{id}/content serves the MP4 -- H.264 video plus a
+    # 32 kHz stereo AAC soundtrack generated with it.
+    #
+    # The FL2VA checkpoint partition (text-to-video+audio and first/last-frame
+    # tasks, 144 GB) only; the Ref2VA partition is a separate 144 GB server.
+    #
+    # Flags follow vLLM-Omni's MiniMax-H3 DGX Spark (GB10) recipe:
+    #   * --quantization fp8 is mandatory: the BF16 partition does not fit in
+    #     121 GiB. Online FP8 quantizes the DiT only (62 -> ~31 GiB).
+    #   * No offload of any kind -- on unified memory it frees nothing, and
+    #     layerwise offload doubles peak usage until the OOM killer fires.
+    #   * One GPU: no Ulysses/ring/TP/VAE patch parallelism; tiled VAE decode.
+    # Measured there: 97.7 GiB peak for T2VA at 960x576, 8 s -- the whole Spark.
+    #
+    # Image: vllm/vllm-omni:v0.28.0 -- the latest stable release (not a nightly
+    # or rc), arm64 manifest present, and MiniMax-H3 is in its model list.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('MiniMaxAI/MiniMax-H3', local_dir='/models/MiniMax-H3', allow_patterns=['FL2VA/*', 'LICENSE'])"
+        FROM vllm/vllm-omni:v0.28.0
+        COPY --from=weights /models /models
+    image: spark-ai-hub/vllmomni-minimax-h3:v0.28.0
+    container_name: spark-ai-hub-vllmomni-minimax-h3
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/vllmomni-minimax-h3/, so it never collides with the
+    # LLM on 9001 or with another media model.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      - VLLM_WORKER_MULTIPROC_METHOD=spawn
+    ipc: host
+    shm_size: 16gb
+    entrypoint: ["vllm"]
+    command:
+      - serve
+      - /models/MiniMax-H3/FL2VA
+      - --omni
+      - --trust-remote-code
+      - --served-model-name
+      - MiniMaxAI/MiniMax-H3
+      - --host
+      - 0.0.0.0
+      - --port
+      - "30000"
+      - --init-timeout
+      - "3600"
+      - --num-gpus
+      - "1"
+      - --tensor-parallel-size
+      - "1"
+      - --text-encoder-tp-size
+      - "1"
+      - --usp
+      - "1"
+      - --ring
+      - "1"
+      - --vae-patch-parallel-size
+      - "1"
+      - --vae-parallel-mode
+      - tile
+      - --vae-use-tiling
+      - --quantization
+      - fp8
+      - --enforce-eager
+      - --diffusion-attention-backend
+      - CUDNN_ATTN
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

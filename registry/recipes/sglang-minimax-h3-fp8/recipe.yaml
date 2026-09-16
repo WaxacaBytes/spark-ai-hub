@@ -1,0 +1,61 @@
+name: "MiniMax-H3 FP8"
+slug: sglang-minimax-h3-fp8
+version: "1.0.0"
+description: "Generate video with a matching soundtrack from a text prompt using MiniMax-H3, the top open-weights text-to-video and image-to-video model on the Artificial Analysis arenas. Compact build from Comfy-Org: the AdaLN-pruned FP8 video model and NVFP4 text encoder bring the weights from 144 GB to about 44 GB. Served by SGLang Diffusion; your coding agents reach it through the Hub's video tools (generate_video / get_video). MiniMax-H3 Community License."
+author: "MiniMax"
+source: "community"
+website: "https://huggingface.co/MiniMaxAI/MiniMax-H3"
+upstream: "https://github.com/sgl-project/sglang/blob/v0.5.19/docs/cookbook/diffusion/MiniMax/MiniMax-H3.mdx"
+category: video-gen
+categories:
+  - video-gen
+tags:
+  - openai-videos
+  - text-to-video
+  - video-audio
+  - minimax
+  - sglang
+  - fp8
+icon: "\U0001F3AC"
+requirements:
+  min_memory_gb: 64
+  recommended_memory_gb: 121
+  disk_gb: 100
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP video tools call its API. Proxied so
+  # the Hub reaches it at /run/sglang-minimax-h3-fp8/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 45
+  gpu: true
+status: experimental
+release_date: "2026-07"
+engine: "SGLang"
+quantization: "FP8"
+weights_gb: 44.4
+requires_hf_token: false
+# SGLang's H3 request contract: timing and canvas come only from
+# extra_params.target (768 short edge, 4-15 s at 24 fps); fps, num_frames and
+# guidance are rejected. MiniMax's own example request
+# (scripts/readme/reproducible-768p-t2va-request.sh) sets no step count and
+# MiniMax publishes none, so no steps default is sent. flow_shift 12 is the
+# checkpoint's own scheduler_config.json shift.
+video_defaults:
+  seconds: 5
+  flow_shift: 12.0
+  extra_params:
+    task: "t2va"
+    conditions: []
+    target:
+      short_edge: 768
+      aspect_ratio: "16:9"
+      duration_seconds: 5.0
+    audio_flow_shift: 3.0
+  notes: "MiniMax publishes no step count (its example request leaves it unset). 768p short edge at 24 fps; clips run 4-15 s, per the model card; shift 12 from the checkpoint's scheduler config."
+  source: "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/scripts/readme/reproducible-768p-t2va-request.sh"

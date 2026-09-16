@@ -1,0 +1,78 @@
+services:
+  sglang:
+    # Qwen-Image-Edit-2511 in NVFP4, the SGLang team's own ModelOpt checkpoint
+    # (lmsys/qwen-image-edit-2511-modelopt-nvfp4-sglang), served by SGLang
+    # Diffusion on the OpenAI images API: POST /v1/images/edits with one or more
+    # input images. The transformer blocks are NVFP4 except the first and last
+    # two; the text encoder and VAE stay BF16. 30.4 GB instead of 57.7.
+    #
+    # Image: lmsysorg/sglang:v0.5.19-cu130 -- a stable numbered release (not a
+    # rolling dev/nightly tag), arm64 manifest present, and this model is in
+    # its diffusion registry.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        #
+        # Downloaded to a plain directory, not the HF cache: SGLang resolves a
+        # repo id through snapshot_download, and offline that refuses a cached
+        # snapshot with any file missing. A local path is loaded as-is.
+        ENV HF_HUB_DISABLE_XET=1
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('lmsys/qwen-image-edit-2511-modelopt-nvfp4-sglang', local_dir='/models/qwen-image-edit-2511-modelopt-nvfp4-sglang', ignore_patterns=['*.jpg', '*.png', '*.webp', 'assets/*'])"
+        FROM lmsysorg/sglang:v0.5.19-cu130
+        COPY --from=weights /models /models
+    image: spark-ai-hub/sglang-qwen-image-edit-2511-nvfp4:v0.5.19-cu130
+    container_name: spark-ai-hub-sglang-qwen-image-edit-2511-nvfp4
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/sglang-qwen-image-edit-2511-nvfp4/, so it never collides with the LLM on 9001 or
+    # with another image model.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    shm_size: 16gb
+    command:
+      - sglang
+      - serve
+      # SGLang's diffusion registry picks the pipeline by matching the model
+      # name inside this directory path.
+      - --model-path
+      - /models/qwen-image-edit-2511-modelopt-nvfp4-sglang
+      - --served-model-name
+      - Qwen/Qwen-Image-Edit-2511
+      - --host
+      - 0.0.0.0
+      - --port
+      - "30000"
+      # SGLang offloads the DiT and the text encoder to CPU by default for
+      # image models, whatever the GPU size. On the Spark CPU and GPU share
+      # the same memory, so offload only adds copies back and forth.
+      - --dit-cpu-offload
+      - "false"
+      - --text-encoder-cpu-offload
+      - "false"
+      # Pinned host buffers are only for fast CPU<->GPU transfer, which
+      # unified memory never needs; pinning would lock memory for nothing.
+      - --pin-cpu-memory
+      - "false"
+      - --output-path
+      - /tmp/sglang-outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

@@ -1,0 +1,59 @@
+name: "Wan2.2-VACE-Fun-A14B"
+slug: vllmomni-wan22-vace-fun-a14b
+version: "1.0.0"
+description: "Create and edit videos with Wan2.2-VACE-Fun-A14B, the two-expert 14B all-in-one video model: text-to-video, image-to-video, reference-to-video, and editing or inpainting an existing video from an instruction. Served by vLLM-Omni on the OpenAI videos API; your coding agents reach it through the Hub's video tools (generate_video / get_video). Apache 2.0. Needs most of the Spark's memory."
+author: "Alibaba PAI · diffusers conversion by Pyros13"
+source: "community"
+website: "https://huggingface.co/Pyros13/Wan2.2-VACE-Fun-A14B-Diffusers"
+upstream: "https://huggingface.co/alibaba-pai/Wan2.2-VACE-Fun-A14B"
+category: video-gen
+categories:
+  - video-gen
+tags:
+  - openai-videos
+  - text-to-video
+  - image-to-video
+  - video-edit
+  - wan
+  - vace
+  - vllm-omni
+  - bf16
+icon: "\U0001F3AC"
+requirements:
+  min_memory_gb: 90
+  recommended_memory_gb: 110
+  disk_gb: 130
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP tools call its API. Proxied so the
+  # Hub reaches it at /run/vllmomni-wan22-vace-fun-a14b/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 45
+  gpu: true
+status: experimental
+release_date: "2025-09"
+engine: "vLLM-Omni"
+params_b: 27
+active_params_b: 14
+arch: moe
+quantization: "BF16"
+weights_gb: 81.2
+requires_hf_token: false
+# From Alibaba PAI's own VideoX-Fun scripts for this model
+# (examples/wan2.2_vace_fun/predict_*.py): 832x480, 81 frames, 16 fps,
+# 50 steps, guidance 5.0, shift 12.
+video_defaults:
+  steps: 50
+  guidance_scale: 5.0
+  fps: 16
+  num_frames: 81
+  size: "832x480"
+  flow_shift: 12.0
+  notes: "Alibaba PAI's VideoX-Fun settings: 832x480, 81 frames (~5 s at 16 fps), 50 steps, guidance 5.0, shift 12."
+  source: "https://github.com/aigc-apps/VideoX-Fun/blob/main/examples/wan2.2_vace_fun/predict_v2v_control.py"

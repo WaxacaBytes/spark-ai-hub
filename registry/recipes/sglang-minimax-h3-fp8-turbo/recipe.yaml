@@ -1,0 +1,61 @@
+name: "MiniMax-H3 FP8 Turbo"
+slug: sglang-minimax-h3-fp8-turbo
+version: "1.0.0"
+description: "Generate video with a matching soundtrack from a text prompt using MiniMax-H3, the top open-weights text-to-video and image-to-video model on the Artificial Analysis arenas, sped up with lightx2v's 8-step Turbo LoRA: 8 transformer passes instead of the base model's long schedule. Compact build from Comfy-Org (pruned FP8 video model, NVFP4 text encoder, about 46 GB of weights). Served by SGLang Diffusion; your coding agents reach it through the Hub's video tools (generate_video / get_video). MiniMax-H3 Community License."
+author: "MiniMax · Turbo LoRA by lightx2v"
+source: "community"
+website: "https://huggingface.co/lightx2v/Minimax-h3-Turbo"
+upstream: "https://github.com/ModelTC/Minimax-H3-Turbo"
+category: video-gen
+categories:
+  - video-gen
+tags:
+  - openai-videos
+  - text-to-video
+  - video-audio
+  - minimax
+  - sglang
+  - fp8
+  - turbo
+icon: "\U0001F3AC"
+requirements:
+  min_memory_gb: 64
+  recommended_memory_gb: 121
+  disk_gb: 100
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP video tools call its API. Proxied so
+  # the Hub reaches it at /run/sglang-minimax-h3-fp8-turbo/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 45
+  gpu: true
+status: experimental
+release_date: "2026-07"
+engine: "SGLang"
+quantization: "FP8"
+weights_gb: 45.7
+requires_hf_token: false
+# From lightx2v's Minimax-H3-Turbo README for the FL2VA Turbo 8-step v1.0 768p
+# LoRA: 8 NFE at 1344x768, video shift 6, audio shift 3. SGLang's H3 request
+# counts sigma grid points including the terminal zero, so 8 evaluations are
+# requested as num_inference_steps 9 (SGLang's H3 cookbook).
+video_defaults:
+  steps: 9
+  seconds: 5
+  flow_shift: 6.0
+  extra_params:
+    task: "t2va"
+    conditions: []
+    target:
+      short_edge: 768
+      aspect_ratio: "16:9"
+      duration_seconds: 5.0
+    audio_flow_shift: 3.0
+  notes: "lightx2v's Turbo 8-step 768p settings: 8 transformer evaluations (steps 9 on this server), video shift 6, audio shift 3, 1344x768. Clips run 4-15 s."
+  source: "https://github.com/ModelTC/Minimax-H3-Turbo"

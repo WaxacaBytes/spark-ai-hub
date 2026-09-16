@@ -1,0 +1,54 @@
+name: "Ideogram 4 NVFP4"
+slug: sglang-ideogram-4-nvfp4
+version: "1.0.0"
+description: "Generate images with Ideogram 4, the 9.3B design-focused model with the best text and typography rendering among open-weight models, in NVFP4 (Comfy-Org's 4-bit transformers with Ideogram's FP8 text encoder). Text-to-image only. Served by SGLang Diffusion on the OpenAI images API; your coding agents reach it through the Hub's image tools (generate_image). Ideogram 4 Non-Commercial license."
+author: "Ideogram"
+source: "community"
+website: "https://huggingface.co/ideogram-ai/ideogram-4-fp8"
+upstream: "https://github.com/ideogram-oss/ideogram4"
+category: image-gen
+categories:
+  - image-gen
+tags:
+  - openai-images
+  - text-to-image
+  - ideogram
+  - diffusion
+  - sglang
+  - nvfp4
+icon: "\U0001F5BC️"
+requirements:
+  min_memory_gb: 24
+  recommended_memory_gb: 36
+  disk_gb: 70
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP image tools call its API. Proxied so
+  # the Hub reaches it at /run/sglang-ideogram-4-nvfp4/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 20
+  gpu: true
+status: experimental
+release_date: "2026-06"
+engine: "SGLang"
+params_b: 9.3
+arch: dense
+quantization: "NVFP4"
+weights_gb: 38.3
+requires_hf_token: true
+# Ideogram 4 Non-Commercial license: the token's account must accept it on the web.
+gated_repos:
+  - "ideogram-ai/ideogram-4-fp8"
+# Ideogram 4 takes a sampler preset instead of steps/guidance. Ideogram's
+# inference docs: "V4_QUALITY_48 is the default. Fewer steps trade quality for
+# speed."
+image_defaults:
+  preset: "V4_QUALITY_48"
+  notes: "Ideogram's default preset: 48 steps (45 at guidance 7, then 3 polish steps at 3). V4_DEFAULT_20 and V4_TURBO_12 trade quality for speed."
+  source: "https://github.com/ideogram-oss/ideogram4/blob/main/docs/inference.md"

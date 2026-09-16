@@ -1,0 +1,93 @@
+services:
+  sglang:
+    # FLUX.2 [klein] 9B served by SGLang Diffusion, which answers the standard
+    # OpenAI images API: POST /v1/images/generations and /v1/images/edits. The
+    # Hub's MCP server (generate_image / edit_image) talks to exactly that API,
+    # so this recipe needs no adapter code: the `openai-images` tag is enough.
+    #
+    # One model does both jobs: klein is step-distilled (4 steps) and edits
+    # 1+ reference images natively.
+    #
+    # Image: lmsysorg/sglang:v0.5.19-cu130 -- a stable numbered release (not a
+    # rolling dev/nightly tag), arm64 manifest present, and FLUX.2 klein is in
+    # its diffusion registry.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        # The repo also ships the transformer a second time as one 18 GB
+        # single-file checkpoint for ComfyUI; the diffusers layout SGLang loads
+        # does not use it, so it is skipped.
+        #
+        # Downloaded to a plain directory, not the HF cache: SGLang resolves a
+        # repo id through snapshot_download, and offline that refuses a cached
+        # snapshot with any file missing (IncompleteSnapshotError, crash loop).
+        # A local path is loaded as-is.
+        ENV HF_HUB_DISABLE_XET=1
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('black-forest-labs/FLUX.2-klein-9B', local_dir='/models/FLUX.2-klein-9B', ignore_patterns=['flux-2-klein-9b.safetensors', '*.jpg', '*.png'])"
+        FROM lmsysorg/sglang:v0.5.19-cu130
+        COPY --from=weights /models /models
+    image: spark-ai-hub/sglang-flux2-klein-9b:v0.5.19-cu130
+    container_name: spark-ai-hub-sglang-flux2-klein-9b
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/sglang-flux2-klein-9b/, so it never collides with the
+    # LLM on 9001 and both can run at once.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    shm_size: 16gb
+    command:
+      - sglang
+      - serve
+      # The directory name still contains "FLUX.2-klein", which is what
+      # SGLang's diffusion registry matches to pick the klein pipeline.
+      - --model-path
+      - /models/FLUX.2-klein-9B
+      - --served-model-name
+      - black-forest-labs/FLUX.2-klein-9B
+      - --host
+      - 0.0.0.0
+      - --port
+      - "30000"
+      # SGLang offloads the DiT and the text encoder to CPU by default for
+      # image models, whatever the GPU size. On the Spark CPU and GPU share
+      # the same memory, so offload only adds copies back and forth.
+      - --dit-cpu-offload
+      - "false"
+      - --text-encoder-cpu-offload
+      - "false"
+      # Pinned host buffers are only for fast CPU<->GPU transfer, which
+      # unified memory never needs; pinning would lock memory for nothing.
+      - --pin-cpu-memory
+      - "false"
+      - --output-path
+      - /tmp/sglang-outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

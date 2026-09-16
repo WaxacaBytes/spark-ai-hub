@@ -420,11 +420,14 @@ async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
         up_cmd = _compose_cmd(slug, recipe_dir) + ["up", "-d", "--build"]
         yield f"[spark-ai-hub] Running: {' '.join(up_cmd)}"
 
+        # Same env as install: the rebuild re-runs the weights stage, and a
+        # gated checkpoint 401s without the auto-detected HF token.
         proc = await asyncio.create_subprocess_exec(
             *up_cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=str(recipe_dir),
+            env=_launch_env(),
         )
 
         async for line in proc.stdout:
@@ -457,6 +460,7 @@ async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         cwd=str(recipe_dir),
+        env=_launch_env(),
     )
 
     async for line in proc.stdout:
@@ -482,6 +486,7 @@ async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         cwd=str(recipe_dir),
+        env=_launch_env(),
     )
 
     async for line in proc.stdout:

@@ -54,6 +54,39 @@ CREATE TABLE IF NOT EXISTS usage_events (
     source TEXT NOT NULL DEFAULT ''          -- 'api_key' | 'session'
 );
 CREATE INDEX IF NOT EXISTS idx_usage_user_ts ON usage_events(user_id, ts);
+
+-- OAuth for /mcp (daemon/services/oauth_service.py). Clients that registered
+-- themselves (RFC 7591); clients identified by a metadata-document URL are
+-- fetched on demand and never stored.
+CREATE TABLE IF NOT EXISTS oauth_clients (
+    client_id TEXT PRIMARY KEY,
+    client_name TEXT NOT NULL DEFAULT '',
+    redirect_uris TEXT NOT NULL,             -- JSON array
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Authorization codes and tokens, stored as SHA-256 digests like sessions.
+CREATE TABLE IF NOT EXISTS oauth_codes (
+    code_hash TEXT PRIMARY KEY,
+    client_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    redirect_uri TEXT NOT NULL,
+    code_challenge TEXT NOT NULL,
+    resource TEXT NOT NULL DEFAULT '',
+    scope TEXT NOT NULL DEFAULT '',
+    expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+    token_hash TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,                      -- 'access' | 'refresh'
+    client_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    resource TEXT NOT NULL DEFAULT '',
+    scope TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_oauth_tokens_user ON oauth_tokens(user_id);
 """
 
 

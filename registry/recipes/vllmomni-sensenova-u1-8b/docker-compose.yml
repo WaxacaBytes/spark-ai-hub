@@ -1,0 +1,59 @@
+services:
+  vllm-omni:
+    # SenseNova-U1-8B-MoT (SenseTime), served by vLLM-Omni -- the release
+    # vLLM-Omni's SenseNova pipeline and recipe were written for. One native unified
+    # model for text-to-image, instruction editing with one or several reference
+    # images, and image understanding, through the chat API: POST
+    # /v1/chat/completions with "modalities": ["image"].
+    #
+    # Image: vllm/vllm-omni:v0.28.0 -- the latest stable release (not a nightly
+    # or rc), arm64 manifest present, and this model is in its model list.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('sensenova/SenseNova-U1-8B-MoT', local_dir='/models/SenseNova-U1-8B-MoT', ignore_patterns=['*.jpg', '*.png', '*.gif', '*.webp', '*.mp4', 'assets/*', 'docs/*', 'examples/*'])"
+        FROM vllm/vllm-omni:v0.28.0
+        COPY --from=weights /models /models
+    image: spark-ai-hub/vllmomni-sensenova-u1-8b:v0.28.0
+    container_name: spark-ai-hub-vllmomni-sensenova-u1-8b
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/vllmomni-sensenova-u1-8b/, so it never collides with the LLM on 9001
+    # or with another media model.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    shm_size: 16gb
+    entrypoint: ["vllm"]
+    command:
+      - serve
+      - /models/SenseNova-U1-8B-MoT
+      - --omni
+      - --served-model-name
+      - sensenova/SenseNova-U1-8B-MoT
+      - --trust-remote-code
+      - --host
+      - 0.0.0.0
+      - --port
+      - "30000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

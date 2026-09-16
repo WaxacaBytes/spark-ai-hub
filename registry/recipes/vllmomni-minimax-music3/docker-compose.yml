@@ -1,0 +1,124 @@
+services:
+  vllm-omni:
+    # MiniMax-Music3 (MiniMax), served by vLLM-Omni on the OpenAI-style speech
+    # endpoint: POST /v1/audio/speech with the lyrics in `input` and a style
+    # caption in `instructions`; the song comes back as a 32 kHz stereo WAV.
+    # The Hub's MCP music tool (generate_music) calls exactly that.
+    #
+    # Two stages share the GPU: an 8B Qwen3 backbone writes audio tokens, and a
+    # flow-matching acoustic stage renders them to waveform in float32.
+    #
+    # Memory: vLLM-Omni's default deploy config sizes stage 0 for 8 concurrent
+    # songs on a 140 GB card (0.6 of the device) plus 0.2 for stage 1 -- ~97 GB
+    # of the Spark's 121 GiB. The deploy config written below is that same file
+    # with one song at a time (2 rows: every request is a guided cond/uncond
+    # pair) and the fractions cut to 0.3 and 0.25, ~66 GB.
+    #
+    # Image: vllm/vllm-omni:v0.28.0 -- the latest stable release (not a nightly
+    # or rc), arm64 manifest present, and MiniMax-Music3 is in its model list.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('MiniMaxAI/MiniMax-Music3', local_dir='/models/MiniMax-Music3', ignore_patterns=['*.jpg', '*.png', '*.gif', '*.webp', '*.mp3', '*.wav', 'assets/*', 'docs/*'])"
+        FROM vllm/vllm-omni:v0.28.0
+        COPY --from=weights /models /models
+        COPY <<YAML /etc/spark-ai-hub/minimax_music3_spark.yaml
+        pipeline: minimax_music3
+        async_chunk: true
+        trust_remote_code: true
+        connectors:
+          connector_of_shared_memory:
+            name: SharedMemoryConnector
+            extra:
+              codec_streaming: true
+              shm_threshold_bytes: 65536
+              connector_get_sleep_s: 0.01
+              connector_get_max_wait_first_chunk: 30000
+              connector_get_max_wait: 10000
+        stages:
+          - stage_id: 0
+            max_num_seqs: 2
+            gpu_memory_utilization: 0.3
+            dtype: bfloat16
+            max_model_len: 10240
+            max_num_batched_tokens: 10240
+            enforce_eager: false
+            compilation_config:
+              mode: 0
+              cudagraph_capture_sizes: [1, 2]
+              cudagraph_mode: FULL_DECODE_ONLY
+              cudagraph_num_of_warmups: 1
+              custom_ops: ["all"]
+            async_scheduling: false
+            enable_prefix_caching: false
+            devices: "0"
+            output_connectors:
+              to_stage_1: connector_of_shared_memory
+            default_sampling_params:
+              temperature: 1.0
+              max_tokens: 9002
+              extra_args:
+                cfg_role: cond
+                cfg_scale: 1.5
+          - stage_id: 1
+            max_num_seqs: 1
+            gpu_memory_utilization: 0.25
+            dtype: float32
+            enforce_eager: true
+            async_scheduling: false
+            enable_prefix_caching: false
+            max_model_len: 4096
+            max_num_batched_tokens: 4096
+            devices: "0"
+            input_connectors:
+              from_stage_0: connector_of_shared_memory
+            default_sampling_params:
+              temperature: 0.0
+              max_tokens: 4096
+              seed: 0
+        YAML
+    image: spark-ai-hub/vllmomni-minimax-music3:v0.28.0
+    container_name: spark-ai-hub-vllmomni-minimax-music3
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/vllmomni-minimax-music3/, so it never collides with the
+    # LLM on 9001 or with another media model.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    shm_size: 16gb
+    entrypoint: ["vllm"]
+    command:
+      - serve
+      - /models/MiniMax-Music3
+      - --omni
+      - --trust-remote-code
+      - --deploy-config
+      - /etc/spark-ai-hub/minimax_music3_spark.yaml
+      - --served-model-name
+      - MiniMaxAI/MiniMax-Music3
+      - --host
+      - 0.0.0.0
+      - --port
+      - "30000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

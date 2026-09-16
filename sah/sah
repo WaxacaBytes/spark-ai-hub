@@ -246,6 +246,23 @@ def api_base() -> str:
     return f"{hub_url()}/v1"
 
 
+# The Hub's MCP server: generate_image / edit_image on whatever image model the
+# Spark is running. Registered in every client sah wires, under one name, so the
+# agent can make pictures with the same key it uses for the LLM.
+MCP_SERVER = "sah-images"
+# A render takes minutes. Most clients default to a tool timeout well under
+# that (OpenCode 5s, Hermes 120s), so each one is told explicitly.
+MCP_TOOL_TIMEOUT = 900
+
+
+def mcp_url() -> str:
+    return f"{hub_url()}/mcp"
+
+
+def mcp_headers() -> dict:
+    return {"Authorization": f"Bearer {API_KEY}"}
+
+
 def resolved_api_base() -> str:
     """api_base() with an mDNS `.local` hostname replaced by its IPv4 address.
 
@@ -842,6 +859,7 @@ class Claude(Integration):
             "ANTHROPIC_DEFAULT_SONNET_MODEL": model.name,
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": model.name,
             "CLAUDE_CODE_SUBAGENT_MODEL": model.name,
+            "MCP_TOOL_TIMEOUT": os.environ.get("MCP_TOOL_TIMEOUT", str(MCP_TOOL_TIMEOUT * 1000)),
         }
         # Claude Code only knows the context window of models in its own
         # registry; a Hub model is never in it, so it assumes 200k and
@@ -856,7 +874,10 @@ class Claude(Integration):
         return env
 
     def argv(self, model: Model, extra: list[str]) -> list[str]:
-        return ["--model", model.name, *extra]
+        mcp = {"mcpServers": {MCP_SERVER: {
+            "type": "http", "url": mcp_url(), "headers": mcp_headers(),
+        }}}
+        return ["--model", model.name, "--mcp-config", json.dumps(mcp), *extra]
 
 
 # -------------------------------------------------------------------- opencode
@@ -901,6 +922,17 @@ class OpenCode(Integration):
                 }
             },
             "model": f"{PROVIDER}/{model.name}",
+            "mcp": {
+                MCP_SERVER: {
+                    "type": "remote",
+                    "url": mcp_url(),
+                    "headers": mcp_headers(),
+                    # The key is the credential; without this OpenCode probes
+                    # the Hub for OAuth metadata first.
+                    "oauth": False,
+                    "timeout": MCP_TOOL_TIMEOUT * 1000,
+                }
+            },
         })
 
     def _touch_picker_state(self, model: Model) -> None:
@@ -989,6 +1021,11 @@ class Codex(Integration):
             # Hub 401s. launch() exports this variable.
             'env_key = "OPENAI_API_KEY"',
             "",
+            f"[mcp_servers.{MCP_SERVER}]",
+            f"url = {json.dumps(mcp_url())}",
+            'bearer_token_env_var = "OPENAI_API_KEY"',
+            f"tool_timeout_sec = {MCP_TOOL_TIMEOUT}",
+            "",
         ])
         toml_validate(text, self.profile_path())
         write_text(self.profile_path(), text)
@@ -1027,6 +1064,9 @@ class Codex(Integration):
             "-c", f'model_providers.{CODEX_PROFILE}.wire_api="responses"',
             "-c", f'model_providers.{CODEX_PROFILE}.env_key="OPENAI_API_KEY"',
             "-c", f"model_catalog_json={json.dumps(str(self.catalog_path()))}",
+            "-c", f"mcp_servers.{MCP_SERVER}.url={json.dumps(mcp_url())}",
+            "-c", f'mcp_servers.{MCP_SERVER}.bearer_token_env_var="OPENAI_API_KEY"',
+            "-c", f"mcp_servers.{MCP_SERVER}.tool_timeout_sec={MCP_TOOL_TIMEOUT}",
         ]
 
     def launch(self, model: Model, extra: list[str]) -> None:
@@ -1240,6 +1280,11 @@ class Hermes(Integration):
         # would drop the user's, so only seed the key when it is absent.
         if not yaml_has_key(text, "toolsets"):
             text = yaml_upsert(text, ["toolsets"], ["hermes-cli", "web"])
+        text = yaml_upsert(text, ["mcp_servers", MCP_SERVER], {
+            "url": mcp_url(),
+            "headers": mcp_headers(),
+            "timeout": MCP_TOOL_TIMEOUT,
+        })
         write_text(path, text)
 
     def wired(self) -> bool:
@@ -1356,6 +1401,16 @@ class OpenClaw(Integration):
         defaults["model"] = model_cfg
         agents["defaults"] = defaults
         cfg["agents"] = agents
+
+        mcp = cfg.get("mcp") if isinstance(cfg.get("mcp"), dict) else {}
+        servers = mcp.get("servers") if isinstance(mcp.get("servers"), dict) else {}
+        servers[MCP_SERVER] = {
+            "url": mcp_url(),
+            "transport": "streamable-http",
+            "headers": mcp_headers(),
+        }
+        mcp["servers"] = servers
+        cfg["mcp"] = mcp
 
         write_json(path, cfg)
         self._clear_session_overrides(model.name)
@@ -2494,6 +2549,24 @@ def cmd_env(args) -> None:
         print(f"export OPENAI_API_KEY={API_KEY}")
 
 
+def cmd_mcp(args) -> None:
+    """The image MCP server's details, for clients sah does not wire itself."""
+    config = {"mcpServers": {MCP_SERVER: {
+        "type": "http", "url": mcp_url(), "headers": mcp_headers(),
+    }}}
+    if args.json:
+        print(json.dumps(config, indent=2))
+        return
+    kv("MCP URL", mcp_url())
+    kv("Transport", "Streamable HTTP")
+    kv("Header", f"Authorization: Bearer {API_KEY}")
+    kv("Tools", "generate_image, edit_image, list_image_models")
+    kv("Tool timeout", f"allow at least {MCP_TOOL_TIMEOUT}s — a render takes minutes")
+    print(f"\nWired automatically by: sah claude, opencode, codex, hermes, openclaw")
+    print("Any other client (Claude Desktop, osaurus, Cursor, ...):\n")
+    print(json.dumps(config, indent=2))
+
+
 def cmd_refresh_hub(_args) -> None:
     """Force the periodic address refresh that hub_url() does on its own."""
     candidates = _hub_candidates()
@@ -2588,6 +2661,10 @@ def main() -> None:
     sp = sub.add_parser("env", help="Print Hub environment variables")
     sp.add_argument("--anthropic", action="store_true", help="Anthropic-shaped env vars")
     sp.set_defaults(func=cmd_env)
+
+    sp = sub.add_parser("mcp", help="Show the Hub's image MCP server details")
+    sp.add_argument("--json", action="store_true", help="Print only the mcpServers JSON")
+    sp.set_defaults(func=cmd_mcp)
 
     sp = sub.add_parser("integrations", aliases=["clients"],
                         help="List integration modes and lifecycle commands")

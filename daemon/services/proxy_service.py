@@ -126,7 +126,9 @@ def _proxied_recipes() -> list[tuple[str, str, int, bool]]:
     out = []
     for slug, recipe in sorted(get_recipes().items()):
         ui = recipe.ui
-        if ui and ui.proxy and ui.type == "web":
+        # An API-only recipe can be proxied too (image servers the MCP tools
+        # call): it gets the route and health probe, just no Open button.
+        if ui and ui.proxy and ui.type in ("web", "api-only"):
             out.append((slug, _container_name(slug), ui.port, ui.strip_prefix))
     return out
 

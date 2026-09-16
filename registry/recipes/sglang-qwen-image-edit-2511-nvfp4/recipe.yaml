@@ -1,0 +1,54 @@
+name: "Qwen-Image-Edit-2511 NVFP4"
+slug: sglang-qwen-image-edit-2511-nvfp4
+version: "1.0.0"
+description: "Edit images with natural-language instructions using Qwen-Image-Edit-2511, Alibaba's 20B editing model with strong identity and multi-person consistency and multi-image input, in the SGLang team's NVFP4 build (30 GB instead of 58). Served by SGLang Diffusion on the OpenAI images API; your coding agents reach it through the Hub's image tools (edit_image). The LMSYS checkpoint does not name a license."
+author: "Qwen (Alibaba) · NVFP4 by LMSYS"
+source: "community"
+website: "https://huggingface.co/lmsys/qwen-image-edit-2511-modelopt-nvfp4-sglang"
+upstream: "https://huggingface.co/Qwen/Qwen-Image-Edit-2511"
+category: image-gen
+categories:
+  - image-gen
+tags:
+  - openai-images
+  - image-edit
+  - multi-image
+  - qwen
+  - diffusion
+  - sglang
+  - nvfp4
+icon: "\U0001F58C️"
+requirements:
+  min_memory_gb: 36
+  recommended_memory_gb: 48
+  disk_gb: 70
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP image tools call its API. Proxied so
+  # the Hub reaches it at /run/sglang-qwen-image-edit-2511-nvfp4/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 20
+  gpu: true
+status: experimental
+release_date: "2025-12"
+engine: "SGLang"
+params_b: 20
+arch: dense
+quantization: "NVFP4"
+weights_gb: 30.4
+requires_hf_token: false
+# From Comfy-Org's official ComfyUI template (image_qwen_image_edit_2511.json):
+# 40 steps at CFG 3. The model card's example uses true CFG 4.0; 3 keeps edits
+# closer to the input with less oversaturation. guidance_scale 1.0 per the card.
+image_defaults:
+  steps: 40
+  true_cfg_scale: 3.0
+  guidance_scale: 1.0
+  notes: "ComfyUI's template: 40 steps, CFG 3 (the model card's example uses 4.0)."
+  source: "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/image_qwen_image_edit_2511.json"

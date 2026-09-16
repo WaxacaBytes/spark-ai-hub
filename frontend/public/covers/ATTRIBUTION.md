@@ -116,9 +116,13 @@ covers stand for.
   https://github.com/microsoft/TRELLIS.2/blob/main/assets/teaser.webp
 - **real-voicebox.jpg** — Voicebox site artwork, Jamie Pine  
   https://voicebox.sh/
+- **scene-flux2-klein.jpg** — Generated with FLUX.2 [klein] 9B · FLUX Non-Commercial License  
+  https://huggingface.co/black-forest-labs/FLUX.2-klein-9B
+- **scene-z-image.jpg** — Generated with Z-Image · Apache 2.0  
+  https://huggingface.co/Tongyi-MAI/Z-Image
 - **tencent-towers.jpg** — Tencent Seafront Towers, the Tencent HQ in Shenzhen (2026) - img 01.jpg · Chainwit. · CC BY 4.0  
   https://commons.wikimedia.org/wiki/File%3ATencent%20Seafront%20Towers%2C%20the%20Tencent%20HQ%20in%20Shenzhen%20%282026%29%20-%20img%2001.jpg
 - **thinking-machines-murati.jpg** — Guests at the 2026 Met Gala 274.jpg · SWinxy · CC BY 4.0  
   https://commons.wikimedia.org/wiki/File%3AGuests%20at%20the%202026%20Met%20Gala%20274.jpg
 
-_56 of 56 covers carry a third-party credit._
+_58 of 58 covers carry a third-party credit._

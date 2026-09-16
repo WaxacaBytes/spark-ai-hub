@@ -1,0 +1,91 @@
+services:
+  vllm-omni:
+    # Wan2.2-VACE-Fun-A14B (alibaba-pai, in Pyros13's diffusers conversion) plus
+    # lightx2v's 4-step Wan2.2 T2V A14B distillation LoRAs, served by vLLM-Omni
+    # on the OpenAI videos API. Two 14B experts (high-noise and low-noise) for
+    # all-in-one video creation and editing: text-to-video, image-to-video,
+    # reference-to-video, and video-to-video editing from an uploaded video --
+    # in 4 steps with CFG off instead of 50.
+    #
+    # VACE-Fun is built on Wan2.2 T2V A14B's two experts, which is what these
+    # LoRAs distill. lightx2v's own config for them (LightX2V
+    # configs/distill/wan22/wan_moe_t2v_distill_lora.json): 4 steps, shift 5.0,
+    # CFG off, 2 steps on each expert.
+    #
+    # --lora-backend distill fuses one LoRA file per pipeline transformer at
+    # startup, in order: transformer (high-noise expert), transformer_2
+    # (low-noise expert).
+    #
+    # Image: vllm/vllm-omni:v0.28.0 -- the latest stable release (not a nightly
+    # or rc), arm64 manifest present, and this model is in its model list.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        # The HF token (when one is configured) only lifts Hugging Face's
+        # anonymous rate limits for this 82 GB download; both repos are public.
+        ENV HF_HUB_DISABLE_XET=1
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Pyros13/Wan2.2-VACE-Fun-A14B-Diffusers', local_dir='/models/Wan2.2-VACE-Fun-A14B-Diffusers', ignore_patterns=['*.jpg', '*.png', '*.gif', '*.webp', '*.mp4', 'assets/*', 'docs/*', 'examples/*'])"
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import hf_hub_download as get; [get('lightx2v/Wan2.2-Distill-Loras', f, local_dir='/models/lora') for f in ('wan2.2_t2v_A14b_high_noise_lora_rank64_lightx2v_4step_1217.safetensors', 'wan2.2_t2v_A14b_low_noise_lora_rank64_lightx2v_4step_1217.safetensors')]"
+        FROM vllm/vllm-omni:v0.28.0
+        COPY --from=weights /models /models
+    image: spark-ai-hub/vllmomni-wan22-vace-fun-a14b-lightning:v0.28.0
+    container_name: spark-ai-hub-vllmomni-wan22-vace-fun-a14b-lightning
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/vllmomni-wan22-vace-fun-a14b-lightning/, so it never
+    # collides with the LLM on 9001 or with another media model.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    shm_size: 16gb
+    entrypoint: ["vllm"]
+    command:
+      - serve
+      - /models/Wan2.2-VACE-Fun-A14B-Diffusers
+      - --omni
+      - --served-model-name
+      - Pyros13/Wan2.2-VACE-Fun-A14B-Diffusers
+      # No --model-class-name: the checkpoint's model_index.json names
+      # WanVACEPipeline, which v0.28.0's registry maps to its Wan2.2 VACE
+      # implementation.
+      - --lora-backend
+      - distill
+      - --lora-path
+      - /models/lora/wan2.2_t2v_A14b_high_noise_lora_rank64_lightx2v_4step_1217.safetensors
+      - /models/lora/wan2.2_t2v_A14b_low_noise_lora_rank64_lightx2v_4step_1217.safetensors
+      - --vae-use-tiling
+      - --enforce-eager
+      - --host
+      - 0.0.0.0
+      - --port
+      - "30000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

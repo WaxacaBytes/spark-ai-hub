@@ -1,0 +1,60 @@
+services:
+  hidream:
+    # HiDream-O1-Image (the undistilled base model) served by HiDream's own
+    # inference server (app.py from HiDream-ai/HiDream-O1-Image), packaged for
+    # DGX Spark in ghcr.io/waxacabytes/hidream-o1-spark-ai-hub. HiDream's
+    # pipeline and samplers do text-to-image, instruction editing (one reference
+    # image) and subject personalization (two or more), all from one model:
+    #   POST /api/generate/start  {prompt, mode: t2i|edit|subject, width,
+    #                              height, seed, refs_b64}  -> {job_id}
+    #   GET  /api/generate/stream/<job_id>  server-sent events, ending in
+    #                              {"type": "done", "image": <base64 PNG>}
+    # The Hub's image tools (generate_image / edit_image) speak this API.
+    #
+    # The full model runs HiDream's undistilled schedule: 50 steps, guidance
+    # 5.0, shift 3.0 -- slower than Dev, HiDream's pick for editing quality.
+    #
+    # Image: the runtime is published by the WaxacaBytes/hidream-o1-spark-ai-hub
+    # repo (pinned to its build of commit 8111dae); only the weights are added
+    # here.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('HiDream-ai/HiDream-O1-Image', local_dir='/models/HiDream-O1-Image', ignore_patterns=['*.jpg', '*.png', '*.webp', 'assets/*'])"
+        FROM ghcr.io/waxacabytes/hidream-o1-spark-ai-hub:sha-8111dae
+        COPY --from=weights /models /models
+    image: spark-ai-hub/hidream-o1-image:sha-8111dae
+    container_name: spark-ai-hub-hidream-o1-image
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/hidream-o1-image/, so it never collides with the LLM
+    # on 9001 or with another image model.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - HIDREAM_MODEL_PATH=/models/HiDream-O1-Image
+      - HIDREAM_MODEL_TYPE=full
+      - HIDREAM_HOST=0.0.0.0
+      - HIDREAM_PORT=7860
+    ipc: host
+    shm_size: 16gb
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

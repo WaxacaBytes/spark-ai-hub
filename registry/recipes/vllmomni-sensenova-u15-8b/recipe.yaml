@@ -1,0 +1,51 @@
+name: "SenseNova-U1.5"
+slug: vllmomni-sensenova-u15-8b
+version: "1.0.0"
+description: "Generate and edit images with SenseTime's SenseNova-U1.5, a native unified 8B model that creates images, edits them from instructions with one or several reference images, and reads text inside them. Served by vLLM-Omni; your coding agents reach it through the Hub's image tools (generate_image / edit_image). Apache 2.0."
+author: "SenseTime (SenseNova)"
+source: "community"
+website: "https://huggingface.co/sensenova/SenseNova-U1.5-8B-MoT"
+upstream: "https://github.com/OpenSenseNova/SenseNova-U1"
+category: image-gen
+categories:
+  - image-gen
+tags:
+  - openai-chat-images
+  - text-to-image
+  - image-edit
+  - multi-image
+  - sensenova
+  - vllm-omni
+  - bf16
+icon: "\U0001F5BC\uFE0F"
+requirements:
+  min_memory_gb: 40
+  recommended_memory_gb: 56
+  disk_gb: 80
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP tools call its API. Proxied so the
+  # Hub reaches it at /run/vllmomni-sensenova-u15-8b/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 25
+  gpu: true
+status: experimental
+release_date: "2026-08"
+engine: "vLLM-Omni"
+params_b: 8
+quantization: "BF16"
+weights_gb: 35.1
+requires_hf_token: false
+# From SenseNova's own inference examples for U1.5 (examples/README.md on the
+# feat/u1.5 branch): --num_steps 50 --cfg_scale 4.0 --timestep_shift 3.0.
+image_defaults:
+  steps: 50
+  guidance_scale: 4.0
+  notes: "SenseNova's example settings: 50 steps, CFG 4.0 (image CFG 1.0 when editing). Lower CFG if colors look oversaturated, per the model card."
+  source: "https://github.com/OpenSenseNova/SenseNova-U1/blob/refs/heads/feat/u1.5/examples/README.md"

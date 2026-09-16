@@ -1,0 +1,53 @@
+name: "Qwen-Image-2512 NVFP4 Lightning"
+slug: sglang-qwen-image-2512-nvfp4-lightning
+version: "1.0.0"
+description: "Generate images in 4 steps with Qwen-Image-2512, Alibaba's 20B text-to-image model with strong text rendering, using lightx2v's Lightning LoRA on the SGLang team's NVFP4 build. Served by SGLang Diffusion on the OpenAI images API; your coding agents reach it through the Hub's image tools (generate_image). The LMSYS checkpoint does not name a license."
+author: "Qwen (Alibaba) · NVFP4 by LMSYS · Lightning LoRA by lightx2v"
+source: "community"
+website: "https://huggingface.co/lightx2v/Qwen-Image-2512-Lightning"
+upstream: "https://huggingface.co/Qwen/Qwen-Image-2512"
+category: image-gen
+categories:
+  - image-gen
+tags:
+  - openai-images
+  - text-to-image
+  - qwen
+  - diffusion
+  - sglang
+  - nvfp4
+  - lightning
+icon: "\U0001F5BC️"
+requirements:
+  min_memory_gb: 36
+  recommended_memory_gb: 48
+  disk_gb: 70
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP image tools call its API. Proxied so
+  # the Hub reaches it at /run/sglang-qwen-image-2512-nvfp4-lightning/ with no
+  # host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 20
+  gpu: true
+status: experimental
+release_date: "2026-01"
+engine: "SGLang"
+params_b: 20
+arch: dense
+quantization: "NVFP4"
+weights_gb: 31.2
+requires_hf_token: false
+# From lightx2v's 4-step distillation and Comfy-Org's ComfyUI template for it
+# (image_qwen_Image_2512.json, Lightning path): 4 steps at CFG 1.
+image_defaults:
+  steps: 4
+  true_cfg_scale: 1.0
+  notes: "Lightning 4-step LoRA: 4 steps with CFG off (1.0), per lightx2v and ComfyUI's template."
+  source: "https://huggingface.co/lightx2v/Qwen-Image-2512-Lightning"

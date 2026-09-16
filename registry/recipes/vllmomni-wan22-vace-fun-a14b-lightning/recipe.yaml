@@ -1,0 +1,62 @@
+name: "Wan2.2-VACE-Fun-A14B Lightning"
+slug: vllmomni-wan22-vace-fun-a14b-lightning
+version: "1.0.0"
+description: "Create and edit videos in 4 steps with Wan2.2-VACE-Fun-A14B, the two-expert 14B all-in-one video model (text-to-video, image-to-video, reference-to-video, and editing an existing video from an instruction), sped up with lightx2v's Wan2.2 4-step distillation LoRAs. Served by vLLM-Omni on the OpenAI videos API; your coding agents reach it through the Hub's video tools (generate_video / get_video). Apache 2.0. Needs most of the Spark's memory."
+author: "Alibaba PAI · diffusers conversion by Pyros13 · 4-step LoRAs by lightx2v"
+source: "community"
+website: "https://huggingface.co/lightx2v/Wan2.2-Distill-Loras"
+upstream: "https://huggingface.co/alibaba-pai/Wan2.2-VACE-Fun-A14B"
+category: video-gen
+categories:
+  - video-gen
+tags:
+  - openai-videos
+  - text-to-video
+  - image-to-video
+  - video-edit
+  - wan
+  - vace
+  - vllm-omni
+  - bf16
+  - lightning
+icon: "\U0001F3AC"
+requirements:
+  min_memory_gb: 90
+  recommended_memory_gb: 110
+  disk_gb: 130
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP tools call its API. Proxied so the
+  # Hub reaches it at /run/vllmomni-wan22-vace-fun-a14b-lightning/ with no host
+  # port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 45
+  gpu: true
+status: experimental
+release_date: "2025-12"
+engine: "vLLM-Omni"
+params_b: 27
+active_params_b: 14
+arch: moe
+quantization: "BF16"
+weights_gb: 82.4
+requires_hf_token: false
+# From lightx2v's own config for these LoRAs (LightX2V
+# configs/distill/wan22/wan_moe_t2v_distill_lora.json): 4 steps, shift 5.0,
+# CFG off. Canvas and length follow Alibaba PAI's VideoX-Fun scripts: 832x480,
+# 81 frames at 16 fps.
+video_defaults:
+  steps: 4
+  guidance_scale: 1.0
+  fps: 16
+  num_frames: 81
+  size: "832x480"
+  flow_shift: 5.0
+  notes: "lightx2v's 4-step settings: 4 steps, CFG off (1.0), shift 5.0. 832x480, 81 frames (~5 s at 16 fps)."
+  source: "https://github.com/ModelTC/LightX2V/blob/main/configs/distill/wan22/wan_moe_t2v_distill_lora.json"

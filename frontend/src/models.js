@@ -46,7 +46,7 @@ const BUILD_TOKENS = new Set([
   'hibrid48',
 ])
 
-const ENGINE_PREFIX = /^(vllm|sglang|llamacpp|atlas)-/
+const ENGINE_PREFIX = /^(vllm|vllmomni|sglang|llamacpp|atlas)-/
 
 function modelKey(recipe) {
   const parts = (recipe.slug || '').replace(ENGINE_PREFIX, '').split('-')

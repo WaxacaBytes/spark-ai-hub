@@ -20,8 +20,11 @@ import json
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from starlette.requests import Request
+
 from daemon.config import settings
-from daemon.services import auth_service
+from daemon.services import auth_service, oauth_service
+from daemon.services.connect_service import request_origin
 
 # Routes reachable with no credentials. Exact matches only — no prefixes, so a
 # future /api/auth/admin-ish route cannot be let in by accident.
@@ -32,7 +35,8 @@ PUBLIC_API_PATHS = {
     "/api/auth/logout",
 }
 
-GUARDED_PREFIXES = ("/api", "/ws", "/v1")
+MCP_PREFIX = "/mcp"
+GUARDED_PREFIXES = ("/api", "/ws", "/v1", MCP_PREFIX)
 
 
 def _needs_auth(path: str) -> bool:
@@ -83,6 +87,12 @@ async def resolve_user(scope: Scope) -> tuple[dict | None, str]:
         user = await auth_service.user_for_api_key(key)
         if user:
             return user, "api_key"
+        # OAuth tokens are issued for the MCP endpoint alone: a connector that
+        # can make images must not also be able to drive the LLM or the admin API.
+        if scope.get("path", "").startswith(MCP_PREFIX):
+            user = await oauth_service.user_for_access_token(key)
+            if user:
+                return user, "oauth"
 
     return None, ""
 
@@ -134,6 +144,17 @@ class AuthMiddleware:
         else:
             body = {"detail": "Authentication required."}
 
+        challenge = 'Bearer realm="Spark AI Hub"'
+        if path.startswith(MCP_PREFIX):
+            # RFC 9728: point the client at the metadata that names the OAuth
+            # server. This header is how Claude's connectors discover sign-in.
+            req = Request(scope)
+            origin = request_origin(req) or f"{req.url.scheme}://{req.url.netloc}"
+            challenge += (f', resource_metadata="{origin}/.well-known/oauth-protected-resource'
+                          f'{MCP_PREFIX}", scope="{oauth_service.SCOPE}"')
+            if _bearer({k.lower(): v for k, v in scope.get("headers", [])}):
+                challenge += ', error="invalid_token"'
+
         payload = json.dumps(body).encode()
         await send({
             "type": "http.response.start",
@@ -142,7 +163,7 @@ class AuthMiddleware:
                 (b"content-type", b"application/json"),
                 (b"content-length", str(len(payload)).encode()),
                 # Tells an SDK it is an auth failure, not a broken endpoint.
-                (b"www-authenticate", b'Bearer realm="Spark AI Hub"'),
+                (b"www-authenticate", challenge.encode()),
             ],
         })
         await send({"type": "http.response.body", "body": payload})

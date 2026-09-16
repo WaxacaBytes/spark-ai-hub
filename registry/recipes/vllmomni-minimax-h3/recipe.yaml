@@ -1,0 +1,59 @@
+name: "MiniMax-H3"
+slug: vllmomni-minimax-h3
+version: "1.0.0"
+description: "Generate video with a matching soundtrack from a text prompt using MiniMax-H3, the top open-weights text-to-video and image-to-video model on the Artificial Analysis arenas. Served by vLLM-Omni with online FP8; your coding agents reach it through the Hub's video tools (generate_video / get_video). Uses the whole Spark while running; a full 8-second clip takes over half an hour. MiniMax-H3 Community License."
+author: "MiniMax"
+source: "community"
+website: "https://huggingface.co/MiniMaxAI/MiniMax-H3"
+upstream: "https://github.com/vllm-project/vllm-omni/blob/v0.28.0/recipes/MiniMaxAI/MiniMax-H3-Spark-GB10.md"
+category: video-gen
+categories:
+  - video-gen
+tags:
+  - openai-videos
+  - text-to-video
+  - video-audio
+  - minimax
+  - vllm-omni
+  - fp8
+icon: "\U0001F3AC"
+requirements:
+  min_memory_gb: 110
+  recommended_memory_gb: 121
+  disk_gb: 300
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP video tools call its API. Proxied so
+  # the Hub reaches it at /run/vllmomni-minimax-h3/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 90
+  gpu: true
+status: experimental
+release_date: "2026-07"
+engine: "vLLM-Omni"
+quantization: "FP8"
+weights_gb: 144.1
+requires_hf_token: false
+# Canvas 960x576 is the size vLLM-Omni's GB10 recipe measured (97.7 GiB peak
+# for 8 s); 768p is untested on this build. MiniMax publishes no step count, so
+# no steps default is sent.
+# flow_shift 12 is the checkpoint's scheduler_config.json shift. t2va needs an
+# explicit aspect_ratio.
+video_defaults:
+  fps: 24
+  seconds: 8
+  size: "960x576"
+  flow_shift: 12.0
+  extra_params:
+    task: "t2va"
+    duration: 8.0
+    audio_flow_shift: 3.0
+  send_aspect_ratio: true
+  notes: "MiniMax publishes no step count. 960x576 at 24 fps fits this build on a Spark; clips run 4-15 s, per the model card; shift 12 from the checkpoint's scheduler config. Measured: 4 s at 10 steps rendered in 232 s."
+  source: "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/scheduler/scheduler_config.json"

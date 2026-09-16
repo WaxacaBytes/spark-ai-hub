@@ -1,0 +1,51 @@
+name: "Z-Image-Turbo"
+slug: sglang-z-image-turbo
+version: "1.0.0"
+description: "Generate images fast with Tongyi-MAI's Z-Image-Turbo, the distilled 6B sibling of Z-Image: 8 transformer passes per image with guidance off, strong photorealism and bilingual text rendering. Served by SGLang Diffusion on the OpenAI images API; your coding agents reach it through the Hub's image tools (generate_image). Apache 2.0."
+author: "Tongyi-MAI (Alibaba)"
+source: "community"
+website: "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo"
+upstream: "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo"
+category: image-gen
+categories:
+  - image-gen
+tags:
+  - openai-images
+  - text-to-image
+  - z-image
+  - diffusion
+  - sglang
+  - bf16
+icon: "\U0001F5BC️"
+requirements:
+  min_memory_gb: 32
+  recommended_memory_gb: 40
+  disk_gb: 70
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP image tools call its API. Proxied so
+  # the Hub reaches it at /run/sglang-z-image-turbo/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 20
+  gpu: true
+status: experimental
+release_date: "2025-11"
+engine: "SGLang"
+params_b: 6
+arch: dense
+quantization: "BF16"
+weights_gb: 32.8
+requires_hf_token: false
+# From the model card's example: num_inference_steps=9 ("actually results in 8
+# DiT forwards") and guidance_scale=0.0 ("should be 0 for the Turbo models").
+image_defaults:
+  steps: 9
+  guidance_scale: 0.0
+  notes: "Distilled: 9 steps (8 transformer passes) with guidance 0, per the model card."
+  source: "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo"

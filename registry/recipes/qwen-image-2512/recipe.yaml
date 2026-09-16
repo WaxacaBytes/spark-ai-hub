@@ -36,6 +36,14 @@ docker:
   gpu: true
 status: community-verified
 release_date: "2025-12"
+# The Hub's image tools use these whenever an agent leaves them unset. Steps are
+# the Hub owner's choice for speed; the model card's quickstart only shows 50.
+# true_cfg_scale 4.0 is the card's example value and the app's own default.
+image_defaults:
+  steps: 16
+  true_cfg_scale: 4.0
+  notes: "16 steps is this Hub's speed/quality choice; the model card's example uses 50 for maximum detail."
+  source: "https://huggingface.co/Qwen/Qwen-Image-2512"
 
 cover:
   image: real-qwen-image.jpg

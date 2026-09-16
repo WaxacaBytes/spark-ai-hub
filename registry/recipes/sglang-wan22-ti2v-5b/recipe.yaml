@@ -1,0 +1,58 @@
+name: "Wan2.2-TI2V-5B"
+slug: sglang-wan22-ti2v-5b
+version: "1.0.0"
+description: "Generate 720p video at 24 fps from a text prompt or from a starting image with Wan-AI's Wan2.2-TI2V-5B, one compact model for both text-to-video and image-to-video. Served by SGLang Diffusion on the OpenAI videos API; your coding agents reach it through the Hub's video tools (generate_video / get_video). Apache 2.0."
+author: "Wan-AI (Alibaba)"
+source: "community"
+website: "https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B-Diffusers"
+upstream: "https://github.com/Wan-Video/Wan2.2"
+category: video-gen
+categories:
+  - video-gen
+tags:
+  - openai-videos
+  - text-to-video
+  - image-to-video
+  - wan
+  - diffusion
+  - sglang
+  - bf16
+icon: "\U0001F3AC"
+requirements:
+  min_memory_gb: 40
+  recommended_memory_gb: 56
+  disk_gb: 80
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP video tools call its API. Proxied so
+  # the Hub reaches it at /run/sglang-wan22-ti2v-5b/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 20
+  gpu: true
+status: experimental
+release_date: "2025-07"
+engine: "SGLang"
+params_b: 5
+arch: dense
+quantization: "BF16"
+weights_gb: 34.2
+requires_hf_token: false
+# From Comfy-Org's official ComfyUI template (video_wan2_2_5B_ti2v.json):
+# 20 steps, CFG 5, shift 8 with the UniPC sampler this server also uses. Wan-AI's
+# own config is 50 steps at shift 5.0 (wan/configs/wan_ti2v_5B.py) -- slower for
+# a small quality gain. 1280x704 at 24 fps, 121 frames (~5 s).
+video_defaults:
+  steps: 20
+  guidance_scale: 5.0
+  fps: 24
+  seconds: 5
+  size: "1280x704"
+  flow_shift: 8.0
+  notes: "ComfyUI's template: 20 steps, CFG 5, shift 8 (UniPC). Wan-AI's config uses 50 steps at shift 5 for a little more quality. 720p (1280x704 or 704x1280) at 24 fps."
+  source: "https://github.com/Comfy-Org/workflow_templates/blob/main/templates/video_wan2_2_5B_ti2v.json"

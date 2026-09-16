@@ -269,6 +269,9 @@ function RecipeDetailPage({ slug }) {
             {recipe.params_b != null && (
               <SpecBadge label={recipe.arch === 'moe' ? 'MoE' : 'Dense'} value={formatParams(recipe)} />
             )}
+            {recipe.media_capabilities?.length > 0 && (
+              <SpecBadge label="Supports" value={recipe.media_capabilities.map((c) => MEDIA_LABELS[c] || c).join(' · ')} />
+            )}
             {recipe.quantization && <SpecBadge label="Precision" value={recipe.quantization} />}
             {recipe.weights_gb != null && <SpecBadge label="Weights" value={`${recipe.weights_gb} GB`} />}
             <SpecBadge label="Memory" value={`${recipe.requirements?.min_memory_gb ?? 8}–${recipe.requirements?.recommended_memory_gb ?? recipe.requirements?.min_memory_gb ?? 8} GB`} />
@@ -891,6 +894,17 @@ const CAPABILITY_LABELS = {
   video: 'Video input',
   tools: 'Tool calling',
   thinking: 'Reasoning',
+}
+
+// What an image/video recipe makes, from daemon/models/recipe.py MEDIA_CAPABILITIES.
+const MEDIA_LABELS = {
+  'image-generation': 'Image generation',
+  'image-editing': 'Image editing',
+  'multi-image-input': 'Multiple images + text',
+  'text-to-video': 'Text-to-video',
+  'image-to-video': 'Image-to-video',
+  'video-editing': 'Video editing',
+  'music-generation': 'Music generation',
 }
 
 function CapabilityField({ capabilities }) {

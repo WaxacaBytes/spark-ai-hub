@@ -1,0 +1,81 @@
+services:
+  sglang:
+    # Wan2.2-TI2V-5B (Wan-AI) served by SGLang Diffusion on the OpenAI videos
+    # API: POST /v1/videos queues a job (JSON for text-to-video, multipart with
+    # input_reference for image-to-video), GET /v1/videos/{id} reports progress,
+    # GET /v1/videos/{id}/content serves the MP4. The Hub's MCP video tools
+    # (generate_video / get_video) drive exactly that.
+    #
+    # One 5B model for both text-to-video and image-to-video, 720p at 24 fps,
+    # built on the high-compression Wan2.2 VAE.
+    #
+    # Image: lmsysorg/sglang:v0.5.19-cu130 -- a stable numbered release (not a
+    # rolling dev/nightly tag), arm64 manifest present, and Wan2.2-TI2V-5B is in
+    # its diffusion registry.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        #
+        # Downloaded to a plain directory, not the HF cache: SGLang resolves a
+        # repo id through snapshot_download, and offline that refuses a cached
+        # snapshot with any file missing. A local path is loaded as-is.
+        ENV HF_HUB_DISABLE_XET=1
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Wan-AI/Wan2.2-TI2V-5B-Diffusers', local_dir='/models/Wan2.2-TI2V-5B-Diffusers', ignore_patterns=['*.jpg', '*.png', '*.gif', '*.mp4', 'assets/*', 'examples/*'])"
+        FROM lmsysorg/sglang:v0.5.19-cu130
+        COPY --from=weights /models /models
+    image: spark-ai-hub/sglang-wan22-ti2v-5b:v0.5.19-cu130
+    container_name: spark-ai-hub-sglang-wan22-ti2v-5b
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/sglang-wan22-ti2v-5b/, so it never collides with the
+    # LLM on 9001 or with an image model.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    shm_size: 16gb
+    command:
+      - sglang
+      - serve
+      # The directory name contains "Wan2.2-TI2V-5B", which is what SGLang's
+      # diffusion registry matches to pick the TI2V pipeline.
+      - --model-path
+      - /models/Wan2.2-TI2V-5B-Diffusers
+      - --served-model-name
+      - Wan-AI/Wan2.2-TI2V-5B-Diffusers
+      - --host
+      - 0.0.0.0
+      - --port
+      - "30000"
+      # SGLang offloads the DiT and the text encoder to CPU by default for
+      # diffusion models, whatever the GPU size. On the Spark CPU and GPU share
+      # the same memory, so offload only adds copies back and forth.
+      - --dit-cpu-offload
+      - "false"
+      - --text-encoder-cpu-offload
+      - "false"
+      # Pinned host buffers are only for fast CPU<->GPU transfer, which
+      # unified memory never needs; pinning would lock memory for nothing.
+      - --pin-cpu-memory
+      - "false"
+      - --output-path
+      - /tmp/sglang-outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

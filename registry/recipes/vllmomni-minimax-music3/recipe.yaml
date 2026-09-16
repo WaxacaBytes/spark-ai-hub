@@ -1,0 +1,47 @@
+name: "MiniMax-Music3"
+slug: vllmomni-minimax-music3
+version: "1.0.0"
+description: "Compose full songs with vocals and instruments from lyrics and a style description using MiniMax-Music3, up to six minutes of 32 kHz stereo. Served by vLLM-Omni; your coding agents reach it through the Hub's music tool (generate_music). See the model card for license terms."
+author: "MiniMax"
+source: "community"
+website: "https://huggingface.co/MiniMaxAI/MiniMax-Music3"
+upstream: "https://github.com/vllm-project/vllm-omni/blob/v0.28.0/recipes/MiniMaxAI/MiniMax-Music3.md"
+category: multi-modal
+categories:
+  - multi-modal
+tags:
+  - openai-music
+  - text-to-music
+  - music
+  - minimax
+  - vllm-omni
+  - bf16
+icon: "\U0001F3B5"
+requirements:
+  min_memory_gb: 70
+  recommended_memory_gb: 90
+  disk_gb: 100
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP music tool calls its API. Proxied so
+  # the Hub reaches it at /run/vllmomni-minimax-music3/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 35
+  gpu: true
+status: experimental
+release_date: "2026-08"
+engine: "vLLM-Omni"
+params_b: 8
+quantization: "BF16"
+weights_gb: 57.4
+requires_hf_token: false
+audio_defaults:
+  seconds: 30
+  notes: "Song length is the caller's choice; 30 s is the Hub's default (MiniMax's own example uses 60 s). MiniMax publishes no step count. Songs can run to 6 minutes."
+  source: "https://huggingface.co/MiniMaxAI/MiniMax-Music3"

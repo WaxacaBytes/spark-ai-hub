@@ -14,6 +14,21 @@ TAG_CAPABILITIES = {
     "reasoning": "thinking",
 }
 
+# What an image or video model makes, from the same hand-written tags that tell
+# the Hub's MCP tools which recipes can answer which call. Shown on the detail
+# page so nobody has to read tags to learn a model generates but cannot edit.
+MEDIA_CAPABILITIES = {
+    "text-to-image": "image-generation",
+    "image-edit": "image-editing",
+    # Several input images plus the text instruction in one request (combine a
+    # person from one photo with a background from another, and so on).
+    "multi-image": "multi-image-input",
+    "text-to-video": "text-to-video",
+    "image-to-video": "image-to-video",
+    "video-edit": "video-editing",
+    "text-to-music": "music-generation",
+}
+
 
 class RecipeRequirements(BaseModel):
     min_memory_gb: int = 8
@@ -56,6 +71,53 @@ class RecipeIntegration(BaseModel):
     max_context: str = ""
     max_output_tokens: str = ""
     curl_example: str = ""
+
+
+class RecipeImageDefaults(BaseModel):
+    """Generation settings the image model's own documentation recommends.
+
+    Applied by the Hub's image tools whenever the agent leaves them unset, and
+    reported by `list_image_models`, so an agent never has to guess that a
+    step-distilled model wants 4 steps while a full diffusion model wants 50.
+    Copy the numbers from the model card and cite it in `source`.
+    """
+    steps: int | None = None
+    guidance_scale: float | None = None
+    true_cfg_scale: float | None = None
+    # A named sampler preset, for models that derive steps and guidance from it
+    # and refuse them set directly (Ideogram 4). When set, steps are not sent.
+    preset: str | None = None
+    notes: str = ""
+    source: str = ""
+
+
+class RecipeVideoDefaults(BaseModel):
+    """Generation settings a video model's documentation recommends."""
+    steps: int | None = None
+    guidance_scale: float | None = None
+    fps: int | None = None
+    seconds: int | None = None
+    # Frame-count models (Wan VACE) take num_frames, which must be 4k+1; when
+    # set, a requested length in seconds is converted to frames instead.
+    num_frames: int | None = None
+    size: str | None = None      # "WIDTHxHEIGHT", landscape; flipped for 9:16
+    flow_shift: float | None = None
+    # Model-specific request options, sent as the server's extra_params JSON.
+    # A "duration" key there takes the requested length instead of `seconds`
+    # (MiniMax-H3 reads its clip length from extra_params.duration).
+    extra_params: dict | None = None
+    # Also send the chosen aspect_ratio ("16:9"/"9:16") as its own field, for
+    # servers that require it alongside width/height (MiniMax-H3 t2va).
+    send_aspect_ratio: bool = False
+    notes: str = ""
+    source: str = ""
+
+
+class RecipeAudioDefaults(BaseModel):
+    """Generation settings a music model's documentation recommends."""
+    seconds: int | None = None
+    notes: str = ""
+    source: str = ""
 
 
 class RecipeBackdrop(BaseModel):
@@ -113,6 +175,9 @@ class Recipe(BaseModel):
     ui: RecipeUI = RecipeUI()
     docker: RecipeDocker = RecipeDocker()
     integration: RecipeIntegration | None = None
+    image_defaults: RecipeImageDefaults | None = None  # image models only
+    video_defaults: RecipeVideoDefaults | None = None  # video models only
+    audio_defaults: RecipeAudioDefaults | None = None  # music models only
     source: str = "community"  # spark-ai-hub | official | community
     status: str = "experimental"
     release_date: str = ""  # YYYY-MM or YYYY-MM-DD, model/tool original release date used for catalog ordering
@@ -186,6 +251,12 @@ class Recipe(BaseModel):
 
     @computed_field
     @property
+    def media_capabilities(self) -> list[str]:
+        """What an image/video model makes; [] for everything else."""
+        return [cap for tag, cap in MEDIA_CAPABILITIES.items() if tag in self.tags]
+
+    @computed_field
+    @property
     def app_url(self) -> str:
         """Where to send the browser when the user clicks Open.
 
@@ -197,4 +268,8 @@ class Recipe(BaseModel):
         """
         if self.ui and self.ui.proxy and self.ui.type == "web":
             return f"/run/{self.slug}/"
+        # A proxied API server publishes no host port, so the host:port
+        # fallback would be a dead link; point at its API path instead.
+        if self.ui and self.ui.proxy and self.ui.type == "api-only":
+            return f"/run/{self.slug}{self.ui.path}"
         return ""

@@ -11,13 +11,13 @@ from daemon.config import settings
 from daemon.db import init_db
 from daemon.middleware.auth import AuthMiddleware
 from daemon.routers import (
-    admin, anthropic_proxy, auth, containers, openai_proxy, recipes, system,
+    admin, anthropic_proxy, auth, containers, mcp, oauth, openai_proxy, recipes, system,
 )
 from daemon.services.connect_service import compute_connect_info, request_origin
 from daemon.services.registry_service import load_recipes, get_recipes
 from daemon.services.auth_service import purge_expired_sessions
 from daemon.services.docker_service import is_recipe_running, start_health_check
-from daemon.services import proxy_service
+from daemon.services import oauth_service, proxy_service
 
 DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
@@ -44,6 +44,7 @@ async def _session_janitor():
     while True:
         try:
             await purge_expired_sessions()
+            await oauth_service.purge_expired()
         except Exception:
             pass
         await asyncio.sleep(3600)
@@ -81,6 +82,10 @@ app.include_router(admin.router)
 app.include_router(recipes.router)
 app.include_router(containers.router)
 app.include_router(system.router)
+# Image tools for agents at /mcp, and the images they make at /images/.
+app.include_router(mcp.router)
+# OAuth for /mcp, so Claude's hosted connectors can sign in with a Hub account.
+app.include_router(oauth.router)
 # Anthropic must come before openai_proxy: the latter is a /v1/{path:path}
 # catch-all that would otherwise swallow /v1/messages.
 app.include_router(anthropic_proxy.router)
