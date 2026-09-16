@@ -1,0 +1,134 @@
+services:
+  vllm-omni:
+    # HunyuanImage-3.0-Instruct-Distil (Tencent), served by vLLM-Omni on the
+    # OpenAI images API: POST /v1/images/generations and /v1/images/edits. One
+    # 80B Mixture-of-Experts model (64 experts, 13B active). The distilled
+    # checkpoint is Tencent's pick for deployment: 8 sampling steps instead of
+    # 50, everything else unchanged.
+    #
+    # DiT-ONLY on purpose. vLLM-Omni's full pipeline for this model runs two
+    # stages -- an autoregressive half that rewrites the prompt and emits the
+    # cot/ratio tokens, then the diffusion half that paints -- and **each stage
+    # loads its own copy of the checkpoint**. That is why the stock layout
+    # (deploy/hunyuan_image_3_moe.yaml) spends four 80 GB GPUs: two per copy.
+    # Measured here on 2026-09-16: the diffusion stage alone took 81.33 GiB of
+    # the Spark's 121 GB, and the AR stage then died at device init with
+    # nothing left. Two FP8 copies are ~160 GB, so the paired layout cannot fit
+    # one GB10 at any memory split.
+    #
+    # vLLM-Omni ships a single-stage pipeline for exactly this case
+    # (deploy/hunyuan_image3_dit.yaml: "standalone DiT/offline execution ...
+    # does not depend on the AR stage"), and its server treats a one-stage
+    # deployment as "pure diffusion mode" rather than routing through the
+    # multi-stage chat path. One copy, one GPU. What is lost is the model's
+    # own prompt reasoning/rewriting: prompts go to the painter as written.
+    #
+    # Image: vllm/vllm-omni:v0.28.0 -- the latest stable release (not a nightly
+    # or rc), arm64 manifest present, and HunyuanImage3ForCausalMM is in its
+    # diffusion registry.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('tencent/HunyuanImage-3.0-Instruct-Distil', local_dir='/models/HunyuanImage-3.0-Instruct-Distil', ignore_patterns=['assets/*', '*.jpg', '*.png', '*.webp', '*.gif', '*.mp4'])"
+        FROM vllm/vllm-omni:v0.28.0
+        COPY --from=weights /models /models
+    image: spark-ai-hub/vllmomni-hunyuanimage3-instruct-distil:v0.28.0
+    container_name: spark-ai-hub-vllmomni-hunyuanimage3-instruct-distil
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/vllmomni-hunyuanimage3-instruct-distil/, so it never
+    # collides with the LLM on 9001 or with another image model.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - FLASHINFER_DISABLE_VERSION_CHECK=1
+      - VLLM_WORKER_MULTIPROC_METHOD=spawn
+    configs:
+      - source: hunyuanimage3_spark
+        target: /etc/spark-ai-hub/hunyuanimage3_spark.yaml
+    ipc: host
+    shm_size: 16gb
+    entrypoint: ["vllm"]
+    command:
+      - serve
+      - /models/HunyuanImage-3.0-Instruct-Distil
+      - --omni
+      # The checkpoint ships its own modelling code (custom_code on the model
+      # card), which the loader reads to build the MoE transformer.
+      - --trust-remote-code
+      - --served-model-name
+      - tencent/HunyuanImage-3.0-Instruct-Distil
+      # Stage layout, devices, FP8 and the sampling defaults all come from this
+      # file; passing --num-gpus/--tensor-parallel-size as well makes the two
+      # disagree ("declared N device id(s) but the strategy world size is 1").
+      - --deploy-config
+      - /etc/spark-ai-hub/hunyuanimage3_spark.yaml
+      - --host
+      - 0.0.0.0
+      - --port
+      - "30000"
+      # Loading and quantizing 157 GB takes far longer than the default wait.
+      - --init-timeout
+      - "3600"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+configs:
+  hunyuanimage3_spark:
+    content: |
+      # HunyuanImage-3.0-Instruct-Distil on one DGX Spark (GB10, 121 GB unified).
+      #
+      # Derived from vLLM-Omni's own deploy/hunyuan_image3_dit.yaml, which is
+      # the single-stage ("standalone DiT") pipeline for this model. Its stock
+      # layout still spreads one copy over 4 GPUs (tensor_parallel_size 4 with
+      # expert parallel); here the single copy sits on device 0 in FP8.
+      pipeline: hunyuan_image3_dit
+      async_chunk: false
+      trust_remote_code: true
+
+      stages:
+        - stage_id: 0
+          max_num_seqs: 1
+          enforce_eager: true
+          devices: "0"
+          # One copy of the model, so it may use most of the machine. FP8
+          # halves the released BF16 weights (157 GB -> ~79 GB).
+          gpu_memory_utilization: 0.88
+          quantization: fp8
+          vae_use_slicing: false
+          vae_use_tiling: false
+          parallel_config:
+            pipeline_parallel_size: 1
+            data_parallel_size: 1
+            tensor_parallel_size: 1
+            enable_expert_parallel: false
+            sequence_parallel_size: 1
+            ulysses_degree: 1
+            ring_degree: 1
+            cfg_parallel_size: 1
+            vae_patch_parallel_size: 1
+            use_hsdp: false
+          default_sampling_params:
+            # Tencent's setting for the distilled checkpoint (the undistilled
+            # one uses 50); guidance_scale 0 as in vLLM-Omni's own configs.
+            num_inference_steps: 8
+            guidance_scale: 0
+            seed: 42
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

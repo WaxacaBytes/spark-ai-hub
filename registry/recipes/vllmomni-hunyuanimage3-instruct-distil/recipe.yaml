@@ -1,0 +1,53 @@
+name: "HunyuanImage-3.0 Instruct Distil"
+slug: vllmomni-hunyuanimage3-instruct-distil
+version: "1.0.0"
+description: "Generate and edit images with Tencent's HunyuanImage-3.0-Instruct, the largest open-weights image Mixture-of-Experts model: 80B total, 13B active across 64 experts. The distilled checkpoint Tencent recommends for deployment (8 steps), served by vLLM-Omni's single-stage diffusion pipeline with online FP8 — one copy of the weights, which is what makes 157 GB of BF16 fit the Spark. The model's own prompt reasoning and rewriting lives in the second stage, which needs a copy of its own (four 80 GB GPUs in Tencent's layout), so it is not served here: prompts reach the painter as written. Your coding agents use it through the Hub's image tools (generate_image / edit_image). Tencent Hunyuan Community License."
+author: "Tencent Hunyuan"
+source: "community"
+website: "https://huggingface.co/tencent/HunyuanImage-3.0-Instruct-Distil"
+upstream: "https://github.com/Tencent-Hunyuan/HunyuanImage-3.0"
+category: image-gen
+categories:
+  - image-gen
+tags:
+  - openai-images
+  - text-to-image
+  - image-edit
+  - hunyuan
+  - vllm-omni
+  - fp8
+icon: "\U0001F5BC️"
+requirements:
+  min_memory_gb: 100
+  recommended_memory_gb: 121
+  disk_gb: 340
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP image tools call its API. Proxied so
+  # the Hub reaches it at /run/vllmomni-hunyuanimage3-instruct-distil/ with no
+  # host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 90
+  gpu: true
+status: experimental
+release_date: "2026-01"
+engine: "vLLM-Omni"
+params_b: 80
+active_params_b: 13
+arch: moe
+quantization: "FP8"
+weights_gb: 157.1
+requires_hf_token: false
+# Tencent's guidance for this checkpoint: "We recommend using the model
+# HunyuanImage-3.0-Instruct-Distil with --diff-infer-steps 8, while keeping all
+# other recommended parameter values unchanged." The base checkpoint uses 50.
+image_defaults:
+  steps: 8
+  notes: "Tencent's setting for the distilled checkpoint: 8 steps (the undistilled model uses 50)."
+  source: "https://github.com/Tencent-Hunyuan/HunyuanImage-3.0"
