@@ -12,12 +12,13 @@ from daemon.db import init_db
 from daemon.middleware.auth import AuthMiddleware
 from daemon.routers import (
     admin, anthropic_proxy, auth, containers, mcp, oauth, openai_proxy, recipes, system,
+    files, uploads,
 )
 from daemon.services.connect_service import compute_connect_info, request_origin
 from daemon.services.registry_service import load_recipes, get_recipes
 from daemon.services.auth_service import purge_expired_sessions
 from daemon.services.docker_service import is_recipe_running, start_health_check
-from daemon.services import oauth_service, proxy_service
+from daemon.services import media_store, oauth_service, proxy_service
 
 DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
@@ -40,11 +41,16 @@ async def _check_running_readiness():
 
 
 async def _session_janitor():
-    """Drop expired sessions hourly so the table cannot grow without bound."""
+    """Hourly: drop expired sessions, so the table cannot grow without bound,
+    and generated media and uploads past their lifetime."""
     while True:
         try:
             await purge_expired_sessions()
             await oauth_service.purge_expired()
+        except Exception:
+            pass
+        try:
+            await media_store.purge_expired()
         except Exception:
             pass
         await asyncio.sleep(3600)
@@ -84,6 +90,10 @@ app.include_router(containers.router)
 app.include_router(system.router)
 # Image tools for agents at /mcp, and the images they make at /images/.
 app.include_router(mcp.router)
+# Local files into those tools: POST /api/uploads (the Hub's My files screen uploads here).
+app.include_router(uploads.router)
+# Each account's own media and uploads, to list and delete (/api/media).
+app.include_router(files.router)
 # OAuth for /mcp, so Claude's hosted connectors can sign in with a Hub account.
 app.include_router(oauth.router)
 # Anthropic must come before openai_proxy: the latter is a /v1/{path:path}

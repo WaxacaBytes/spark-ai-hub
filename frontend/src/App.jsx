@@ -10,6 +10,7 @@ import LaunchConflictModal from './components/LaunchConflictModal'
 import { useAuth } from './auth'
 import Account, { Avatar } from './pages/Account'
 import Users from './pages/Users'
+import Files from './pages/Files'
 import Catalog from './pages/Catalog'
 import Running from './pages/Running'
 import System from './pages/System'
@@ -18,6 +19,7 @@ import RecipeDetail from './pages/RecipeDetail'
 const NAV_ITEMS = [
   { path: '/', label: 'Store', icon: StorefrontIcon },
   { path: '/running', label: 'Running', icon: PlayIcon },
+  { path: '/files', label: 'My files', icon: FolderIcon },
   { path: '/about', label: 'About', icon: InfoIcon },
 ]
 
@@ -32,6 +34,8 @@ const PAGE_TITLES = {
   '/about': 'About',
   '/account': 'Account',
   '/users': 'Users',
+  '/files': 'My files',
+  '/upload': 'My files',
 }
 
 export default function App() {
@@ -201,6 +205,8 @@ export default function App() {
             <Route path="/about" element={<div className="animate-fadeIn"><About /></div>} />
             <Route path="/account" element={<Account />} />
             <Route path="/users" element={<Users />} />
+            <Route path="/files" element={<Files />} />
+            <Route path="/upload" element={<Navigate to="/files" replace />} />
             <Route path="/app/:slug" element={<RecipeDetail />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
@@ -337,6 +343,14 @@ function PlayIcon({ className }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <polygon points="5 3 19 12 5 21 5 3" />
+    </svg>
+  )
+}
+
+function FolderIcon({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
     </svg>
   )
 }

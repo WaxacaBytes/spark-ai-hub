@@ -9,9 +9,10 @@ is a recipe, never code.
 
 Servers are reached through the front door's probe route, so no recipe
 publishes a port for this. Results are copied into the Hub's own data dir and
-served at /images/<id>.png. The id is 128 random bits, so the URL is the
-capability: it can be pasted into a chat, opened by a client with no Hub key, or
-handed back to `edit_image`, and nobody can enumerate the rest.
+served at /images/<id>.png, to the account that made it only (media_store):
+the link opens with that user's Hub sign-in or API key, and handed back to
+`edit_image` it is read straight off disk. The id is 128 random bits besides,
+so nobody can enumerate the rest.
 """
 from __future__ import annotations
 
@@ -34,11 +35,14 @@ import aiohttp
 from PIL import Image, ImageOps
 
 from daemon.config import settings
-from daemon.services import proxy_service
+from daemon.services import media_store, proxy_service
 from daemon.services.docker_service import get_installed_slugs, is_ready, is_recipe_running
 from daemon.services.registry_service import get_recipes
 
 IMAGE_DIR = settings.data_dir / "images"
+# Pictures users upload to edit (upload_service). Same URL shape as a result,
+# so every tool takes them, but kept apart because they expire and results do not.
+UPLOAD_DIR = IMAGE_DIR / "uploads"
 PUBLIC_PREFIX = "/images"
 IMAGE_NAME_RE = re.compile(r"^([0-9a-f]{32})\.png$")
 # Matches a Hub image URL from any address the Hub is reached on, so an image
@@ -408,14 +412,29 @@ def _is_public(host: str, port: int) -> bool:
     return bool(infos) and all(ipaddress.ip_address(i[4][0]).is_global for i in infos)
 
 
-async def load_input(ref: str, session: aiohttp.ClientSession) -> bytes:
-    """Raw bytes for an image given as a Hub image URL, data: URL or public URL."""
+def hub_image_path(name: str):
+    """The file behind /images/<name>: a result, or an upload. None if neither."""
+    for folder in (IMAGE_DIR, UPLOAD_DIR):
+        path = folder / name
+        if path.is_file():
+            return path
+    return None
+
+
+async def load_input(ref: str, session: aiohttp.ClientSession,
+                     user: dict | None = None) -> bytes:
+    """Raw bytes for an image given as a Hub image URL, data: URL or public URL.
+
+    A Hub image is `user`'s only if they made or uploaded it; anyone else's
+    reads as missing, exactly like the /images/ route answers them.
+    """
     ref = ref.strip()
     if match := _HUB_IMAGE_URL_RE.search(ref):
-        path = IMAGE_DIR / f"{match.group(1)}.png"
-        if path.is_file():
+        name = f"{match.group(1)}.png"
+        if (path := hub_image_path(name)) and await media_store.can_read(name, user):
             return path.read_bytes()
-        raise ImageError(f"No Hub image {match.group(1)} (it may have been deleted).")
+        raise ImageError(f"No Hub image {match.group(1)} (it may have been deleted, "
+                         "or it was an upload that expired — upload it again).")
 
     if ref.startswith("data:"):
         header, _, body = ref.partition(",")
@@ -492,7 +511,8 @@ def store(raw: bytes, model: str, seed: int | None) -> Result:
 
 
 async def run(kind: str, params: Params, images: list[str], model: str | None,
-              on_progress: Callable[[str], None] | None = None) -> Result:
+              on_progress: Callable[[str], None] | None = None,
+              user: dict | None = None) -> Result:
     backend = await pick_backend(kind, model)
     params = with_defaults(backend, params)
     # Seeded here rather than by the server, so the caller can always be told
@@ -500,11 +520,12 @@ async def run(kind: str, params: Params, images: list[str], model: str | None,
     seed = params.seed if params.seed is not None else secrets.randbelow(MAX_SEED)
     timeout = aiohttp.ClientTimeout(total=JOB_TIMEOUT, sock_connect=10)
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        inputs = [to_png(await load_input(ref, session)) for ref in images]
+        inputs = [to_png(await load_input(ref, session, user)) for ref in images]
         if on_progress:
             on_progress(f"rendering on {backend.slug}")
         raw = await _render(session, backend, kind, params, inputs, seed)
     result = await asyncio.to_thread(store, raw, backend.slug, seed)
+    await media_store.record(f"{result.image_id}.png", user and user["id"])
     result.steps = params.steps
     result.preset = getattr(backend.defaults, "preset", None)
     return result
@@ -528,18 +549,19 @@ def _prune_jobs() -> None:
         _jobs.pop(min(_jobs, key=lambda key: _jobs[key]["created"]))
 
 
-async def start_job(kind: str, params: Params, images: list[str], model: str | None) -> str:
-    """Start a render and return its job id at once."""
+async def start_job(kind: str, params: Params, images: list[str], model: str | None,
+                    user: dict | None = None) -> str:
+    """Start a render for `user` and return its job id at once."""
     _prune_jobs()
     job_id = secrets.token_hex(16)
     job: dict = {"job_id": job_id, "status": "rendering", "created": time.monotonic(),
                  "model": model, "kind": kind, "result": None, "error": None,
-                 "done": asyncio.Event()}
+                 "user_id": user and user["id"], "done": asyncio.Event()}
     _jobs[job_id] = job
 
     async def render() -> None:
         try:
-            job["result"] = await run(kind, params, images, model)
+            job["result"] = await run(kind, params, images, model, user=user)
             job["status"] = "completed"
         except ImageError as exc:
             job["status"], job["error"] = "failed", str(exc)
@@ -553,10 +575,15 @@ async def start_job(kind: str, params: Params, images: list[str], model: str | N
     return job_id
 
 
-async def check_job(job_id: str, wait: int) -> dict:
+def owns_job(job: dict, user: dict | None) -> bool:
+    """Only the account that started a job can collect it."""
+    return not settings.auth_enabled or bool(user) and job.get("user_id") == user["id"]
+
+
+async def check_job(job_id: str, wait: int, user: dict | None = None) -> dict:
     """The job's state, waiting up to `wait` seconds for it to finish."""
     job = _jobs.get(job_id)
-    if job is None:
+    if job is None or not owns_job(job, user):
         raise ImageError(f"No image job {job_id} — it may have expired; start a new one.")
     if not job["done"].is_set() and wait > 0:
         with contextlib.suppress(asyncio.TimeoutError):

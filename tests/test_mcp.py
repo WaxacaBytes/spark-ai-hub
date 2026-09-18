@@ -11,13 +11,55 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from daemon.routers import mcp
-from daemon.services import audio_service, image_service, video_service
+from daemon import db as db_module
+from daemon.routers import files, mcp, uploads
+from daemon.services import audio_service, image_service, media_store, upload_service, video_service
+
+# Stand-ins for AuthMiddleware's request.state.user. Rows 1-3 exist in the
+# temporary DB below, because media.user_id references users(id).
+OWNER = {"id": 1, "role": "user"}
+OTHER = {"id": 2, "role": "user"}
+ADMIN = {"id": 3, "role": "admin"}
+_USERS = {"owner": OWNER, "other": OTHER, "admin": ADMIN, "anon": None}
+_tmp_db = _db_patch = None
+
+
+def setUpModule():
+    global _tmp_db, _db_patch
+    _tmp_db = tempfile.TemporaryDirectory()
+    _db_patch = mock.patch.object(db_module, "DB_PATH", str(Path(_tmp_db.name) / "hub.db"))
+    _db_patch.start()
+
+    async def init():
+        await db_module.init_db()
+        db = await db_module.get_db()
+        for user in (OWNER, OTHER, ADMIN):
+            await db.execute("INSERT INTO users (id, email, password_hash, role, api_key) "
+                             "VALUES (?, ?, 'x', ?, ?)",
+                             (user["id"], f"u{user['id']}@x", user["role"], f"k{user['id']}"))
+        await db.commit()
+        await db.close()
+    asyncio.run(init())
+
+
+def tearDownModule():
+    _db_patch.stop()
+    _tmp_db.cleanup()
 
 
 def _client() -> TestClient:
+    """The MCP and upload routes, called as OWNER unless an x-test-user header
+    names someone else ('other', 'admin' or 'anon')."""
     app = FastAPI()
+
+    @app.middleware("http")
+    async def as_user(request, call_next):
+        request.state.user = _USERS[request.headers.get("x-test-user", "owner")]
+        return await call_next(request)
+
     app.include_router(mcp.router)
+    app.include_router(uploads.router)
+    app.include_router(files.router)
     return TestClient(app)
 
 
@@ -134,10 +176,49 @@ class McpToolCallTests(unittest.TestCase):
     def test_image_file_route(self):
         with tempfile.TemporaryDirectory() as tmp:
             (Path(tmp) / f"{'b' * 32}.png").write_bytes(_png())
+            asyncio.run(media_store.record(f"{'b' * 32}.png", OWNER["id"]))
             with mock.patch.object(image_service, "IMAGE_DIR", Path(tmp)):
-                self.assertEqual(self.client.get(f"/images/{'b' * 32}.png").status_code, 200)
+                ok = self.client.get(f"/images/{'b' * 32}.png")
+                self.assertEqual(ok.status_code, 200)
+                self.assertIn("private", ok.headers["cache-control"])
                 self.assertEqual(self.client.get(f"/images/{'c' * 32}.png").status_code, 404)
                 self.assertEqual(self.client.get("/images/..%2Fspark-ai-hub.db").status_code, 404)
+
+    def test_media_is_private_to_its_owner(self):
+        name = f"{'e' * 32}.png"
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / name).write_bytes(_png())
+            (Path(tmp) / f"{'f' * 32}.png").write_bytes(_png())      # made before owners were kept
+            asyncio.run(media_store.record(name, OWNER["id"]))
+            with mock.patch.object(image_service, "IMAGE_DIR", Path(tmp)):
+                get = lambda n, who: self.client.get(f"/images/{n}", headers={"x-test-user": who})
+                # Someone else's file answers exactly like a missing one.
+                self.assertEqual(get(name, "other").status_code, 404)
+                self.assertEqual(get(name, "admin").status_code, 404)
+                anon = get(name, "anon")
+                self.assertEqual(anon.status_code, 401)
+                self.assertIn("www-authenticate", anon.headers)
+                page = self.client.get(f"/images/{name}", headers={"x-test-user": "anon",
+                                                                    "accept": "text/html"})
+                self.assertEqual(page.status_code, 401)
+                self.assertIn("Sign in", page.text)
+                # A file with no recorded owner is nobody's, admins included.
+                self.assertEqual(get(f"{'f' * 32}.png", "owner").status_code, 404)
+                self.assertEqual(get(f"{'f' * 32}.png", "admin").status_code, 404)
+
+    def test_edit_refuses_someone_elses_image(self):
+        name = f"{'9' * 32}.png"
+
+        async def go(tmp):
+            (Path(tmp) / name).write_bytes(_png())
+            await media_store.record(name, OTHER["id"])
+            with self.assertRaisesRegex(image_service.ImageError, "No Hub image"):
+                await image_service.load_input(f"http://spark.local:9000/images/{name}", None, OWNER)
+            self.assertEqual(await image_service.load_input(f"/images/{name}", None, OTHER), _png())
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(image_service, "IMAGE_DIR", Path(tmp)):
+                asyncio.run(go(tmp))
 
 
 class ImageServiceTests(unittest.TestCase):
@@ -215,8 +296,9 @@ class ImageServiceTests(unittest.TestCase):
                 "data:image/png;base64," + base64.b64encode(png).decode(), None)
             self.assertEqual(data, png)
             (Path(tmp) / f"{'d' * 32}.png").write_bytes(png)
+            await media_store.record(f"{'d' * 32}.png", OWNER["id"])
             hub = await image_service.load_input(
-                f"https://spark.example.ts.net/images/{'d' * 32}.png", None)
+                f"https://spark.example.ts.net/images/{'d' * 32}.png", None, OWNER)
             self.assertEqual(hub, png)
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -305,6 +387,141 @@ class VideoToolTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"/videos/{'b' * 32}.mp4").status_code, 404)
 
 
+_MP4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2" + b"\x00" * 64
+
+
+class _MediaDirsTest(unittest.TestCase):
+    """Every media folder in a temp dir; no tests of its own."""
+
+    def setUp(self):
+        self.client = _client()
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.patches = [
+            mock.patch.object(image_service, "IMAGE_DIR", root / "images"),
+            mock.patch.object(image_service, "UPLOAD_DIR", root / "images" / "uploads"),
+            mock.patch.object(video_service, "VIDEO_DIR", root / "videos"),
+            mock.patch.object(video_service, "UPLOAD_DIR", root / "videos" / "uploads"),
+            mock.patch.object(audio_service, "AUDIO_DIR", root / "audio"),
+        ]
+        for patch in self.patches:
+            patch.start()
+
+    def tearDown(self):
+        for patch in self.patches:
+            patch.stop()
+        self.tmp.cleanup()
+
+
+class UploadTests(_MediaDirsTest):
+    def test_image_upload_gives_a_private_hub_url_the_tools_accept(self):
+        buf = io.BytesIO()
+        Image.new("RGB", (40, 20), (1, 2, 3)).save(buf, format="JPEG")
+        r = self.client.post("/api/uploads", content=buf.getvalue())
+        self.assertEqual(r.status_code, 200, r.text)
+        info = r.json()
+        self.assertEqual((info["kind"], info["width"], info["height"]), ("image", 40, 20))
+        self.assertRegex(info["url"], r"^http://testserver/images/[0-9a-f]{32}\.png$")
+        path = urllib_path(info["url"])
+        self.assertEqual(self.client.get(path).status_code, 200)
+        self.assertEqual(self.client.get(path).headers["cache-control"], "private, max-age=3600")
+        self.assertEqual(self.client.get(path, headers={"x-test-user": "other"}).status_code, 404)
+        stored = asyncio.run(image_service.load_input(info["url"], None, OWNER))
+        self.assertEqual(Image.open(io.BytesIO(stored)).size, (40, 20))
+
+    def test_video_upload(self):
+        r = self.client.post("/api/uploads", content=_MP4)
+        info = r.json()
+        self.assertEqual(info["kind"], "video")
+        self.assertEqual(self.client.get(urllib_path(info["url"])).content, _MP4)
+        stored = asyncio.run(video_service.load_video_input(info["url"], None, OWNER))
+        self.assertEqual(stored, _MP4)
+
+    def test_unreadable_upload_is_refused(self):
+        self.assertEqual(self.client.post("/api/uploads", content=b"not an image").status_code, 400)
+        self.assertEqual(self.client.post("/api/uploads", content=b"").status_code, 400)
+
+    def test_purge_drops_uploads_after_a_week_and_results_after_a_month(self):
+        import os
+        import time as _time
+        day = 24 * 3600
+
+        def put(folder, name, age_days):
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder / name
+            path.write_bytes(b"x")
+            then = _time.time() - age_days * day
+            os.utime(path, (then, then))
+            return path
+
+        old_upload = put(image_service.UPLOAD_DIR, f"{'1' * 32}.png", 8)
+        new_upload = put(image_service.UPLOAD_DIR, f"{'2' * 32}.png", 6)
+        old_video_upload = put(video_service.UPLOAD_DIR, f"{'3' * 32}.mp4", 8)
+        week_result = put(image_service.IMAGE_DIR, f"{'4' * 32}.png", 8)
+        old_result = put(image_service.IMAGE_DIR, f"{'5' * 32}.png", 31)
+        old_video = put(video_service.VIDEO_DIR, f"{'6' * 32}.mp4", 31)
+        old_song = put(audio_service.AUDIO_DIR, f"{'7' * 32}.wav", 31)
+        stranger = put(image_service.IMAGE_DIR, "notes.txt", 400)
+        asyncio.run(media_store.record(old_result.name, OWNER["id"]))
+
+        self.assertEqual(asyncio.run(media_store.purge_expired()), 5)
+        gone = [old_upload, old_video_upload, old_result, old_video, old_song]
+        self.assertEqual([p.exists() for p in gone], [False] * 5)
+        self.assertTrue(all(p.exists() for p in (new_upload, week_result, stranger)))
+        # Its owner row went with it.
+        self.assertFalse(asyncio.run(media_store.can_read(old_result.name, OWNER)))
+
+
+class MyFilesTests(_MediaDirsTest):
+    def _upload(self, who="owner"):
+        r = self.client.post("/api/uploads", content=_png(), headers={"x-test-user": who})
+        return r.json()["url"].rsplit("/", 1)[1]
+
+    def test_each_account_lists_only_its_own_files(self):
+        mine, theirs = self._upload("owner"), self._upload("other")
+        image_service.IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+        (image_service.IMAGE_DIR / f"{'8' * 32}.png").write_bytes(_png())   # ownerless, pre-owners
+        names = lambda who: [(f["name"], f["upload"]) for f in
+                             self.client.get("/api/media", headers={"x-test-user": who}).json()["files"]]
+        self.assertEqual(names("owner"), [(mine, True)])
+        self.assertEqual(names("other"), [(theirs, True)])
+        self.assertEqual(names("admin"), [])        # only ever your own files
+        self.assertEqual(self.client.get("/api/media", headers={"x-test-user": "anon"}).status_code, 401)
+        info = self.client.get("/api/media").json()
+        self.assertEqual((info["results_days"], info["uploads_days"]), (30, 7))
+
+    def test_delete_own_file_only(self):
+        mine, theirs = self._upload("owner"), self._upload("other")
+        self.assertEqual(self.client.delete(f"/api/media/{theirs}").status_code, 404)
+        self.assertEqual(self.client.get(f"/images/{theirs}", headers={"x-test-user": "other"}).status_code, 200)
+        self.assertEqual(self.client.delete(f"/api/media/{mine}").status_code, 200)
+        self.assertEqual(self.client.get(f"/images/{mine}").status_code, 404)
+        self.assertEqual(self.client.get("/api/media").json()["files"], [])
+        self.assertEqual(self.client.delete("/api/media/..%2F..%2Fspark-ai-hub.db").status_code, 404)
+
+    def test_nobody_deletes_an_ownerless_file(self):
+        image_service.IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+        old = image_service.IMAGE_DIR / f"{'8' * 32}.png"
+        old.write_bytes(_png())
+        for who in ("owner", "admin"):
+            self.assertEqual(self.client.delete(f"/api/media/{old.name}",
+                                                headers={"x-test-user": who}).status_code, 404)
+        self.assertTrue(old.exists())
+
+    def test_thumbnails_are_small_and_owner_only(self):
+        mine = self._upload("owner")
+        r = self.client.get(f"/api/media/{mine}/thumb")
+        self.assertEqual((r.status_code, r.headers["content-type"]), (200, "image/jpeg"))
+        self.assertLessEqual(max(Image.open(io.BytesIO(r.content)).size), files.THUMB_EDGE)
+        self.assertEqual(self.client.get(f"/api/media/{mine}/thumb",
+                                         headers={"x-test-user": "other"}).status_code, 404)
+
+
+def urllib_path(url: str) -> str:
+    import urllib.parse
+    return urllib.parse.urlsplit(url).path
+
+
 class UnifiedVideoEditAndMusicTests(unittest.TestCase):
     def setUp(self):
         self.client = _client()
@@ -375,7 +592,7 @@ class UnifiedVideoEditAndMusicTests(unittest.TestCase):
         async def scenario():
             started = asyncio.Event()
 
-            async def slow_run(kind, params, images, model, on_progress=None):
+            async def slow_run(kind, params, images, model, on_progress=None, user=None):
                 started.set()
                 await asyncio.sleep(0.3)
                 return SimpleNamespace(path="/images/abc.png", model="m", width=8, height=8,
@@ -383,15 +600,17 @@ class UnifiedVideoEditAndMusicTests(unittest.TestCase):
 
             with mock.patch.object(image_service, "run", slow_run):
                 job_id = await image_service.start_job(
-                    "edit", image_service.Params(prompt="p"), ["u"], "m")
+                    "edit", image_service.Params(prompt="p"), ["u"], "m", OWNER)
                 # The caller gives up while the render is still going.
-                pending = await image_service.check_job(job_id, 0)
+                pending = await image_service.check_job(job_id, 0, OWNER)
                 self.assertEqual((pending["status"], pending["result"]), ("rendering", None))
                 await started.wait()
-                done = await image_service.check_job(job_id, 5)
+                done = await image_service.check_job(job_id, 5, OWNER)
                 self.assertEqual((done["status"], done["result"].path), ("completed", "/images/abc.png"))
-                # Collectable again afterwards.
-                self.assertEqual((await image_service.check_job(job_id, 0))["status"], "completed")
+                # Collectable again afterwards -- by the account that started it only.
+                self.assertEqual((await image_service.check_job(job_id, 0, OWNER))["status"], "completed")
+                with self.assertRaisesRegex(image_service.ImageError, "No image job"):
+                    await image_service.check_job(job_id, 0, OTHER)
         from types import SimpleNamespace
         asyncio.run(scenario())
 

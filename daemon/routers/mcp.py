@@ -22,9 +22,10 @@ import json
 from typing import Any
 
 from fastapi import APIRouter, Request, Response
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
-from daemon.services import audio_service, image_service, video_service
+from daemon.services import audio_service, image_service, media_store, upload_service, video_service
+from daemon.config import settings
 from daemon.services.connect_service import request_origin
 
 router = APIRouter(tags=["mcp"])
@@ -37,7 +38,15 @@ INSTRUCTIONS = (
     "Generates and edits images, generates and edits videos, and composes music, with open models running on "
     "the user's DGX Spark. Call list_image_models / list_video_models to see which "
     "are running. Every result is saved on the Hub and returned as a URL plus a "
-    "preview. Show the user the URL. To refine an image, pass its URL to edit_image.\n\n"
+    "preview. Show the user the URL. To refine an image, pass its URL to edit_image. "
+    "The URLs are private: they open for the user signed in to the Hub, or with "
+    "their Hub API key as a Bearer token (`sah download <url>` saves one with it). "
+    "Results are deleted after 30 days, so tell the user to download what they want to keep; "
+    "they can see and delete everything they made or uploaded at <Hub address>/files.\n\n"
+    "To work on the user's own files: a picture attached to the chat cannot be passed "
+    "to a tool. Ask the user to upload it at <Hub address>/upload and paste the link; "
+    "if you have a shell, run `sah upload <file>` (prints the URL) yourself. Uploads "
+    "last 7 days. Local file paths never work: the models run on the Spark.\n\n"
     "Renders are asynchronous jobs, because they take from seconds to many minutes. "
     "generate_image and edit_image return the image if it is ready within about 45 s; "
     "otherwise they return status \"rendering\" and a job_id. generate_video always "
@@ -69,9 +78,10 @@ _WAIT_HINT = (
 )
 
 _IMAGE_REFS = (
-    "Each item is a URL returned by generate_image or edit_image, a public "
-    "http(s) image URL, or a base64 data: URL. Local file paths do not work: "
-    "the model runs on the Spark, not on this machine."
+    "Each item is a URL returned by generate_image or edit_image, an upload URL "
+    "from the Hub's /upload page or `sah upload <file>`, a public http(s) image "
+    "URL, or a base64 data: URL. Local file paths do not work: the model runs on "
+    "the Spark, not on this machine — upload the file first."
 )
 
 TOOLS = [
@@ -167,7 +177,8 @@ TOOLS = [
                           "description": "Optional first frame for image-to-video. " + _IMAGE_REFS},
                 "video": {"type": "string",
                           "description": ("Optional input video to edit (models that list "
-                                          "video-to-video). A URL returned by get_video, a public "
+                                          "video-to-video). A URL returned by get_video, an upload "
+                                          "URL from /upload or `sah upload <file>`, a public "
                                           "http(s) video URL, or a base64 data: URL.")},
                 "seconds": {"type": "integer", "minimum": 1, "maximum": 10,
                             "description": "Length. Omit for the model's default."},
@@ -275,8 +286,13 @@ def _int(args: dict, key: str) -> int | None:
         raise image_service.ImageError(f"'{key}' must be an integer.") from None
 
 
-async def call_tool(name: str, args: dict, origin: str, on_progress=None) -> dict:
-    """Run one tool; failures come back as an isError result, never raise."""
+async def call_tool(name: str, args: dict, origin: str, on_progress=None,
+                    user: dict | None = None) -> dict:
+    """Run one tool for `user`; failures come back as an isError result, never raise.
+
+    Media belongs to the account that made it: `user` owns what this call
+    creates, and can only use or collect their own images, videos and jobs.
+    """
     try:
         if name == "list_image_models":
             return _text(json.dumps(await image_service.list_models(), indent=2))
@@ -289,6 +305,7 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None) -> dic
                 lyrics=lyrics, style=style, seconds=_int(args, "seconds"), seed=_int(args, "seed"),
                 model=str(args.get("model") or "").strip() or None, on_progress=on_progress,
             )
+            await media_store.record(f"{info['audio_id']}.wav", user and user["id"])
             url = f"{origin}{audio_service.PUBLIC_PREFIX}/{info['audio_id']}.wav"
             lines = [f"Music: {url}", f"Model: {info['model']}",
                      f"Length: {info['seconds']}s", f"Seed: {info['seed']}"]
@@ -299,7 +316,7 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None) -> dic
             if not job_id:
                 raise image_service.ImageError("'job_id' is required.")
             wait = _int(args, "wait_seconds")
-            info = await image_service.check_job(job_id, 120 if wait is None else wait)
+            info = await image_service.check_job(job_id, 120 if wait is None else wait, user)
             return _image_result(info, origin)
         if name == "list_video_models":
             return _text(json.dumps(await video_service.list_models(), indent=2))
@@ -308,7 +325,7 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None) -> dic
             if not job_id:
                 raise image_service.ImageError("'job_id' is required.")
             wait = _int(args, "wait_seconds")
-            info = await video_service.check(job_id, 120 if wait is None else wait, on_progress)
+            info = await video_service.check(job_id, 120 if wait is None else wait, on_progress, user)
             return _video_result(info, origin)
         if name == "generate_video":
             prompt = str(args.get("prompt") or "").strip()
@@ -319,7 +336,7 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None) -> dic
                 video=str(args.get("video") or "").strip() or None,
                 seconds=_int(args, "seconds"), aspect_ratio=str(args.get("aspect_ratio") or "16:9"),
                 seed=_int(args, "seed"), steps=_int(args, "steps"),
-                model=str(args.get("model") or "").strip() or None,
+                model=str(args.get("model") or "").strip() or None, user=user,
             )
             lines = [f"Video job started: {info['job_id']}", f"Model: {info['model']}"]
             lines += [f"{k.capitalize()}: {info[k]}" for k in ("size", "seconds", "seed", "steps")
@@ -345,17 +362,17 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None) -> dic
         model = str(args.get("model") or "").strip() or None
 
         if name == "generate_image":
-            job_id = await image_service.start_job("generate", params, [], model)
+            job_id = await image_service.start_job("generate", params, [], model, user)
         else:
             images = args.get("images")
             if isinstance(images, str):
                 images = [images]
             if not isinstance(images, list) or not 1 <= len(images) <= 3:
                 raise image_service.ImageError("'images' must list one to three images.")
-            job_id = await image_service.start_job("edit", params, [str(i) for i in images], model)
+            job_id = await image_service.start_job("edit", params, [str(i) for i in images], model, user)
         if on_progress:
             on_progress("rendering on the Spark")
-        info = await image_service.check_job(job_id, image_service.JOB_GRACE)
+        info = await image_service.check_job(job_id, image_service.JOB_GRACE, user)
         return _image_result(info, origin)
     except image_service.ImageError as exc:
         return _text(str(exc), is_error=True)
@@ -445,13 +462,14 @@ async def _tools_call(request: Request, msg_id: Any, params: dict) -> Response:
     if not isinstance(args, dict):
         return JSONResponse(_error(msg_id, -32602, "arguments must be an object"))
     origin = _origin(request)
+    user = getattr(request.state, "user", None)
     token = (params.get("_meta") or {}).get("progressToken")
 
     if "text/event-stream" not in request.headers.get("accept", ""):
-        return JSONResponse(_result(msg_id, await call_tool(name, args, origin)))
+        return JSONResponse(_result(msg_id, await call_tool(name, args, origin, user=user)))
 
     progress: asyncio.Queue[str] = asyncio.Queue()
-    task = asyncio.create_task(call_tool(name, args, origin, progress.put_nowait))
+    task = asyncio.create_task(call_tool(name, args, origin, progress.put_nowait, user))
 
     async def stream():
         count = 0
@@ -523,37 +541,53 @@ async def mcp_no_stream():
     return Response(status_code=405, headers={"Allow": "POST"})
 
 
+def _cache_headers(path) -> dict:
+    # Private to one account, and deleted after a while (media_store): no
+    # shared cache such as Cloudflare's may keep a copy.
+    if upload_service.is_upload(path):
+        return {"Cache-Control": "private, max-age=3600"}
+    return {"Cache-Control": "private, max-age=86400, immutable"}
+
+
+_SIGN_IN_PAGE = """<!doctype html><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · Spark AI Hub</title>
+<body style="font:15px system-ui,sans-serif;max-width:480px;margin:15vh auto;padding:0 16px">
+<p>This file is private. <a href="/">Sign in to Spark AI Hub</a> with the account that
+made it, then open the link again.</p>"""
+
+
+async def _media_file(request: Request, name: str, name_re, find, media_type: str) -> Response:
+    """A generated or uploaded file, for its owner only (media_store)."""
+    user = getattr(request.state, "user", None)
+    if settings.auth_enabled and user is None:
+        if "text/html" in request.headers.get("accept", ""):
+            return HTMLResponse(_SIGN_IN_PAGE, status_code=401)
+        return JSONResponse({"detail": "Authentication required: sign in to the Hub, "
+                             "or send your Hub API key as a Bearer token."}, status_code=401,
+                            headers={"WWW-Authenticate": 'Bearer realm="Spark AI Hub"'})
+    path = find(name) if name_re.match(name) else None
+    # Someone else's file answers exactly like a missing one.
+    if path is None or not await media_store.can_read(name, user):
+        return Response(status_code=404)
+    return FileResponse(path, media_type=media_type, headers=_cache_headers(path))
+
+
 @router.get("/audio/{name}")
-async def audio_file(name: str):
-    """A generated song. Public on purpose: the unguessable id is the access."""
-    if not audio_service.AUDIO_NAME_RE.match(name):
-        return Response(status_code=404)
-    path = audio_service.AUDIO_DIR / name
-    if not path.is_file():
-        return Response(status_code=404)
-    return FileResponse(path, media_type="audio/wav",
-                        headers={"Cache-Control": "public, max-age=31536000, immutable"})
+async def audio_file(request: Request, name: str):
+    def find(n):
+        path = audio_service.AUDIO_DIR / n
+        return path if path.is_file() else None
+    return await _media_file(request, name, audio_service.AUDIO_NAME_RE, find, "audio/wav")
 
 
 @router.get("/videos/{name}")
-async def video_file(name: str):
-    """A generated video. Public on purpose: the unguessable id is the access."""
-    if not video_service.VIDEO_NAME_RE.match(name):
-        return Response(status_code=404)
-    path = video_service.VIDEO_DIR / name
-    if not path.is_file():
-        return Response(status_code=404)
-    return FileResponse(path, media_type="video/mp4",
-                        headers={"Cache-Control": "public, max-age=31536000, immutable"})
+async def video_file(request: Request, name: str):
+    return await _media_file(request, name, video_service.VIDEO_NAME_RE,
+                             video_service.hub_video_path, "video/mp4")
 
 
 @router.get("/images/{name}")
-async def image_file(name: str):
-    """A generated image. Public on purpose: the unguessable id is the access."""
-    if not image_service.IMAGE_NAME_RE.match(name):
-        return Response(status_code=404)
-    path = image_service.IMAGE_DIR / name
-    if not path.is_file():
-        return Response(status_code=404)
-    return FileResponse(path, media_type="image/png",
-                        headers={"Cache-Control": "public, max-age=31536000, immutable"})
+async def image_file(request: Request, name: str):
+    return await _media_file(request, name, image_service.IMAGE_NAME_RE,
+                             image_service.hub_image_path, "image/png")

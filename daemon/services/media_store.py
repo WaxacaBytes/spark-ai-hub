@@ -1,0 +1,174 @@
+"""Who owns the media the Hub makes and stores, how long it keeps it, and the
+listing behind each user's "My files" page (daemon/routers/files.py).
+
+Results (/images/, /videos/, /audio/) and uploads are private to the account
+that made them: the file routes and the tools that take a Hub URL as input
+check the caller's Hub session or API key against the owner recorded here, and
+answer 404 to anyone else, so another user's link reveals nothing. A file with
+no owner row is nobody's to see (admins included) and just waits out its
+lifetime; the files from before owners were recorded were given to the admin.
+
+Nothing is kept for good. Results stay RESULT_TTL, long enough to come back to
+a chat and refine one (clients working on local files save them next to their
+files anyway); uploads are scratch inputs and go sooner. Age is the file's
+mtime; the daemon's hourly janitor calls purge_expired().
+"""
+from __future__ import annotations
+
+import asyncio
+import re
+import time
+from pathlib import Path
+
+from daemon.config import settings
+from daemon.db import get_db
+
+DAY = 24 * 3600
+RESULT_TTL = 30 * DAY
+UPLOAD_TTL = 7 * DAY
+
+
+async def record(name: str, user_id: int | None) -> None:
+    """Note that account `user_id` made the file <name> (e.g. '<32 hex>.png')."""
+    if user_id is None:
+        return
+    db = await get_db()
+    try:
+        await db.execute("INSERT OR REPLACE INTO media (name, user_id) VALUES (?, ?)",
+                         (name, user_id))
+        await db.commit()
+    finally:
+        await db.close()
+
+
+async def can_read(name: str, user: dict | None) -> bool:
+    if not settings.auth_enabled:
+        return True
+    if not user:
+        return False
+    db = await get_db()
+    try:
+        row = await (await db.execute("SELECT user_id FROM media WHERE name = ?", (name,))).fetchone()
+    finally:
+        await db.close()
+    return _visible(row["user_id"] if row else None, user)
+
+
+def _locations() -> list[tuple[Path, re.Pattern, str, str, bool]]:
+    """(folder, name pattern, kind, public prefix, holds uploads) for every store."""
+    # Imported here: image_service checks ownership through this module.
+    from daemon.services import audio_service, image_service, video_service
+    return [
+        (image_service.IMAGE_DIR, image_service.IMAGE_NAME_RE, "image", image_service.PUBLIC_PREFIX, False),
+        (image_service.UPLOAD_DIR, image_service.IMAGE_NAME_RE, "image", image_service.PUBLIC_PREFIX, True),
+        (video_service.VIDEO_DIR, video_service.VIDEO_NAME_RE, "video", video_service.PUBLIC_PREFIX, False),
+        (video_service.UPLOAD_DIR, video_service.VIDEO_NAME_RE, "video", video_service.PUBLIC_PREFIX, True),
+        (audio_service.AUDIO_DIR, audio_service.AUDIO_NAME_RE, "audio", audio_service.PUBLIC_PREFIX, False),
+    ]
+
+
+def _entries() -> list[dict]:
+    """Every stored result and upload, straight from disk."""
+    entries = []
+    for folder, name_re, kind, prefix, upload in _locations():
+        if not folder.is_dir():
+            continue
+        for path in folder.iterdir():
+            if not name_re.match(path.name):
+                continue
+            try:
+                st = path.stat()
+            except FileNotFoundError:
+                continue
+            if not path.is_file():
+                continue
+            created = int(st.st_mtime)
+            entries.append({
+                "name": path.name, "kind": kind, "upload": upload,
+                "path": f"{prefix}/{path.name}", "bytes": st.st_size, "created": created,
+                "expires_at": created + (UPLOAD_TTL if upload else RESULT_TTL),
+                "_file": path,
+            })
+    return entries
+
+
+async def _owners() -> dict[str, int]:
+    db = await get_db()
+    try:
+        rows = await (await db.execute("SELECT name, user_id FROM media")).fetchall()
+    finally:
+        await db.close()
+    return {row["name"]: row["user_id"] for row in rows}
+
+
+def _visible(owner: int | None, user: dict | None) -> bool:
+    """The one rule for reading, listing and deleting a file."""
+    if not settings.auth_enabled:
+        return True
+    if not user:
+        return False
+    return owner is not None and owner == user["id"]
+
+
+async def list_files(user: dict | None) -> list[dict]:
+    """`user`'s own files, newest first."""
+    entries, owners = await asyncio.to_thread(_entries), await _owners()
+    files = []
+    for entry in entries:
+        owner = owners.get(entry["name"])
+        if _visible(owner, user):
+            entry.pop("_file")
+            files.append(entry)
+    return sorted(files, key=lambda e: e["created"], reverse=True)
+
+
+async def delete(name: str, user: dict | None) -> bool:
+    """Delete one of `user`'s files. False if there is no such file they may see."""
+    entry = next((e for e in await asyncio.to_thread(_entries) if e["name"] == name), None)
+    if entry is None or not await can_read(name, user):
+        return False
+    entry["_file"].unlink(missing_ok=True)
+    db = await get_db()
+    try:
+        await db.execute("DELETE FROM media WHERE name = ?", (name,))
+        await db.commit()
+    finally:
+        await db.close()
+    return True
+
+
+def _folders() -> list[tuple[Path, re.Pattern, int]]:
+    return [(folder, name_re, UPLOAD_TTL if upload else RESULT_TTL)
+            for folder, name_re, _kind, _prefix, upload in _locations()]
+
+
+def _delete_old_files() -> list[str]:
+    """Unlink files past their lifetime; only names like the Hub's own are touched."""
+    now = time.time()
+    removed = []
+    for folder, name_re, ttl in _folders():
+        if not folder.is_dir():
+            continue
+        for path in folder.iterdir():
+            if not name_re.match(path.name):
+                continue
+            try:
+                if path.is_file() and path.stat().st_mtime < now - ttl:
+                    path.unlink()
+                    removed.append(path.name)
+            except FileNotFoundError:
+                pass
+    return removed
+
+
+async def purge_expired() -> int:
+    """Delete results and uploads past their lifetime. Returns how many went."""
+    removed = await asyncio.to_thread(_delete_old_files)
+    if removed:
+        db = await get_db()
+        try:
+            await db.executemany("DELETE FROM media WHERE name = ?", [(n,) for n in removed])
+            await db.commit()
+        finally:
+            await db.close()
+    return len(removed)

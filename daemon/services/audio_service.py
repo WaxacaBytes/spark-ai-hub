@@ -5,8 +5,8 @@ Music models are served on vLLM-Omni's OpenAI-style speech endpoint: POST
 `instructions`, and the finished song comes back as a WAV in the response body.
 A recipe opts in with the `openai-music` tag plus `text-to-music`.
 
-Songs are stored in the Hub's data dir and served at /audio/<id>.wav, the same
-capability-URL scheme as images and videos. They are never returned inline: a
+Songs are stored in the Hub's data dir and served at /audio/<id>.wav, private to
+the account that made them like images and videos (media_store). They are never returned inline: a
 30-second 32 kHz stereo WAV is ~11 MB, far too big for an agent's context.
 """
 from __future__ import annotations

@@ -10,7 +10,7 @@ tools keep that shape: `generate_video` starts a job, `get_video` checks on it
 A recipe opts in with the `openai-videos` tag; `text-to-video` and
 `image-to-video` say what it accepts, and `video_defaults` carry its model card's
 settings. Finished videos are copied into the Hub's data dir and served at
-/videos/<id>.mp4, the same capability-URL scheme as images.
+/videos/<id>.mp4, private to the account that made them like images (media_store).
 
 Jobs live in memory: a daemon restart forgets them, and so does the model
 server, which keeps its own queue in memory too.
@@ -34,12 +34,14 @@ import aiohttp
 
 from daemon.config import settings
 from daemon.services.docker_service import get_installed_slugs, is_ready, is_recipe_running
+from daemon.services import media_store
 from daemon.services.image_service import (
-    ImageError, _app_base, _headers, _is_public, load_input, to_png,
+    ImageError, _app_base, _headers, _is_public, load_input, owns_job, to_png,
 )
 from daemon.services.registry_service import get_recipes
 
 VIDEO_DIR = settings.data_dir / "videos"
+UPLOAD_DIR = VIDEO_DIR / "uploads"       # user uploads; they expire (upload_service)
 PUBLIC_PREFIX = "/videos"
 VIDEO_NAME_RE = re.compile(r"^([0-9a-f]{32})\.mp4$")
 
@@ -196,14 +198,26 @@ def video_fields(defaults, *, prompt: str, seconds: int | None, aspect_ratio: st
     return fields
 
 
-async def load_video_input(ref: str, session: aiohttp.ClientSession) -> bytes:
-    """Raw bytes for a video given as a Hub video URL, data: URL or public URL."""
+def hub_video_path(name: str):
+    """The file behind /videos/<name>: a result, or an upload. None if neither."""
+    for folder in (VIDEO_DIR, UPLOAD_DIR):
+        path = folder / name
+        if path.is_file():
+            return path
+    return None
+
+
+async def load_video_input(ref: str, session: aiohttp.ClientSession,
+                           user: dict | None = None) -> bytes:
+    """Raw bytes for a video given as a Hub video URL (only `user`'s own),
+    data: URL or public URL."""
     ref = ref.strip()
     if match := _HUB_VIDEO_URL_RE.search(ref):
-        path = VIDEO_DIR / f"{match.group(1)}.mp4"
-        if path.is_file():
+        name = f"{match.group(1)}.mp4"
+        if (path := hub_video_path(name)) and await media_store.can_read(name, user):
             return path.read_bytes()
-        raise ImageError(f"No Hub video {match.group(1)} (it may have been deleted).")
+        raise ImageError(f"No Hub video {match.group(1)} (it may have been deleted, "
+                         "or it was an upload that expired — upload it again).")
     if ref.startswith("data:"):
         header, _, body = ref.partition(",")
         if ";base64" not in header:
@@ -248,7 +262,7 @@ def _prune() -> None:
 
 async def start(*, prompt: str, image: str | None, seconds: int | None, aspect_ratio: str,
                 seed: int | None, steps: int | None, model: str | None,
-                video: str | None = None) -> dict:
+                video: str | None = None, user: dict | None = None) -> dict:
     if image and video:
         raise ImageError("Give either a starting image or an input video, not both.")
     kind = "video" if video else "image" if image else "text"
@@ -265,10 +279,10 @@ async def start(*, prompt: str, image: str | None, seconds: int | None, aspect_r
         # JSON body and rejects with "prompt: Field required".
         form = video_form()
         if image:
-            form.add_field("input_reference", to_png(await load_input(image, session)),
+            form.add_field("input_reference", to_png(await load_input(image, session, user)),
                            filename="input.png", content_type="image/png")
         elif video:
-            form.add_field("input_reference", await load_video_input(video, session),
+            form.add_field("input_reference", await load_video_input(video, session, user),
                            filename="input.mp4", content_type="video/mp4")
         for key, value in fields.items():
             form.add_field(key, json.dumps(value) if isinstance(value, dict) else str(value))
@@ -285,6 +299,7 @@ async def start(*, prompt: str, image: str | None, seconds: int | None, aspect_r
         "seed": seed, "size": fields.get("size") or remote.get("size"),
         "seconds": clip_seconds(fields) or remote.get("seconds"),
         "steps": fields.get("num_inference_steps"), "kind": kind,
+        "user_id": user and user["id"],
     }
     return {"job_id": job_id, "model": backend.slug, "status": remote.get("status", "queued"),
             **_summary(_jobs[job_id])}
@@ -310,10 +325,10 @@ def poster_jpeg_b64(path: Path) -> str | None:
         return base64.b64encode(out.read_bytes()).decode() if out.is_file() else None
 
 
-async def check(job_id: str, wait: int = 0, on_progress=None) -> dict:
+async def check(job_id: str, wait: int = 0, on_progress=None, user: dict | None = None) -> dict:
     """The job's state, waiting up to `wait` seconds for it to finish."""
     job = _jobs.get(job_id)
-    if not job:
+    if not job or not owns_job(job, user):
         raise ImageError("Unknown job_id. Video jobs are forgotten when the Hub restarts; start a new one.")
     base = {"job_id": job_id, "model": job["slug"], **_summary(job)}
     if job.get("video_id"):
@@ -343,6 +358,7 @@ async def check(job_id: str, wait: int = 0, on_progress=None) -> dict:
                         async for chunk in r.content.iter_chunked(1 << 20):
                             f.write(chunk)
                 job["video_id"] = video_id
+                await media_store.record(f"{video_id}.mp4", job.get("user_id"))
                 job["poster"] = await asyncio.to_thread(poster_jpeg_b64, path)
                 job["inference_time_s"] = remote.get("inference_time_s")
                 return {**base, "status": "completed", "video_id": video_id,

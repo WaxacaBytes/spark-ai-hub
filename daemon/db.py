@@ -87,6 +87,15 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
     expires_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_user ON oauth_tokens(user_id);
+
+-- Owner of each generated image/video/song and each upload, by file name
+-- ('<32 hex>.png'). Media is private to its owner (daemon/services/media_store.py).
+CREATE TABLE IF NOT EXISTS media (
+    name TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_media_user ON media(user_id);
 """
 
 
