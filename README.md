@@ -57,9 +57,9 @@ An existing `sah` install picks up a key with `sah set-key <key>`, and
 `$SAH_API_KEY` overrides it for one-off shells. Every model call is attributed
 to the key that made it, which is what the admin usage figures report.
 
-The key only runs models (`/v1`). Agents can read whatever key they are given,
-so it cannot reach the Hub's own API, your files, or the media tools at `/mcp`;
-an MCP client signs in through the browser instead, and you approve it there.
+The key runs models (`/v1`) and the media tools at `/mcp`, and nothing else:
+agents can read whatever key they are given, so it cannot reach the Hub's own
+API or open your files directly.
 
 To run without any of this — a Hub on a network you are certain is private —
 start it with `SPARK_AI_HUB_AUTH_ENABLED=false`.

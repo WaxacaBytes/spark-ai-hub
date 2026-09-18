@@ -259,6 +259,10 @@ def mcp_url() -> str:
     return f"{hub_url()}/mcp"
 
 
+def mcp_headers() -> dict:
+    return {"Authorization": f"Bearer {API_KEY}"}
+
+
 def resolved_api_base() -> str:
     """api_base() with an mDNS `.local` hostname replaced by its IPv4 address.
 
@@ -720,20 +724,11 @@ class Integration:
     def argv(self, model: Model, extra: list[str]) -> list[str]:
         return list(extra)
 
-    def mcp_login(self, path: str, env: dict) -> None:
-        """Sign the client in to the Hub's /mcp (OAuth) if it is not yet.
-
-        Only clients whose sah-images entry lives in sah's launch-time config
-        need this: the login command their own prompt suggests runs without
-        that config, cannot find the server, and so can never finish."""
-
     def launch(self, model: Model, extra: list[str]) -> None:
         path = self.require_binary()
         if self.writes_config:
             self.apply(model)
         env = {**os.environ, **self.env(model)}
-        if sys.stdin.isatty():
-            self.mcp_login(path, env)
         os.execve(path, [self.binary or path, *self.argv(model, extra)], env)
 
     # -- lifecycle ------------------------------------------------------------
@@ -880,7 +875,7 @@ class Claude(Integration):
 
     def argv(self, model: Model, extra: list[str]) -> list[str]:
         mcp = {"mcpServers": {MCP_SERVER: {
-            "type": "http", "url": mcp_url(),
+            "type": "http", "url": mcp_url(), "headers": mcp_headers(),
         }}}
         return ["--model", model.name, "--mcp-config", json.dumps(mcp), *extra]
 
@@ -931,6 +926,10 @@ class OpenCode(Integration):
                 MCP_SERVER: {
                     "type": "remote",
                     "url": mcp_url(),
+                    "headers": mcp_headers(),
+                    # The key is the credential; without this OpenCode probes
+                    # the Hub for OAuth metadata first.
+                    "oauth": False,
                     "timeout": MCP_TOOL_TIMEOUT * 1000,
                 }
             },
@@ -950,20 +949,6 @@ class OpenCode(Integration):
     def env(self, model: Model) -> dict:
         self._touch_picker_state(model)
         return {"OPENCODE_CONFIG_CONTENT": self.inline_config(model)}
-
-    def mcp_login(self, path: str, env: dict) -> None:
-        # sah-images exists only in OPENCODE_CONFIG_CONTENT, so a bare
-        # `opencode mcp auth sah-images` reports no such server. `mcp list`
-        # connects for real, so it also catches a sign-in that has lapsed.
-        try:
-            out = subprocess.run([path, "mcp", "list"], env=env, capture_output=True,
-                                 text=True, timeout=60).stdout
-        except (OSError, subprocess.SubprocessError):
-            return
-        out = re.sub(r"\x1b\[[0-9;]*m", "", out)
-        if any(MCP_SERVER in line and "needs auth" in line.lower() for line in out.splitlines()):
-            print(f"Sign in to the Hub's media tools ({MCP_SERVER}): approve OpenCode in the browser page that opens.")
-            subprocess.run([path, "mcp", "auth", MCP_SERVER], env=env)
 
     def extras(self) -> tuple[tuple[str, str], ...]:
         return (("Picker state", str(self.state_path())),)
@@ -1038,6 +1023,7 @@ class Codex(Integration):
             "",
             f"[mcp_servers.{MCP_SERVER}]",
             f"url = {json.dumps(mcp_url())}",
+            'bearer_token_env_var = "OPENAI_API_KEY"',
             f"tool_timeout_sec = {MCP_TOOL_TIMEOUT}",
             "",
         ])
@@ -1079,6 +1065,7 @@ class Codex(Integration):
             "-c", f'model_providers.{CODEX_PROFILE}.env_key="OPENAI_API_KEY"',
             "-c", f"model_catalog_json={json.dumps(str(self.catalog_path()))}",
             "-c", f"mcp_servers.{MCP_SERVER}.url={json.dumps(mcp_url())}",
+            "-c", f'mcp_servers.{MCP_SERVER}.bearer_token_env_var="OPENAI_API_KEY"',
             "-c", f"mcp_servers.{MCP_SERVER}.tool_timeout_sec={MCP_TOOL_TIMEOUT}",
         ]
 
@@ -1088,25 +1075,9 @@ class Codex(Integration):
         self.check_version(path)
         self.write_profile(model)
         env = {**os.environ, "OPENAI_API_KEY": API_KEY}
-        if sys.stdin.isatty():
-            self.mcp_login(path, env)
         argv = ["codex", "--profile", CODEX_PROFILE, *self.config_overrides(),
                 "-m", model.name, *extra]
         os.execve(path, argv, env)
-
-    def mcp_login(self, path: str, env: dict) -> None:
-        # sah-images comes in through -c overrides, which a bare
-        # `codex mcp login sah-images` would not have.
-        mcp = [path, "mcp", *self.config_overrides()]
-        try:
-            servers = json.loads(subprocess.run([*mcp, "list", "--json"], env=env,
-                                                capture_output=True, text=True, timeout=30).stdout)
-        except (OSError, subprocess.SubprocessError, ValueError):
-            return
-        if any(s.get("name") == MCP_SERVER and s.get("auth_status") == "not_logged_in"
-               for s in servers if isinstance(s, dict)):
-            print(f"Sign in to the Hub's media tools ({MCP_SERVER}): approve Codex in the browser page that opens.")
-            subprocess.run([*mcp, "login", MCP_SERVER], env=env)
 
     # Codex owns only files sah created, so install/restore are create/delete
     # rather than rewrite/put-back.
@@ -1311,9 +1282,7 @@ class Hermes(Integration):
             text = yaml_upsert(text, ["toolsets"], ["hermes-cli", "web"])
         text = yaml_upsert(text, ["mcp_servers", MCP_SERVER], {
             "url": mcp_url(),
-            # Hermes only runs the OAuth flow when asked; without this it
-            # connects anonymously and the Hub answers 401.
-            "auth": "oauth",
+            "headers": mcp_headers(),
             "timeout": MCP_TOOL_TIMEOUT,
         })
         write_text(path, text)
@@ -1433,13 +1402,15 @@ class OpenClaw(Integration):
         agents["defaults"] = defaults
         cfg["agents"] = agents
 
-        # No media MCP here: the Hub's /mcp takes OAuth only, and OpenClaw's
-        # MCP client sends static headers and nothing else. Drop the entry an
-        # older sah wrote, which carried the API key in its headers.
-        mcp = cfg.get("mcp")
-        servers = mcp.get("servers") if isinstance(mcp, dict) else None
-        if isinstance(servers, dict):
-            servers.pop(MCP_SERVER, None)
+        mcp = cfg.get("mcp") if isinstance(cfg.get("mcp"), dict) else {}
+        servers = mcp.get("servers") if isinstance(mcp.get("servers"), dict) else {}
+        servers[MCP_SERVER] = {
+            "url": mcp_url(),
+            "transport": "streamable-http",
+            "headers": mcp_headers(),
+        }
+        mcp["servers"] = servers
+        cfg["mcp"] = mcp
 
         write_json(path, cfg)
         self._clear_session_overrides(model.name)
@@ -2581,17 +2552,17 @@ def cmd_env(args) -> None:
 def cmd_mcp(args) -> None:
     """The image MCP server's details, for clients sah does not wire itself."""
     config = {"mcpServers": {MCP_SERVER: {
-        "type": "http", "url": mcp_url(),
+        "type": "http", "url": mcp_url(), "headers": mcp_headers(),
     }}}
     if args.json:
         print(json.dumps(config, indent=2))
         return
     kv("MCP URL", mcp_url())
     kv("Transport", "Streamable HTTP")
-    kv("Auth", "OAuth — the client opens a Hub sign-in page the first time")
+    kv("Header", f"Authorization: Bearer {API_KEY}")
     kv("Tools", "generate_image, edit_image, list_image_models")
     kv("Tool timeout", f"allow at least {MCP_TOOL_TIMEOUT}s — a render takes minutes")
-    print(f"\nWired automatically by: sah claude, opencode, codex, hermes")
+    print(f"\nWired automatically by: sah claude, opencode, codex, hermes, openclaw")
     print("Any other client (Claude Desktop, osaurus, Cursor, ...):\n")
     print(json.dumps(config, indent=2))
 

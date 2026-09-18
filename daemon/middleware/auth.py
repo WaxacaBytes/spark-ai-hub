@@ -38,18 +38,19 @@ PUBLIC_API_PATHS = {
 MCP_PREFIX = "/mcp"
 GUARDED_PREFIXES = ("/api", "/ws", "/v1", MCP_PREFIX)
 
-# Where an API key is accepted: the model endpoints, and the one Hub route the
-# `sah` CLI calls to find the Hub. sah hands the key to every agent it launches
-# — env vars, config files — so any agent, and whatever model drives it, can
-# read the key. It must therefore be worth no more than running a model: it
-# cannot drive the admin API, open WebSockets, read media, or reach /mcp, where
-# a human approves each client through OAuth in the browser instead.
-API_KEY_PREFIX = "/v1"
+# Where an API key is accepted: the model endpoints, the media MCP server, and
+# the one Hub route the `sah` CLI calls to find the Hub. sah hands the key to
+# every agent it launches — env vars, config files — so any agent, and whatever
+# model drives it, can read the key. It must therefore be worth no more than
+# what an agent is meant to do: it cannot drive the admin API, open WebSockets
+# or read media files directly. /mcp takes it because agents do not complete
+# an OAuth browser sign-in on their own; OAuth stays for Claude's connectors.
+API_KEY_PREFIXES = ("/v1", MCP_PREFIX)
 API_KEY_PATHS = {"/api/system/connect"}
 
 
 def _api_key_allowed(path: str) -> bool:
-    return path.startswith(API_KEY_PREFIX) or path in API_KEY_PATHS
+    return path.startswith(API_KEY_PREFIXES) or path in API_KEY_PATHS
 
 
 def _needs_auth(path: str) -> bool:

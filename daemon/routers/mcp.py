@@ -12,9 +12,9 @@ minutes, and a silent socket that long trips client read timeouts — Hermes, fo
 one, gives up after 300s of no bytes. The stream carries a keepalive comment
 every few seconds, and progress notifications when the client asked for them.
 
-Authentication is OAuth only (oauth.py): a client discovers the sign-in from the
-401 on /mcp and a person approves it in the browser. The API key does not open
-/mcp — agents can read that key, so it is kept to running models.
+Authentication is the Hub's own: a client sends the same API key it uses for
+the LLM, or an OAuth token (oauth.py) for clients that cannot send a key, such
+as Claude's connectors.
 """
 from __future__ import annotations
 

@@ -180,11 +180,9 @@ class OAuthFlowTests(unittest.TestCase):
         fresh = TestClient(self.client.app)
         self.assertEqual(fresh.get("/api/auth/me", headers={"x-api-key": self.api_key}).status_code, 401)
 
-    def test_api_key_does_not_open_mcp_and_points_at_oauth(self):
+    def test_api_key_opens_mcp(self):
         r = self._with_key("POST", "/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-        self.assertEqual(r.status_code, 401)
-        self.assertIn('error="invalid_token"', r.headers["www-authenticate"])
-        self.assertIn("resource_metadata=", r.headers["www-authenticate"])
+        self.assertEqual(r.status_code, 200, r.text)
 
     def test_api_key_does_not_read_media(self):
         self.assertEqual(self._with_key("GET", "/images/anything.png").status_code, 401)
