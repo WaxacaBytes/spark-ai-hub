@@ -292,13 +292,14 @@ class ImageServiceTests(unittest.TestCase):
                 await image_service.load_input("/etc/passwd", None)
         asyncio.run(go())
 
-    def test_data_url_and_hub_url_inputs(self):
+    def test_hub_url_input_and_inline_data_refused(self):
         png = _png()
 
         async def go(tmp):
-            data = await image_service.load_input(
-                "data:image/png;base64," + base64.b64encode(png).decode(), None)
-            self.assertEqual(data, png)
+            # Inline base64 is refused and the agent is pointed at create_upload.
+            with self.assertRaisesRegex(image_service.ImageError, "create_upload"):
+                await image_service.load_input(
+                    "data:image/png;base64," + base64.b64encode(png).decode(), None, OWNER)
             (Path(tmp) / f"{'d' * 32}.png").write_bytes(png)
             await media_store.record(f"{'d' * 32}.png", OWNER["id"])
             hub = await image_service.load_input(
@@ -438,7 +439,8 @@ class UploadTests(_MediaDirsTest):
         info = r.json()
         self.assertEqual(info["kind"], "video")
         self.assertEqual(self.client.get(urllib_path(info["url"])).content, _MP4)
-        stored = asyncio.run(video_service.load_video_input(info["url"], None, OWNER))
+        stored = asyncio.run(image_service.load_input(info["url"], None, OWNER, suffix=".mp4",
+                                                      max_bytes=video_service.MAX_VIDEO_INPUT_BYTES))
         self.assertEqual(stored, _MP4)
 
     def test_unreadable_upload_is_refused(self):
@@ -783,9 +785,11 @@ class UnifiedVideoEditAndMusicTests(unittest.TestCase):
 
     def test_video_inputs_refuse_loopback_and_local_paths(self):
         async def go():
-            for ref in ("http://127.0.0.1:9010/x.mp4", "/etc/passwd"):
+            for ref in ("http://127.0.0.1:9010/x.mp4", "/etc/passwd", "data:video/mp4;base64,AAAA",
+                        f"/images/{'a' * 32}.png"):     # an image URL is not a video input
                 with self.assertRaises(image_service.ImageError):
-                    await video_service.load_video_input(ref, None)
+                    await image_service.load_input(ref, None, OWNER, suffix=".mp4",
+                                                   max_bytes=video_service.MAX_VIDEO_INPUT_BYTES)
         asyncio.run(go())
 
     def test_music_body(self):

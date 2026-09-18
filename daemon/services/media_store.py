@@ -93,6 +93,15 @@ def _entries() -> list[dict]:
 
 
 MEDIA_TYPES = {".png": "image/png", ".mp4": "video/mp4", ".wav": "audio/wav"}
+# A Hub media URL from any address the Hub is reached on (LAN, Tailscale,
+# tunnel), so a file made through one can be used through another.
+_URL_NAME_RE = re.compile(r"/(?:images|videos|audio)/([0-9a-f]{32}\.(?:png|mp4|wav))(?:$|[?#])")
+
+
+def name_in_url(url: str) -> str | None:
+    """'<id>.<ext>' for a Hub media URL, else None."""
+    match = _URL_NAME_RE.search(url.strip())
+    return match.group(1) if match else None
 
 
 def find(name: str) -> Path | None:

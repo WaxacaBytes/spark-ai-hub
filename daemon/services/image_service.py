@@ -45,9 +45,6 @@ IMAGE_DIR = settings.data_dir / "images"
 UPLOAD_DIR = IMAGE_DIR / "uploads"
 PUBLIC_PREFIX = "/images"
 IMAGE_NAME_RE = re.compile(r"^([0-9a-f]{32})\.png$")
-# Matches a Hub image URL from any address the Hub is reached on, so an image
-# generated through the tunnel can be edited from the LAN and vice versa.
-_HUB_IMAGE_URL_RE = re.compile(r"/images/([0-9a-f]{32})\.png(?:$|[?#])")
 
 OPENAI_IMAGES_TAG = "openai-images"
 # Unified models that make images through a chat request (vLLM-Omni's
@@ -412,29 +409,27 @@ def _is_public(host: str, port: int) -> bool:
     return bool(infos) and all(ipaddress.ip_address(i[4][0]).is_global for i in infos)
 
 
-async def load_input(ref: str, session: aiohttp.ClientSession,
-                     user: dict | None = None) -> bytes:
-    """Raw bytes for an image given as a Hub image URL, data: URL or public URL.
+async def load_input(ref: str, session: aiohttp.ClientSession, user: dict | None = None,
+                     *, suffix: str = ".png", max_bytes: int = MAX_INPUT_BYTES) -> bytes:
+    """Raw bytes for an input image (or, with suffix='.mp4', video) given by URL.
 
-    A Hub image is `user`'s only if they made or uploaded it; anyone else's
-    reads as missing, exactly like the /images/ route answers them.
+    A Hub URL is read off disk and only for its owner: anyone else's file reads
+    as missing, exactly like the media routes answer them. A public http(s) URL
+    is fetched. Inline data (a data: URL) is refused on purpose: a model that
+    types a file out as base64 burns its context and usually garbles the file,
+    so the error points it at create_upload instead.
     """
+    noun = "video" if suffix == ".mp4" else "image"
     ref = ref.strip()
-    if match := _HUB_IMAGE_URL_RE.search(ref):
-        name = f"{match.group(1)}.png"
+    if (name := media_store.name_in_url(ref)) and name.endswith(suffix):
         if (path := media_store.find(name)) and await media_store.can_read(name, user):
             return path.read_bytes()
-        raise ImageError(f"No Hub image {match.group(1)} (it may have been deleted, "
+        raise ImageError(f"No Hub {noun} {name} for this account (it may have been deleted, "
                          "or it was an upload that expired — upload it again).")
 
     if ref.startswith("data:"):
-        header, _, body = ref.partition(",")
-        if ";base64" not in header:
-            raise ImageError("data: URLs must be base64-encoded.")
-        try:
-            return base64.b64decode(body, validate=False)
-        except ValueError as exc:
-            raise ImageError(f"Invalid base64 image: {exc}") from None
+        raise ImageError("Inline file data isn't accepted: tools take URLs. Call create_upload, "
+                         "upload the file with the curl command it gives you, and pass its url.")
 
     parts = urllib.parse.urlsplit(ref)
     if parts.scheme in ("http", "https") and parts.hostname:
@@ -442,19 +437,18 @@ async def load_input(ref: str, session: aiohttp.ClientSession,
         # Any signed-in user can make the daemon fetch this, so it must not be a
         # way to reach the daemon's own port or anything else on the LAN.
         if not await asyncio.to_thread(_is_public, parts.hostname, port):
-            raise ImageError("Only public http(s) image URLs can be fetched.")
+            raise ImageError(f"Only public http(s) {noun} URLs can be fetched.")
         async with session.get(ref, allow_redirects=False) as r:
             if r.status != 200:
                 raise ImageError(f"Fetching {ref} failed (HTTP {r.status}).")
-            body = await r.content.read(MAX_INPUT_BYTES + 1)
-        if len(body) > MAX_INPUT_BYTES:
-            raise ImageError("Input image is larger than 20 MB.")
+            body = await r.content.read(max_bytes + 1)
+        if len(body) > max_bytes:
+            raise ImageError(f"Input {noun} is larger than {max_bytes // 2**20} MB.")
         return body
 
-    raise ImageError(
-        "Images must be a URL returned by generate_image/edit_image, a public "
-        "http(s) URL, or a base64 data: URL."
-    )
+    raise ImageError(f"{noun.capitalize()}s must be URLs: one returned by the Hub's tools, an "
+                     "upload's url (create_upload), or a public http(s) URL. File paths do not "
+                     "work: upload the file first.")
 
 
 def to_png(raw: bytes) -> bytes:

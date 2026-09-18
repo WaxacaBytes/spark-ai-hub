@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 from typing import Any
 
 from fastapi import APIRouter, Request, Response
@@ -85,9 +84,9 @@ _WAIT_HINT = (
 
 _IMAGE_REFS = (
     "Each item is a URL returned by generate_image or edit_image, an upload's URL "
-    "(create_upload, or the Hub's My files page), a public "
-    "http(s) image URL, or a base64 data: URL. File paths do not work: the model "
-    "runs on the Spark, not where you are — upload the file first."
+    "(create_upload, or the Hub's My files page), or a public http(s) image URL. "
+    "Never a file path or the file's contents: the model runs on the Spark, not "
+    "where you are, so upload the file first with create_upload."
 )
 
 TOOLS = [
@@ -184,8 +183,8 @@ TOOLS = [
                 "video": {"type": "string",
                           "description": ("Optional input video to edit (models that list "
                                           "video-to-video). A URL returned by get_video, an upload's "
-                                          "URL (create_upload, or My files), a public "
-                                          "http(s) video URL, or a base64 data: URL.")},
+                                          "URL (create_upload, or My files), or a public "
+                                          "http(s) video URL.")},
                 "seconds": {"type": "integer", "minimum": 1, "maximum": 10,
                             "description": "Length. Omit for the model's default."},
                 "aspect_ratio": {"type": "string", "enum": video_service.ASPECT_RATIOS,
@@ -487,9 +486,6 @@ def _video_result(info: dict, origin: str) -> dict:
     return {"content": content, "structuredContent": {**structured, "url": url}, "isError": False}
 
 
-_MEDIA_URL_RE = re.compile(r"/(?:images|videos|audio)/([0-9a-f]{32}\.(?:png|mp4|wav))(?:$|[?#])")
-
-
 async def _link_tool(name: str, args: dict, origin: str, user: dict | None) -> dict:
     """create_upload / create_download: a key-less link for the caller's account."""
     if user is None:
@@ -508,11 +504,10 @@ async def _link_tool(name: str, args: dict, origin: str, user: dict | None) -> d
                 "structuredContent": {"upload_url": link, "method": "POST", "curl": curl,
                                       "expires_at": expires}}
 
-    match = _MEDIA_URL_RE.search(str(args.get("url") or "").strip())
-    if not match:
+    file_name = media_store.name_in_url(str(args.get("url") or ""))
+    if not file_name:
         raise image_service.ImageError("'url' must be a Hub image, video or song URL "
                                        "(.../images/<id>.png, /videos/<id>.mp4 or /audio/<id>.wav).")
-    file_name = match.group(1)
     if media_store.find(file_name) is None or not await media_store.can_read(file_name, user):
         raise image_service.ImageError(f"No Hub file {file_name} for this account "
                                        "(it may have expired or been deleted).")

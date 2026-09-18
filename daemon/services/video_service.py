@@ -26,7 +26,6 @@ import shutil
 import subprocess
 import tempfile
 import time
-import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,7 +35,7 @@ from daemon.config import settings
 from daemon.services.docker_service import get_installed_slugs, is_ready, is_recipe_running
 from daemon.services import media_store
 from daemon.services.image_service import (
-    ImageError, _app_base, _headers, _is_public, load_input, owns_job, to_png,
+    ImageError, _app_base, _headers, load_input, owns_job, to_png,
 )
 from daemon.services.registry_service import get_recipes
 
@@ -49,7 +48,6 @@ OPENAI_VIDEOS_TAG = "openai-videos"
 TAG_KINDS = {"text-to-video": "text", "image-to-video": "image", "video-edit": "video"}
 ASPECT_RATIOS = ["16:9", "9:16"]
 MAX_VIDEO_INPUT_BYTES = 200 * 1024 * 1024
-_HUB_VIDEO_URL_RE = re.compile(r"/videos/([0-9a-f]{32})\.mp4(?:$|[?#])")
 _KIND_LABELS = {"text": "make video from text", "image": "turn an image into video",
                 "video": "edit a video"}
 
@@ -198,40 +196,6 @@ def video_fields(defaults, *, prompt: str, seconds: int | None, aspect_ratio: st
     return fields
 
 
-async def load_video_input(ref: str, session: aiohttp.ClientSession,
-                           user: dict | None = None) -> bytes:
-    """Raw bytes for a video given as a Hub video URL (only `user`'s own),
-    data: URL or public URL."""
-    ref = ref.strip()
-    if match := _HUB_VIDEO_URL_RE.search(ref):
-        name = f"{match.group(1)}.mp4"
-        if (path := media_store.find(name)) and await media_store.can_read(name, user):
-            return path.read_bytes()
-        raise ImageError(f"No Hub video {match.group(1)} (it may have been deleted, "
-                         "or it was an upload that expired — upload it again).")
-    if ref.startswith("data:"):
-        header, _, body = ref.partition(",")
-        if ";base64" not in header:
-            raise ImageError("data: URLs must be base64-encoded.")
-        return base64.b64decode(body, validate=False)
-    parts = urllib.parse.urlsplit(ref)
-    if parts.scheme in ("http", "https") and parts.hostname:
-        port = parts.port or (443 if parts.scheme == "https" else 80)
-        # Any signed-in user can make the daemon fetch this, so it must not be a
-        # way to reach the daemon's own port or anything else on the LAN.
-        if not await asyncio.to_thread(_is_public, parts.hostname, port):
-            raise ImageError("Only public http(s) video URLs can be fetched.")
-        async with session.get(ref, allow_redirects=False) as r:
-            if r.status != 200:
-                raise ImageError(f"Fetching {ref} failed (HTTP {r.status}).")
-            body = await r.content.read(MAX_VIDEO_INPUT_BYTES + 1)
-        if len(body) > MAX_VIDEO_INPUT_BYTES:
-            raise ImageError("Input video is larger than 200 MB.")
-        return body
-    raise ImageError("Videos must be a URL returned by get_video, a public http(s) video "
-                     "URL, or a base64 data: URL.")
-
-
 def video_form() -> aiohttp.FormData:
     return aiohttp.FormData(default_to_multipart=True)
 
@@ -273,7 +237,8 @@ async def start(*, prompt: str, image: str | None, seconds: int | None, aspect_r
             form.add_field("input_reference", to_png(await load_input(image, session, user)),
                            filename="input.png", content_type="image/png")
         elif video:
-            form.add_field("input_reference", await load_video_input(video, session, user),
+            form.add_field("input_reference", await load_input(video, session, user, suffix=".mp4",
+                                                              max_bytes=MAX_VIDEO_INPUT_BYTES),
                            filename="input.mp4", content_type="video/mp4")
         for key, value in fields.items():
             form.add_field(key, json.dumps(value) if isinstance(value, dict) else str(value))
