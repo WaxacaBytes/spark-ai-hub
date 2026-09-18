@@ -1,9 +1,8 @@
 """Upload an image or video, get a Hub URL the MCP tools accept.
 
-POST /api/uploads takes the file as the raw request body (guarded like the rest
-of /api: a Hub session or API key), which keeps it to one curl flag:
-
-    curl -H "Authorization: Bearer $KEY" --data-binary @photo.jpg $HUB/api/uploads
+POST /api/uploads takes the file as the raw request body, from a signed-in Hub
+session like the rest of /api. An agent never gets that far: it calls the MCP
+create_upload tool and posts to the one-time link it returns (links.py).
 
 The Hub's My files screen (/files, and /upload which lands there) is the way in
 from a browser, for when the chat is Claude on the web or a phone, where the

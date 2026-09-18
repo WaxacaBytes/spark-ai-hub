@@ -38,6 +38,19 @@ PUBLIC_API_PATHS = {
 MCP_PREFIX = "/mcp"
 GUARDED_PREFIXES = ("/api", "/ws", "/v1", MCP_PREFIX)
 
+# Where an API key is accepted: the model endpoints, and the one Hub route the
+# `sah` CLI calls to find the Hub. sah hands the key to every agent it launches
+# — env vars, config files — so any agent, and whatever model drives it, can
+# read the key. It must therefore be worth no more than running a model: it
+# cannot drive the admin API, open WebSockets, read media, or reach /mcp, where
+# a human approves each client through OAuth in the browser instead.
+API_KEY_PREFIX = "/v1"
+API_KEY_PATHS = {"/api/system/connect"}
+
+
+def _api_key_allowed(path: str) -> bool:
+    return path.startswith(API_KEY_PREFIX) or path in API_KEY_PATHS
+
 
 def _needs_auth(path: str) -> bool:
     if path in PUBLIC_API_PATHS:
@@ -84,12 +97,14 @@ async def resolve_user(scope: Scope) -> tuple[dict | None, str]:
 
     key = _bearer(headers)
     if key:
-        user = await auth_service.user_for_api_key(key)
-        if user:
-            return user, "api_key"
+        path = scope.get("path", "")
+        if _api_key_allowed(path):
+            user = await auth_service.user_for_api_key(key)
+            if user:
+                return user, "api_key"
         # OAuth tokens are issued for the MCP endpoint alone: a connector that
         # can make images must not also be able to drive the LLM or the admin API.
-        if scope.get("path", "").startswith(MCP_PREFIX):
+        if path.startswith(MCP_PREFIX):
             user = await oauth_service.user_for_access_token(key)
             if user:
                 return user, "oauth"

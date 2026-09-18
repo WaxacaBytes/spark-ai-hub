@@ -71,6 +71,10 @@ Every request sah makes to the Hub carries your API key. It is read from
 writes (mode 600) when you pass `--key`. If the Hub rejects it, sah says so and
 tells you to run `sah set-key`.
 
+The key only reaches the model endpoints. The Hub's media MCP server (`/mcp`)
+takes OAuth instead: the first time an agent uses it, the agent opens a
+browser page on the Hub where you sign in and approve it.
+
 ## How it works
 
 The Hub exposes an OpenAI-compatible proxy at `http://<hub>:9000/v1` (and an

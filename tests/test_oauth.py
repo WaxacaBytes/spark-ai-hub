@@ -9,7 +9,7 @@ import urllib.parse
 from pathlib import Path
 from unittest import mock
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from daemon import db as db_module
@@ -33,7 +33,9 @@ class OAuthFlowTests(unittest.TestCase):
         self.db_patch = mock.patch.object(db_module, "DB_PATH", str(Path(self.tmp.name) / "hub.db"))
         self.db_patch.start()
         asyncio.run(db_module.init_db())
-        asyncio.run(auth_service.create_user(EMAIL, PASSWORD))
+        # The first account is the admin, so the key tests below cover the key
+        # that could do the most.
+        self.api_key = asyncio.run(auth_service.create_user(EMAIL, PASSWORD))["api_key"]
         auth_service.invalidate_caches()
         oauth_service.invalidate_caches()
         oauth._pending.clear()
@@ -43,6 +45,13 @@ class OAuthFlowTests(unittest.TestCase):
         app.include_router(auth.router)
         app.include_router(mcp.router)
         app.include_router(oauth.router)
+
+        # Stand-ins for the two places an API key is still good for.
+        @app.get("/v1/models")
+        @app.get("/api/system/connect")
+        async def whoami(request: Request):
+            return {"user": request.state.user["email"]}
+
         self.client = TestClient(app)
 
     def tearDown(self):
@@ -151,6 +160,34 @@ class OAuthFlowTests(unittest.TestCase):
         r = self._tools_list("sah-oat-not-a-real-token")
         self.assertEqual(r.status_code, 401)
         self.assertIn('error="invalid_token"', r.headers["www-authenticate"])
+
+    # -- what the API key opens ---------------------------------------------
+
+    def _with_key(self, method, path, **kw):
+        fresh = TestClient(self.client.app)  # no session cookie
+        return fresh.request(method, path, headers={"Authorization": f"Bearer {self.api_key}"}, **kw)
+
+    def test_api_key_runs_models_and_finds_the_hub(self):
+        for path in ("/v1/models", "/api/system/connect"):
+            r = self._with_key("GET", path)
+            self.assertEqual(r.status_code, 200, path)
+            self.assertEqual(r.json()["user"], EMAIL)
+
+    def test_api_key_does_not_open_the_hub_api(self):
+        self.assertEqual(self._with_key("GET", "/api/auth/me").status_code, 401)
+        self.assertEqual(self._with_key("POST", "/api/auth/me/api-key/rotate").status_code, 401)
+        # x-api-key is the same key by another header
+        fresh = TestClient(self.client.app)
+        self.assertEqual(fresh.get("/api/auth/me", headers={"x-api-key": self.api_key}).status_code, 401)
+
+    def test_api_key_does_not_open_mcp_and_points_at_oauth(self):
+        r = self._with_key("POST", "/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+        self.assertEqual(r.status_code, 401)
+        self.assertIn('error="invalid_token"', r.headers["www-authenticate"])
+        self.assertIn("resource_metadata=", r.headers["www-authenticate"])
+
+    def test_api_key_does_not_read_media(self):
+        self.assertEqual(self._with_key("GET", "/images/anything.png").status_code, 401)
 
     # -- refusals -----------------------------------------------------------
 

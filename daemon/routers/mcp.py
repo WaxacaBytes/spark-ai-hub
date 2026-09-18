@@ -12,8 +12,9 @@ minutes, and a silent socket that long trips client read timeouts — Hermes, fo
 one, gives up after 300s of no bytes. The stream carries a keepalive comment
 every few seconds, and progress notifications when the client asked for them.
 
-Authentication is the Hub's own: /mcp is guarded by AuthMiddleware like /v1, so
-a client sends the same API key it uses for the LLM.
+Authentication is OAuth only (oauth.py): a client discovers the sign-in from the
+401 on /mcp and a person approves it in the browser. The API key does not open
+/mcp — agents can read that key, so it is kept to running models.
 """
 from __future__ import annotations
 
@@ -635,7 +636,7 @@ async def _media_file(request: Request, name: str, suffix: str) -> Response:
         if "text/html" in request.headers.get("accept", ""):
             return HTMLResponse(_SIGN_IN_PAGE, status_code=401)
         return JSONResponse({"detail": "Authentication required: sign in to the Hub, "
-                             "or send your Hub API key as a Bearer token."}, status_code=401,
+                             "or ask the MCP tools for a create_download link."}, status_code=401,
                             headers={"WWW-Authenticate": 'Bearer realm="Spark AI Hub"'})
     path = media_store.find(name) if name.endswith(suffix) else None
     # Someone else's file answers exactly like a missing one.

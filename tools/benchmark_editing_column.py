@@ -60,38 +60,43 @@ EDIT_PROMPT = (
 )
 
 
-# The Hub API requires auth. Take the key from SAH_API_KEY, else read the admin
-# user's key straight out of the Hub database so the harness keeps working the
-# same way it did before auth landed.
-def _hub_api_key():
-    import os, sqlite3
-    key = os.environ.get("SAH_API_KEY")
-    if key:
-        return key
+# The Hub API takes a browser session, not an API key (the key only runs
+# models). Mint a short-lived admin session straight in the Hub database, the
+# way auth_service.create_session does, so the harness still runs unattended.
+def _hub_session():
+    import hashlib, secrets, sqlite3
+    from datetime import datetime, timedelta, timezone
     db = Path("/home/abel/sparkforge/data/spark-ai-hub.db")
     if not db.exists():
         return None
+    con = sqlite3.connect(str(db))
     try:
-        con = sqlite3.connect(str(db))
         row = con.execute(
-            "select api_key from users where role='admin' and status='active' order by id limit 1"
+            "select id from users where role='admin' and status='active' order by id limit 1"
         ).fetchone()
-        return row[0] if row else None
+        if not row:
+            return None
+        token = secrets.token_urlsafe(32)
+        expires = datetime.now(timezone.utc) + timedelta(hours=12)
+        con.execute(
+            "insert into sessions (token_hash, user_id, expires_at, user_agent) values (?, ?, ?, ?)",
+            (hashlib.sha256(token.encode()).hexdigest(), row[0],
+             expires.strftime("%Y-%m-%d %H:%M:%S"), "benchmark_editing_column.py"),
+        )
+        con.commit()
+        return token
     finally:
-        try:
-            con.close()
-        except Exception:
-            pass
+        con.close()
 
 
-HUB_API_KEY = _hub_api_key()
+HUB_SESSION = _hub_session()
 
 
 def http_json(url, data=None, method=None, timeout=30):
     body = json.dumps(data).encode("utf-8") if data is not None else None
     headers = {"Content-Type": "application/json"}
-    if HUB_API_KEY and url.startswith(HUB_API):
-        headers["Authorization"] = f"Bearer {HUB_API_KEY}"
+    if HUB_SESSION and url.startswith(HUB_API):
+        headers["Cookie"] = f"spark_ai_hub_session={HUB_SESSION}"
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
