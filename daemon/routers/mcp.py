@@ -37,14 +37,35 @@ INSTRUCTIONS = (
     "Generates and edits images, generates and edits videos, and composes music, with open models running on "
     "the user's DGX Spark. Call list_image_models / list_video_models to see which "
     "are running. Every result is saved on the Hub and returned as a URL plus a "
-    "preview. Show the user the URL. To refine an image, pass its URL to edit_image. "
-    "Videos take minutes: generate_video returns a job_id, then call get_video."
+    "preview. Show the user the URL. To refine an image, pass its URL to edit_image.\n\n"
+    "Renders are asynchronous jobs, because they take from seconds to many minutes. "
+    "generate_image and edit_image return the image if it is ready within about 45 s; "
+    "otherwise they return status \"rendering\" and a job_id. generate_video always "
+    "returns a job_id. A job_id is not a failure and not the final result: the render "
+    "is still running on the Spark. Collect it by calling get_image (images) or "
+    "get_video (videos) with that job_id, and keep calling it until the status is "
+    "completed or failed. Each call already waits up to wait_seconds, so no sleep is "
+    "needed between calls. Keep polling in the same turn instead of telling the user "
+    "to wait or check back, and never call generate_* again for the same request: that "
+    "queues a second render behind the first. If a tool call times out, the job is "
+    "not lost; call get_image / get_video again."
+)
+
+_ASYNC_IMAGE = (
+    " Returns the image when it is ready within about 45 s; slower renders return "
+    "status \"rendering\" and a job_id instead, which you must collect with get_image "
+    "(call it until the image arrives; do not start the render again)."
 )
 
 _STEPS_HINT = (
     "Sampling steps. Leave this out: each model then uses the steps its model "
     "card recommends (list_image_models shows them — a step-distilled model "
     "wants 4, a full diffusion model 50). Set it only when the user asks."
+)
+
+_WAIT_HINT = (
+    "How long this call waits for the job before reporting it still running. "
+    "Omit for 120. Stay under ~240: some clients cut a tool call off after about 5 minutes."
 )
 
 _IMAGE_REFS = (
@@ -58,10 +79,9 @@ TOOLS = [
         "name": "generate_image",
         "title": "Generate image",
         "description": (
-            "Create an image from a text prompt on the Spark. Can take up to a few "
-            "minutes. Write a detailed, visual prompt (subject, setting, "
-            "lighting, style, composition); put any text that must appear in the "
-            "image in quotes."
+            "Create an image from a text prompt on the Spark. Write a detailed, "
+            "visual prompt (subject, setting, lighting, style, composition); put any "
+            "text that must appear in the image in quotes." + _ASYNC_IMAGE
         ),
         "inputSchema": {
             "type": "object",
@@ -88,7 +108,7 @@ TOOLS = [
         "description": (
             "Edit one to three images with a natural-language instruction on the "
             "Spark, e.g. 'replace the background with a rainy neon street, keep the "
-            "person unchanged'. Can take up to a few minutes."
+            "person unchanged'." + _ASYNC_IMAGE
         ),
         "inputSchema": {
             "type": "object",
@@ -110,17 +130,19 @@ TOOLS = [
         "name": "get_image",
         "title": "Get image",
         "description": (
-            "Collect an image job that generate_image or edit_image reported as still "
-            "rendering. Waits up to wait_seconds; returns the image when done, or its "
-            "state (call again). The render continues on the Spark whatever this client "
-            "does, so a timed-out call never loses the picture."
+            "Collect an image job that generate_image or edit_image returned as still "
+            "rendering. Waits up to wait_seconds; returns the image when done, or "
+            "status \"rendering\" if not yet, in which case call get_image again with "
+            "the same job_id, repeating until it completes or fails. The render "
+            "continues on the Spark whatever this client does, so a timed-out call "
+            "never loses the picture."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "job_id": {"type": "string"},
                 "wait_seconds": {"type": "integer", "minimum": 0, "maximum": image_service.MAX_WAIT,
-                                 "default": 120},
+                                 "default": 120, "description": _WAIT_HINT},
             },
             "required": ["job_id"],
             "additionalProperties": False,
@@ -132,9 +154,10 @@ TOOLS = [
         "description": (
             "Start rendering a short video on the Spark from a text prompt, or from a "
             "starting image plus a prompt (image-to-video), or from an input video to "
-            "edit, extend or inpaint (video-to-video). Returns a job_id at once; "
-            "rendering takes several minutes, so then call get_video with it. Describe "
-            "the motion and camera as well as the scene."
+            "edit, extend or inpaint (video-to-video). Asynchronous: returns a job_id at "
+            "once, not the video. Rendering takes several minutes, so then call get_video "
+            "with the job_id, again and again until it returns the video or an error; do "
+            "not start the render again. Describe the motion and camera as well as the scene."
         ),
         "inputSchema": {
             "type": "object",
@@ -164,16 +187,17 @@ TOOLS = [
         "name": "get_video",
         "title": "Get video",
         "description": (
-            "Check a video job started by generate_video. Waits up to wait_seconds for it "
+            "Collect a video job started by generate_video. Waits up to wait_seconds for it "
             "to finish; returns the video URL and a still frame when done, or its "
-            "progress if still rendering (call again)."
+            "progress if still rendering, in which case call get_video again with the same "
+            "job_id, repeating until it completes or fails."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "job_id": {"type": "string"},
                 "wait_seconds": {"type": "integer", "minimum": 0, "maximum": video_service.MAX_WAIT,
-                                 "default": 120},
+                                 "default": 120, "description": _WAIT_HINT},
             },
             "required": ["job_id"],
             "additionalProperties": False,
@@ -300,10 +324,13 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None) -> dic
             lines = [f"Video job started: {info['job_id']}", f"Model: {info['model']}"]
             lines += [f"{k.capitalize()}: {info[k]}" for k in ("size", "seconds", "seed", "steps")
                       if info.get(k) is not None]
-            lines.append("Rendering takes several minutes. Call get_video with this job_id; "
-                         "it waits up to wait_seconds for the video to finish.")
+            lines.append("Not done yet: this is a job, not the video. Rendering takes several "
+                         f"minutes. Now call get_video with job_id {info['job_id']}, and keep "
+                         "calling it until it returns the video; each call waits up to "
+                         "wait_seconds. Do not call generate_video again for this request.")
             return {"content": [{"type": "text", "text": "\n".join(lines)}],
-                    "structuredContent": info, "isError": False}
+                    "structuredContent": {**info, **_next_call("get_video", info["job_id"])},
+                    "isError": False}
 
         prompt = str(args.get("prompt") or "").strip()
         if not prompt:
@@ -336,16 +363,23 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None) -> dic
         return _text(f"Image request failed: {type(exc).__name__}: {exc}", is_error=True)
 
 
+def _next_call(tool: str, job_id: str) -> dict:
+    """What an unfinished job's result tells a client that reads structuredContent only."""
+    return {"done": False, "next_call": {"tool": tool, "arguments": {"job_id": job_id}}}
+
+
 def _image_result(info: dict, origin: str) -> dict:
     """One shape for both paths: the finished image, or the job to collect."""
     if info["status"] == "failed":
         return _text(info.get("error") or f"Image job {info['job_id']} failed.", is_error=True)
     if info["status"] != "completed":
         return {"content": [{"type": "text", "text": (
-                    f"Still rendering on the Spark ({info['elapsed']}s so far). Call get_image "
-                    f"with job_id {info['job_id']}; the render finishes even if this call "
-                    f"times out.")}],
-                "structuredContent": {k: v for k, v in info.items() if k != "result"},
+                    f"Not done yet: still rendering on the Spark ({info['elapsed']}s so far). "
+                    f"This is a job, not the image. Now call get_image with job_id "
+                    f"{info['job_id']}, and keep calling it until it returns the image; the "
+                    f"render finishes even if a call times out. Do not start the render again.")}],
+                "structuredContent": {**{k: v for k, v in info.items() if k != "result"},
+                                      **_next_call("get_image", info["job_id"])},
                 "isError": False}
     result = info["result"]
     url = f"{origin}{result.path}"
@@ -382,10 +416,11 @@ def _video_result(info: dict, origin: str) -> dict:
                      is_error=True)
     if info["status"] != "completed":
         return {"content": [{"type": "text", "text": (
-                    f"Still rendering on {info['model']}: {info['status']}, "
-                    f"{info.get('progress', 0)}% done. Call get_video again with job_id "
-                    f"{info['job_id']}.")}],
-                "structuredContent": {k: v for k, v in info.items() if k != "poster"},
+                    f"Not done yet: still rendering on {info['model']} ({info['status']}, "
+                    f"{info.get('progress', 0)}% done). Call get_video again with job_id "
+                    f"{info['job_id']}, and keep calling it until it returns the video.")}],
+                "structuredContent": {**{k: v for k, v in info.items() if k != "poster"},
+                                      **_next_call("get_video", info["job_id"])},
                 "isError": False}
     url = f"{origin}{video_service.PUBLIC_PREFIX}/{info['video_id']}.mp4"
     lines = [f"Video: {url}", f"Model: {info['model']}", *details]

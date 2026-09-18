@@ -298,6 +298,7 @@ class VideoToolTests(unittest.TestCase):
         result = r.json()["result"]
         self.assertFalse(result["isError"])
         self.assertIn("40%", result["content"][0]["text"])
+        self.assertEqual(result["structuredContent"]["next_call"]["tool"], "get_video")
 
     def test_video_file_route_rejects_bad_names(self):
         self.assertEqual(self.client.get("/videos/../../etc.mp4").status_code, 404)
@@ -403,6 +404,8 @@ class UnifiedVideoEditAndMusicTests(unittest.TestCase):
              "result": None, "error": None, "elapsed": 90}, "http://h")
         self.assertIn("get_image with job_id j1", pending["content"][0]["text"])
         self.assertFalse(pending["isError"])
+        self.assertEqual(pending["structuredContent"]["next_call"],
+                         {"tool": "get_image", "arguments": {"job_id": "j1"}})
         done = mcp._image_result(
             {"job_id": "j1", "status": "completed", "model": "m", "kind": "edit",
              "result": result, "error": None, "elapsed": 120}, "http://h")
