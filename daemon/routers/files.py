@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse, Response
 from PIL import Image
 
 from daemon.config import settings
-from daemon.services import image_service, media_store
+from daemon.services import media_store
 
 router = APIRouter(tags=["files"])
 
@@ -60,9 +60,7 @@ def _make_thumb(path) -> bytes:
 
 @router.get("/api/media/{name}/thumb")
 async def media_thumb(request: Request, name: str):
-    if not image_service.IMAGE_NAME_RE.match(name):
-        return Response(status_code=404)
-    path = image_service.hub_image_path(name)
+    path = media_store.find(name) if name.endswith(".png") else None
     if path is None or not await media_store.can_read(name, _user(request)):
         return Response(status_code=404)
     if (jpeg := _thumbs.get(name)) is None:

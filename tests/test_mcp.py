@@ -12,8 +12,10 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from daemon import db as db_module
-from daemon.routers import files, mcp, uploads
-from daemon.services import audio_service, image_service, media_store, upload_service, video_service
+from daemon.routers import files, links, mcp, uploads
+from daemon.services import (
+    audio_service, image_service, link_service, media_store, upload_service, video_service,
+)
 
 # Stand-ins for AuthMiddleware's request.state.user. Rows 1-3 exist in the
 # temporary DB below, because media.user_id references users(id).
@@ -34,8 +36,8 @@ def setUpModule():
         await db_module.init_db()
         db = await db_module.get_db()
         for user in (OWNER, OTHER, ADMIN):
-            await db.execute("INSERT INTO users (id, email, password_hash, role, api_key) "
-                             "VALUES (?, ?, 'x', ?, ?)",
+            await db.execute("INSERT INTO users (id, email, password_hash, role, api_key, status) "
+                             "VALUES (?, ?, 'x', ?, ?, 'active')",
                              (user["id"], f"u{user['id']}@x", user["role"], f"k{user['id']}"))
         await db.commit()
         await db.close()
@@ -60,6 +62,7 @@ def _client() -> TestClient:
     app.include_router(mcp.router)
     app.include_router(uploads.router)
     app.include_router(files.router)
+    app.include_router(links.router)
     return TestClient(app)
 
 
@@ -105,7 +108,8 @@ class McpProtocolTests(unittest.TestCase):
         names = {t["name"] for t in r.json()["result"]["tools"]}
         self.assertEqual(names, {"generate_image", "edit_image", "get_image",
                                  "list_image_models", "generate_video", "get_video",
-                                 "list_video_models", "generate_music"})
+                                 "list_video_models", "generate_music",
+                                 "create_upload", "create_download"})
 
     def test_get_has_no_stream(self):
         self.assertEqual(self.client.get("/mcp").status_code, 405)
@@ -515,6 +519,85 @@ class MyFilesTests(_MediaDirsTest):
         self.assertLessEqual(max(Image.open(io.BytesIO(r.content)).size), files.THUMB_EDGE)
         self.assertEqual(self.client.get(f"/api/media/{mine}/thumb",
                                          headers={"x-test-user": "other"}).status_code, 404)
+
+
+class LinkTests(_MediaDirsTest):
+    """create_upload / create_download: the link is the only credential."""
+
+    def _tool(self, name, args=None, who="owner"):
+        r = self.client.post("/mcp", json=_rpc("tools/call", {"name": name, "arguments": args or {}}),
+                             headers={"x-test-user": who})
+        return r.json()["result"]
+
+    def _upload_link(self, who="owner"):
+        result = self._tool("create_upload", who=who)
+        self.assertFalse(result["isError"], result)
+        return urllib_path(result["structuredContent"]["upload_url"])
+
+    def _db(self, sql, *params):
+        async def go():
+            db = await db_module.get_db()
+            await db.execute(sql, params)
+            await db.commit()
+            await db.close()
+        asyncio.run(go())
+
+    def test_upload_link_works_once_without_a_key_and_owns_the_file(self):
+        link = self._upload_link()
+        r = self.client.post(link, content=_png(), headers={"x-test-user": "anon"})
+        self.assertEqual(r.status_code, 200, r.text)
+        name = urllib_path(r.json()["url"]).rsplit("/", 1)[1]
+        self.assertTrue(asyncio.run(media_store.can_read(name, OWNER)))
+        self.assertFalse(asyncio.run(media_store.can_read(name, OTHER)))
+        again = self.client.post(link, content=_png(), headers={"x-test-user": "anon"})
+        self.assertEqual(again.status_code, 404)
+        self.assertIn("create_upload", again.json()["detail"])
+
+    def test_refused_upload_leaves_the_link_usable(self):
+        link = self._upload_link()
+        self.assertEqual(self.client.post(link, content=b"nope", headers={"x-test-user": "anon"}).status_code, 400)
+        self.assertEqual(self.client.post(link, content=_png(), headers={"x-test-user": "anon"}).status_code, 200)
+
+    def test_expired_or_bogus_upload_link(self):
+        link = self._upload_link()
+        self._db("UPDATE media_links SET expires_at = 0")
+        self.assertEqual(self.client.post(link, content=_png()).status_code, 404)
+        self.assertEqual(self.client.post(link_service.UPLOAD_PREFIX + "x" * 43, content=_png()).status_code, 404)
+
+    def test_suspended_account_link_stops_working(self):
+        link = self._upload_link("other")
+        self._db("UPDATE users SET status = 'rejected' WHERE id = ?", OTHER["id"])
+        try:
+            self.assertEqual(self.client.post(link, content=_png()).status_code, 404)
+        finally:
+            self._db("UPDATE users SET status = 'active' WHERE id = ?", OTHER["id"])
+        # ...and was handed back, so it works again once the account does.
+        self.assertEqual(self.client.post(link, content=_png()).status_code, 200)
+
+    def test_download_link_for_own_files_only(self):
+        mine = urllib_path(self.client.post(self._upload_link(), content=_png()).json()["url"])
+        result = self._tool("create_download", {"url": "http://spark.local:9000" + mine})
+        self.assertFalse(result["isError"], result)
+        link = urllib_path(result["structuredContent"]["download_url"])
+        for _ in range(2):              # retries are fine until it expires
+            r = self.client.get(link, headers={"x-test-user": "anon"})
+            self.assertEqual((r.status_code, r.headers["content-type"]), (200, "image/png"))
+            self.assertEqual(r.content, (image_service.UPLOAD_DIR / mine.rsplit("/", 1)[1]).read_bytes())
+            self.assertIn("no-store", r.headers["cache-control"])
+        refused = self._tool("create_download", {"url": mine}, who="other")
+        self.assertTrue(refused["isError"])
+        self._db("UPDATE media_links SET expires_at = 0")
+        self.assertEqual(self.client.get(link).status_code, 404)
+
+    def test_download_link_dies_with_the_file(self):
+        mine = urllib_path(self.client.post(self._upload_link(), content=_png()).json()["url"])
+        link = urllib_path(self._tool("create_download", {"url": mine})["structuredContent"]["download_url"])
+        self.client.delete(f"/api/media/{mine.rsplit('/', 1)[1]}")
+        self.assertEqual(self.client.get(link).status_code, 404)
+
+    def test_links_need_an_account(self):
+        self.assertTrue(self._tool("create_upload", who="anon")["isError"])
+        self.assertTrue(self._tool("create_download", {"url": "/images/" + "a" * 32 + ".png"})["isError"])
 
 
 def urllib_path(url: str) -> str:

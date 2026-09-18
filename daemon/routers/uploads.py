@@ -25,6 +25,15 @@ router = APIRouter(tags=["uploads"])
 
 @router.post("/api/uploads")
 async def upload(request: Request):
+    return await receive(request, getattr(request.state, "user", None))
+
+
+async def receive(request: Request, user: dict | None) -> dict | JSONResponse:
+    """Read the body as one image or video and store it as `user`'s upload.
+
+    Shared with the one-time upload links (routers/links.py). Returns the
+    upload's info with its Hub URL, or the error response to send.
+    """
     chunks, size = [], 0
     async for chunk in request.stream():
         size += len(chunk)
@@ -36,7 +45,6 @@ async def upload(request: Request):
         info = await asyncio.to_thread(upload_service.save, b"".join(chunks))
     except upload_service.UploadError as exc:
         return JSONResponse({"detail": str(exc)}, status_code=400)
-    user = getattr(request.state, "user", None)
     await media_store.record(info["path"].rsplit("/", 1)[1], user and user["id"])
     origin = request_origin(request) or f"{request.url.scheme}://{request.url.netloc}"
     info["url"] = origin + info.pop("path")

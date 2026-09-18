@@ -412,15 +412,6 @@ def _is_public(host: str, port: int) -> bool:
     return bool(infos) and all(ipaddress.ip_address(i[4][0]).is_global for i in infos)
 
 
-def hub_image_path(name: str):
-    """The file behind /images/<name>: a result, or an upload. None if neither."""
-    for folder in (IMAGE_DIR, UPLOAD_DIR):
-        path = folder / name
-        if path.is_file():
-            return path
-    return None
-
-
 async def load_input(ref: str, session: aiohttp.ClientSession,
                      user: dict | None = None) -> bytes:
     """Raw bytes for an image given as a Hub image URL, data: URL or public URL.
@@ -431,7 +422,7 @@ async def load_input(ref: str, session: aiohttp.ClientSession,
     ref = ref.strip()
     if match := _HUB_IMAGE_URL_RE.search(ref):
         name = f"{match.group(1)}.png"
-        if (path := hub_image_path(name)) and await media_store.can_read(name, user):
+        if (path := media_store.find(name)) and await media_store.can_read(name, user):
             return path.read_bytes()
         raise ImageError(f"No Hub image {match.group(1)} (it may have been deleted, "
                          "or it was an upload that expired — upload it again).")

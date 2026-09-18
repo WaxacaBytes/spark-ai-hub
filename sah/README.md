@@ -64,19 +64,6 @@ sah set-hub http://1.2.3.4:9000   # change the Hub URL
 sah set-key sah-xxxxxxxx          # save your Hub API key on this device
 ```
 
-### Local files and the image tools
-
-The image/video tools run on the Spark, so they can't read a path on your
-machine. Upload the file and hand the tool the URL; save results the same way:
-
-```sh
-sah upload photo.jpg clip.mp4     # prints one Hub URL per file (private, kept 7 days)
-sah download <url> [-o dir|file]  # saves a result with your key (results kept 30 days)
-```
-
-The same upload is in the browser at `<hub>/upload`. Every Hub media URL
-opens only for the account that made it: signed in to the Hub, or with the API key.
-
 ## Authentication
 
 Every request sah makes to the Hub carries your API key. It is read from

@@ -12,13 +12,13 @@ from daemon.db import init_db
 from daemon.middleware.auth import AuthMiddleware
 from daemon.routers import (
     admin, anthropic_proxy, auth, containers, mcp, oauth, openai_proxy, recipes, system,
-    files, uploads,
+    files, links, uploads,
 )
 from daemon.services.connect_service import compute_connect_info, request_origin
 from daemon.services.registry_service import load_recipes, get_recipes
 from daemon.services.auth_service import purge_expired_sessions
 from daemon.services.docker_service import is_recipe_running, start_health_check
-from daemon.services import media_store, oauth_service, proxy_service
+from daemon.services import link_service, media_store, oauth_service, proxy_service
 
 DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
@@ -51,6 +51,7 @@ async def _session_janitor():
             pass
         try:
             await media_store.purge_expired()
+            await link_service.purge_expired()
         except Exception:
             pass
         await asyncio.sleep(3600)
@@ -94,6 +95,8 @@ app.include_router(mcp.router)
 app.include_router(uploads.router)
 # Each account's own media and uploads, to list and delete (/api/media).
 app.include_router(files.router)
+# Key-less one-time upload / short-lived download links for sandboxed agents.
+app.include_router(links.router)
 # OAuth for /mcp, so Claude's hosted connectors can sign in with a Hub account.
 app.include_router(oauth.router)
 # Anthropic must come before openai_proxy: the latter is a /v1/{path:path}

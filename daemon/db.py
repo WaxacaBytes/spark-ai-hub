@@ -96,6 +96,17 @@ CREATE TABLE IF NOT EXISTS media (
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_media_user ON media(user_id);
+
+-- Short-lived upload/download links for agents that must not hold a Hub key
+-- (daemon/services/link_service.py). Token stored as its SHA-256.
+CREATE TABLE IF NOT EXISTS media_links (
+    token_hash TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,                      -- 'upload' | 'download'
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name TEXT NOT NULL DEFAULT '',           -- the file, for a download link
+    expires_at INTEGER NOT NULL,             -- unix seconds
+    used_at INTEGER                          -- set once an upload link is used
+);
 """
 
 

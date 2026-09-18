@@ -19,12 +19,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Any
 
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
-from daemon.services import audio_service, image_service, media_store, upload_service, video_service
+from daemon.services import (
+    audio_service, image_service, link_service, media_store, upload_service, video_service,
+)
 from daemon.config import settings
 from daemon.services.connect_service import request_origin
 
@@ -39,14 +42,17 @@ INSTRUCTIONS = (
     "the user's DGX Spark. Call list_image_models / list_video_models to see which "
     "are running. Every result is saved on the Hub and returned as a URL plus a "
     "preview. Show the user the URL. To refine an image, pass its URL to edit_image. "
-    "The URLs are private: they open for the user signed in to the Hub, or with "
-    "their Hub API key as a Bearer token (`sah download <url>` saves one with it). "
+    "The URLs are private: they open for the user signed in to the Hub, not for you. "
     "Results are deleted after 30 days, so tell the user to download what they want to keep; "
     "they can see and delete everything they made or uploaded at <Hub address>/files.\n\n"
-    "To work on the user's own files: a picture attached to the chat cannot be passed "
-    "to a tool. Ask the user to upload it at <Hub address>/upload and paste the link; "
-    "if you have a shell, run `sah upload <file>` (prints the URL) yourself. Uploads "
-    "last 7 days. Local file paths never work: the models run on the Spark.\n\n"
+    "Files in your own workspace: tools take URLs, never file paths or file contents, "
+    "because the models run on the Spark. To use a file you have, call create_upload "
+    "and run the curl command it returns; the JSON it prints has the `url` to pass to "
+    "edit_image or generate_video. To save a result into your workspace, call "
+    "create_download with its URL and run that curl command. Both links are one-off "
+    "and short-lived: ask for a new one each time. Uploads last 7 days. A picture "
+    "attached to the chat is not a file you can upload; ask the user to add it at "
+    "<Hub address>/files and paste the link.\n\n"
     "Renders are asynchronous jobs, because they take from seconds to many minutes. "
     "generate_image and edit_image return the image if it is ready within about 45 s; "
     "otherwise they return status \"rendering\" and a job_id. generate_video always "
@@ -78,10 +84,10 @@ _WAIT_HINT = (
 )
 
 _IMAGE_REFS = (
-    "Each item is a URL returned by generate_image or edit_image, an upload URL "
-    "from the Hub's /upload page or `sah upload <file>`, a public http(s) image "
-    "URL, or a base64 data: URL. Local file paths do not work: the model runs on "
-    "the Spark, not on this machine — upload the file first."
+    "Each item is a URL returned by generate_image or edit_image, an upload's URL "
+    "(create_upload, or the Hub's My files page), a public "
+    "http(s) image URL, or a base64 data: URL. File paths do not work: the model "
+    "runs on the Spark, not where you are — upload the file first."
 )
 
 TOOLS = [
@@ -177,8 +183,8 @@ TOOLS = [
                           "description": "Optional first frame for image-to-video. " + _IMAGE_REFS},
                 "video": {"type": "string",
                           "description": ("Optional input video to edit (models that list "
-                                          "video-to-video). A URL returned by get_video, an upload "
-                                          "URL from /upload or `sah upload <file>`, a public "
+                                          "video-to-video). A URL returned by get_video, an upload's "
+                                          "URL (create_upload, or My files), a public "
                                           "http(s) video URL, or a base64 data: URL.")},
                 "seconds": {"type": "integer", "minimum": 1, "maximum": 10,
                             "description": "Length. Omit for the model's default."},
@@ -246,6 +252,35 @@ TOOLS = [
         },
     },
     {
+        "name": "create_upload",
+        "title": "Create upload link",
+        "description": (
+            "Get a one-time link to upload one image or MP4/MOV video from your workspace "
+            "to the Hub, without any key. Run the returned curl command with your file; it "
+            "prints JSON whose `url` you then pass to edit_image (images) or "
+            "generate_video (image or video). The link works once and expires in "
+            f"{link_service.LINK_TTL // 60} minutes; call this again for each file."
+        ),
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "create_download",
+        "title": "Create download link",
+        "description": (
+            "Get a short-lived link to download one of the user's Hub files (an image, "
+            "video or song URL from the other tools, or an upload) into your workspace, "
+            "without any key. Run the returned curl command. The link expires in "
+            f"{link_service.LINK_TTL // 60} minutes; call this again whenever you need it."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"url": {"type": "string",
+                                   "description": "The Hub URL of the image, video or song."}},
+            "required": ["url"],
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "list_image_models",
         "title": "List image models",
         "description": ("List the Spark's image models: what each does, whether it is "
@@ -296,6 +331,8 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
     try:
         if name == "list_image_models":
             return _text(json.dumps(await image_service.list_models(), indent=2))
+        if name in ("create_upload", "create_download"):
+            return await _link_tool(name, args, origin, user)
         if name == "generate_music":
             lyrics = str(args.get("lyrics") or "").strip()
             style = str(args.get("style") or "").strip()
@@ -450,6 +487,45 @@ def _video_result(info: dict, origin: str) -> dict:
     return {"content": content, "structuredContent": {**structured, "url": url}, "isError": False}
 
 
+_MEDIA_URL_RE = re.compile(r"/(?:images|videos|audio)/([0-9a-f]{32}\.(?:png|mp4|wav))(?:$|[?#])")
+
+
+async def _link_tool(name: str, args: dict, origin: str, user: dict | None) -> dict:
+    """create_upload / create_download: a key-less link for the caller's account."""
+    if user is None:
+        raise image_service.ImageError("Links need a signed-in Hub account behind this connection.")
+    minutes = link_service.LINK_TTL // 60
+    if name == "create_upload":
+        token, expires = await link_service.create("upload", user["id"])
+        link = f"{origin}{link_service.UPLOAD_PREFIX}{token}"
+        curl = f"curl -sS --data-binary @<your file> '{link}'"
+        text = (f"Upload link (one file, expires in {minutes} minutes):\n{link}\n\n"
+                f"Run: {curl}\n"
+                "It prints JSON; pass its `url` to edit_image or generate_video. Images up to "
+                f"{upload_service.MAX_IMAGE_BYTES // 2**20} MB, MP4/MOV videos up to "
+                f"{upload_service.MAX_VIDEO_BYTES // 2**20} MB. A refused file leaves the link usable.")
+        return {"content": [{"type": "text", "text": text}], "isError": False,
+                "structuredContent": {"upload_url": link, "method": "POST", "curl": curl,
+                                      "expires_at": expires}}
+
+    match = _MEDIA_URL_RE.search(str(args.get("url") or "").strip())
+    if not match:
+        raise image_service.ImageError("'url' must be a Hub image, video or song URL "
+                                       "(.../images/<id>.png, /videos/<id>.mp4 or /audio/<id>.wav).")
+    file_name = match.group(1)
+    if media_store.find(file_name) is None or not await media_store.can_read(file_name, user):
+        raise image_service.ImageError(f"No Hub file {file_name} for this account "
+                                       "(it may have expired or been deleted).")
+    token, expires = await link_service.create("download", user["id"], file_name)
+    link = f"{origin}{link_service.DOWNLOAD_PREFIX}{token}"
+    curl = f"curl -sSfL -o {file_name} '{link}'"
+    text = (f"Download link for {file_name} (expires in {minutes} minutes):\n{link}\n\n"
+            f"Run: {curl}")
+    return {"content": [{"type": "text", "text": text}], "isError": False,
+            "structuredContent": {"download_url": link, "file": file_name, "curl": curl,
+                                  "expires_at": expires}}
+
+
 def _origin(request: Request) -> str:
     return request_origin(request) or f"{request.url.scheme}://{request.url.netloc}"
 
@@ -557,7 +633,7 @@ _SIGN_IN_PAGE = """<!doctype html><meta charset="utf-8">
 made it, then open the link again.</p>"""
 
 
-async def _media_file(request: Request, name: str, name_re, find, media_type: str) -> Response:
+async def _media_file(request: Request, name: str, suffix: str) -> Response:
     """A generated or uploaded file, for its owner only (media_store)."""
     user = getattr(request.state, "user", None)
     if settings.auth_enabled and user is None:
@@ -566,28 +642,23 @@ async def _media_file(request: Request, name: str, name_re, find, media_type: st
         return JSONResponse({"detail": "Authentication required: sign in to the Hub, "
                              "or send your Hub API key as a Bearer token."}, status_code=401,
                             headers={"WWW-Authenticate": 'Bearer realm="Spark AI Hub"'})
-    path = find(name) if name_re.match(name) else None
+    path = media_store.find(name) if name.endswith(suffix) else None
     # Someone else's file answers exactly like a missing one.
     if path is None or not await media_store.can_read(name, user):
         return Response(status_code=404)
-    return FileResponse(path, media_type=media_type, headers=_cache_headers(path))
+    return FileResponse(path, media_type=media_store.MEDIA_TYPES[suffix], headers=_cache_headers(path))
 
 
 @router.get("/audio/{name}")
 async def audio_file(request: Request, name: str):
-    def find(n):
-        path = audio_service.AUDIO_DIR / n
-        return path if path.is_file() else None
-    return await _media_file(request, name, audio_service.AUDIO_NAME_RE, find, "audio/wav")
+    return await _media_file(request, name, ".wav")
 
 
 @router.get("/videos/{name}")
 async def video_file(request: Request, name: str):
-    return await _media_file(request, name, video_service.VIDEO_NAME_RE,
-                             video_service.hub_video_path, "video/mp4")
+    return await _media_file(request, name, ".mp4")
 
 
 @router.get("/images/{name}")
 async def image_file(request: Request, name: str):
-    return await _media_file(request, name, image_service.IMAGE_NAME_RE,
-                             image_service.hub_image_path, "image/png")
+    return await _media_file(request, name, ".png")

@@ -198,15 +198,6 @@ def video_fields(defaults, *, prompt: str, seconds: int | None, aspect_ratio: st
     return fields
 
 
-def hub_video_path(name: str):
-    """The file behind /videos/<name>: a result, or an upload. None if neither."""
-    for folder in (VIDEO_DIR, UPLOAD_DIR):
-        path = folder / name
-        if path.is_file():
-            return path
-    return None
-
-
 async def load_video_input(ref: str, session: aiohttp.ClientSession,
                            user: dict | None = None) -> bytes:
     """Raw bytes for a video given as a Hub video URL (only `user`'s own),
@@ -214,7 +205,7 @@ async def load_video_input(ref: str, session: aiohttp.ClientSession,
     ref = ref.strip()
     if match := _HUB_VIDEO_URL_RE.search(ref):
         name = f"{match.group(1)}.mp4"
-        if (path := hub_video_path(name)) and await media_store.can_read(name, user):
+        if (path := media_store.find(name)) and await media_store.can_read(name, user):
             return path.read_bytes()
         raise ImageError(f"No Hub video {match.group(1)} (it may have been deleted, "
                          "or it was an upload that expired — upload it again).")

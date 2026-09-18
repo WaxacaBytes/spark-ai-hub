@@ -2561,82 +2561,10 @@ def cmd_mcp(args) -> None:
     kv("Transport", "Streamable HTTP")
     kv("Header", f"Authorization: Bearer {API_KEY}")
     kv("Tools", "generate_image, edit_image, list_image_models")
-    kv("Local files", "sah upload <file> → a URL the tools accept; sah download <url> saves a result")
     kv("Tool timeout", f"allow at least {MCP_TOOL_TIMEOUT}s — a render takes minutes")
     print(f"\nWired automatically by: sah claude, opencode, codex, hermes, openclaw")
     print("Any other client (Claude Desktop, osaurus, Cursor, ...):\n")
     print(json.dumps(config, indent=2))
-
-
-# Hub media paths: what `sah download` will fetch, and only from the Hub itself.
-_MEDIA_PATH_RE = re.compile(r"(/(?:images|videos|audio)/[0-9a-f]{32}\.(?:png|mp4|wav))(?:$|[?#])")
-
-
-def _hub_error(exc: urllib.error.HTTPError) -> str:
-    try:
-        return json.loads(exc.read() or b"{}").get("detail") or f"HTTP {exc.code}"
-    except ValueError:
-        return f"HTTP {exc.code}"
-
-
-def cmd_upload(args) -> None:
-    """Upload local images/videos for the image and video tools; print each URL.
-
-    A tool call can only carry text, so a local file reaches edit_image or
-    generate_video as the Hub URL printed here. The URL is private to this
-    key's account and expires after 7 days.
-    """
-    failed = False
-    for name in args.files:
-        path = Path(name).expanduser()
-        try:
-            data = path.read_bytes()
-        except OSError as exc:
-            print(f"{name}: {exc.strerror or exc}", file=sys.stderr)
-            failed = True
-            continue
-        req = hub_request(f"{hub_url()}/api/uploads")
-        req.data, req.method = data, "POST"
-        req.add_header("Content-Type", "application/octet-stream")
-        try:
-            with urllib.request.urlopen(req, timeout=300) as r:
-                info = json.load(r)
-        except urllib.error.HTTPError as exc:
-            print(f"{name}: {_hub_error(exc)}", file=sys.stderr)
-            failed = True
-            continue
-        except OSError as exc:
-            sys.exit(f"Could not reach the Hub at {hub_url()}: {exc}")
-        print(info["url"])
-    if failed:
-        sys.exit(1)
-
-
-def cmd_download(args) -> None:
-    """Save a Hub image/video/song URL to a local file, using this device's key.
-
-    Only the URL's path is used: it is always fetched from this Hub, so a
-    pasted link can never send the key to some other host.
-    """
-    match = _MEDIA_PATH_RE.search(args.url)
-    if not match:
-        sys.exit("Not a Hub media URL (expected .../images/<id>.png, /videos/<id>.mp4 "
-                 "or /audio/<id>.wav).")
-    media_path = match.group(1)
-    dest = Path(args.output).expanduser() if args.output else Path(media_path.rsplit("/", 1)[1])
-    if dest.is_dir():
-        dest = dest / media_path.rsplit("/", 1)[1]
-    try:
-        with urllib.request.urlopen(hub_request(hub_url() + media_path), timeout=300) as r:
-            data = r.read()
-    except urllib.error.HTTPError as exc:
-        reason = ("not found — it expired, or it belongs to another account"
-                  if exc.code == 404 else _hub_error(exc))
-        sys.exit(f"{args.url}: {reason}")
-    except OSError as exc:
-        sys.exit(f"Could not reach the Hub at {hub_url()}: {exc}")
-    dest.write_bytes(data)
-    print(dest)
 
 
 def cmd_refresh_hub(_args) -> None:
@@ -2737,15 +2665,6 @@ def main() -> None:
     sp = sub.add_parser("mcp", help="Show the Hub's image MCP server details")
     sp.add_argument("--json", action="store_true", help="Print only the mcpServers JSON")
     sp.set_defaults(func=cmd_mcp)
-
-    sp = sub.add_parser("upload", help="Upload local images/videos for the image tools; prints URLs")
-    sp.add_argument("files", nargs="+", metavar="file")
-    sp.set_defaults(func=cmd_upload)
-
-    sp = sub.add_parser("download", help="Save a Hub image/video/song URL to a local file")
-    sp.add_argument("url")
-    sp.add_argument("-o", "--output", help="File or directory to save to (default: ./<id>.<ext>)")
-    sp.set_defaults(func=cmd_download)
 
     sp = sub.add_parser("integrations", aliases=["clients"],
                         help="List integration modes and lifecycle commands")

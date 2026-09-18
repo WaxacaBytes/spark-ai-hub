@@ -92,6 +92,18 @@ def _entries() -> list[dict]:
     return entries
 
 
+MEDIA_TYPES = {".png": "image/png", ".mp4": "video/mp4", ".wav": "audio/wav"}
+
+
+def find(name: str) -> Path | None:
+    """The file behind a Hub media name ('<32 hex>.png' / .mp4 / .wav), result
+    or upload, if any. Only names shaped like the Hub's own ever match."""
+    for folder, name_re, _kind, _prefix, _upload in _locations():
+        if name_re.match(name) and (folder / name).is_file():
+            return folder / name
+    return None
+
+
 async def _owners() -> dict[str, int]:
     db = await get_db()
     try:
@@ -124,10 +136,10 @@ async def list_files(user: dict | None) -> list[dict]:
 
 async def delete(name: str, user: dict | None) -> bool:
     """Delete one of `user`'s files. False if there is no such file they may see."""
-    entry = next((e for e in await asyncio.to_thread(_entries) if e["name"] == name), None)
-    if entry is None or not await can_read(name, user):
+    path = find(name)
+    if path is None or not await can_read(name, user):
         return False
-    entry["_file"].unlink(missing_ok=True)
+    path.unlink(missing_ok=True)
     db = await get_db()
     try:
         await db.execute("DELETE FROM media WHERE name = ?", (name,))
@@ -137,28 +149,13 @@ async def delete(name: str, user: dict | None) -> bool:
     return True
 
 
-def _folders() -> list[tuple[Path, re.Pattern, int]]:
-    return [(folder, name_re, UPLOAD_TTL if upload else RESULT_TTL)
-            for folder, name_re, _kind, _prefix, upload in _locations()]
-
-
 def _delete_old_files() -> list[str]:
-    """Unlink files past their lifetime; only names like the Hub's own are touched."""
+    """Unlink results and uploads past their lifetime; returns their names."""
     now = time.time()
-    removed = []
-    for folder, name_re, ttl in _folders():
-        if not folder.is_dir():
-            continue
-        for path in folder.iterdir():
-            if not name_re.match(path.name):
-                continue
-            try:
-                if path.is_file() and path.stat().st_mtime < now - ttl:
-                    path.unlink()
-                    removed.append(path.name)
-            except FileNotFoundError:
-                pass
-    return removed
+    old = [e for e in _entries() if e["expires_at"] < now]
+    for entry in old:
+        entry["_file"].unlink(missing_ok=True)
+    return [e["name"] for e in old]
 
 
 async def purge_expired() -> int:
