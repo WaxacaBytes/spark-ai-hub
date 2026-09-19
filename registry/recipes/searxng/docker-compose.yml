@@ -1,0 +1,69 @@
+services:
+  searxng:
+    image: searxng/searxng:2026.9.19-fe5bdd1bf
+    container_name: spark-ai-hub-searxng
+    # No published port: the front-door proxy reaches this container by name
+    # on the shared network, and it gates /run/searxng/ with the Hub sign-in.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      # Links in the web UI are built under the Hub's /run/searxng/ prefix.
+      SEARXNG_BASE_URL: "/run/searxng/"
+    # The secret signs SearXNG's image-proxy links. A fresh one on every start
+    # keeps it out of this file; nothing that outlives a restart depends on it.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        export SEARXNG_SECRET="$$(head -c 24 /dev/urandom | base64 | tr -dc a-zA-Z0-9)"
+        exec /usr/local/searxng/entrypoint.sh
+    configs:
+      - source: searxng_settings
+        target: /etc/searxng/settings.yml
+    # SearXNG logs the full engine URL, query included, whenever an engine
+    # request fails. Keep no container log at all, so no search is ever
+    # written to disk on the Spark.
+    logging:
+      driver: "none"
+    restart: unless-stopped
+
+configs:
+  searxng_settings:
+    content: |
+      # Everything not set here is SearXNG's own default.
+      use_default_settings:
+        engines:
+          # Engines whose policy is not to track or profile searchers. Checked
+          # from this Spark: DuckDuckGo and Qwant answer SearXNG with a CAPTCHA
+          # on the first request, so they are left out.
+          keep_only:
+            - brave
+            - startpage
+            - wikipedia
+            - mojeek
+      server:
+        limiter: false
+        public_instance: false
+        # POST keeps queries out of browser history and out of URLs.
+        method: "POST"
+        # Result images load through SearXNG, so the browser never contacts
+        # the sites they come from.
+        image_proxy: true
+      search:
+        # json is what the Hub's web_search tool reads.
+        formats: [html, json]
+        # Autocomplete would send every keystroke to a search engine.
+        autocomplete: ""
+      engines:
+        - name: startpage
+          disabled: false
+        # Upstream parks Mojeek (it answers heavy use with a proof-of-work
+        # CAPTCHA); it works for light use, and SearXNG pauses it when it balks.
+        - name: mojeek
+          inactive: false
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

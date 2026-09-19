@@ -1,4 +1,4 @@
-"""MCP server: image generation and editing on the Spark, for any agent.
+"""MCP server: private web search, and image, video and music generation on the Spark, for any agent.
 
 Speaks MCP's Streamable HTTP transport in its stateless form, at POST /mcp:
 one JSON-RPC request per POST, no session id, no server-initiated stream (GET
@@ -28,6 +28,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 from daemon.routers import containers
 from daemon.services import (
     audio_service, image_service, link_service, media_store, upload_service, video_service,
+    web_service,
 )
 from daemon.config import settings
 from daemon.services.connect_service import request_origin
@@ -43,6 +44,10 @@ SERVER_INFO = {"name": "spark-ai-hub-images", "title": "Spark AI Hub Images", "v
 KEEPALIVE_SECONDS = 10
 
 INSTRUCTIONS = (
+    "Searches the web privately with web_search (SearXNG on the user's DGX Spark: no "
+    "accounts, cookies or API keys) and reads a page with web_fetch (https only, fetched "
+    "from the Spark). Use these for anything current or beyond your training data, and "
+    "cite the URLs you rely on.\n\n"
     "Generates and edits images, generates and edits videos, and composes music, with open models running on "
     "the user's DGX Spark. Call list_image_models / list_video_models to see which "
     "are running. A stopped model can be started with start_model; when memory is short, "
@@ -100,6 +105,44 @@ _IMAGE_REFS = (
 )
 
 TOOLS = [
+    {
+        "name": "web_search",
+        "title": "Web search",
+        "description": (
+            "Search the web privately through SearXNG on the Spark. Returns titles, URLs "
+            "and snippets; read a result in full with web_fetch. Use it for current "
+            "information and anything beyond your training data, and cite the URLs you use."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "What to search for."},
+                "max_results": {"type": "integer", "minimum": 1,
+                                "maximum": web_service.MAX_RESULTS,
+                                "default": web_service.DEFAULT_RESULTS,
+                                "description": "How many results to return."},
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+        "annotations": {"readOnlyHint": True, "openWorldHint": True},
+    },
+    {
+        "name": "web_fetch",
+        "title": "Fetch web page",
+        "description": (
+            "Read one web page, fetched from the Spark, as markdown (HTML) or text. HTTPS "
+            "only; sends no cookies, so pages that need a login show what an anonymous "
+            "visitor sees. Long pages are truncated."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"url": {"type": "string", "description": "An https:// URL."}},
+            "required": ["url"],
+            "additionalProperties": False,
+        },
+        "annotations": {"readOnlyHint": True, "openWorldHint": True},
+    },
     {
         "name": "generate_image",
         "title": "Generate image",
@@ -377,6 +420,16 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
     creates, and can only use or collect their own images, videos and jobs.
     """
     try:
+        if name == "web_search":
+            query = str(args.get("query") or "").strip()
+            if not query:
+                raise web_service.WebError("'query' is required.")
+            return _text(await web_service.search(query, _int(args, "max_results")))
+        if name == "web_fetch":
+            url = str(args.get("url") or "").strip()
+            if not url:
+                raise web_service.WebError("'url' is required.")
+            return _text(await web_service.fetch(url))
         if name == "list_image_models":
             return _text(json.dumps(await image_service.list_models(), indent=2))
         if name in ("create_upload", "create_download"):
@@ -464,10 +517,10 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             on_progress("rendering on the Spark")
         info = await image_service.check_job(job_id, image_service.JOB_GRACE, user)
         return _image_result(info, origin)
-    except image_service.ImageError as exc:
+    except (image_service.ImageError, web_service.WebError) as exc:
         return _text(str(exc), is_error=True)
     except Exception as exc:  # noqa: BLE001 - surface anything else to the agent
-        return _text(f"Image request failed: {type(exc).__name__}: {exc}", is_error=True)
+        return _text(f"{name} failed: {type(exc).__name__}: {exc}", is_error=True)
 
 
 def _next_call(tool: str, job_id: str) -> dict:

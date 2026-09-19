@@ -21,13 +21,11 @@ import base64
 import collections
 import io
 import contextlib
-import ipaddress
 import json
 import math
 import time
 import re
 import secrets
-import socket
 import urllib.parse
 from dataclasses import dataclass, replace
 from typing import Callable
@@ -36,7 +34,7 @@ import aiohttp
 from PIL import Image, ImageOps
 
 from daemon.config import settings
-from daemon.services import media_store, proxy_service
+from daemon.services import media_store, proxy_service, web_service
 from daemon.services.docker_service import get_installed_slugs, is_ready, is_recipe_running
 from daemon.services.registry_service import get_recipes
 
@@ -399,14 +397,6 @@ async def _render(session: aiohttp.ClientSession, backend: Backend, kind: str,
 # ------------------------------------------------------------------ inputs
 
 
-def _is_public(host: str, port: int) -> bool:
-    try:
-        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
-    except OSError:
-        return False
-    return bool(infos) and all(ipaddress.ip_address(i[4][0]).is_global for i in infos)
-
-
 async def load_input(ref: str, session: aiohttp.ClientSession, user: dict | None = None,
                      *, suffix: str = ".png", max_bytes: int = MAX_INPUT_BYTES) -> bytes:
     """Raw bytes for an input image (or, with suffix='.mp4', video) given by URL.
@@ -434,12 +424,12 @@ async def load_input(ref: str, session: aiohttp.ClientSession, user: dict | None
         port = parts.port or (443 if parts.scheme == "https" else 80)
         # Any signed-in user can make the daemon fetch this, so it must not be a
         # way to reach the daemon's own port or anything else on the LAN.
-        if not await asyncio.to_thread(_is_public, parts.hostname, port):
+        if not await asyncio.to_thread(web_service.is_public, parts.hostname, port):
             raise ImageError(f"Only public http(s) {noun} URLs can be fetched.")
         async with session.get(ref, allow_redirects=False) as r:
             if r.status != 200:
                 raise ImageError(f"Fetching {ref} failed (HTTP {r.status}).")
-            body = await r.content.read(max_bytes + 1)
+            body = await web_service.read_capped(r, max_bytes)
         if len(body) > max_bytes:
             raise ImageError(f"Input {noun} is larger than {max_bytes // 2**20} MB.")
         return body

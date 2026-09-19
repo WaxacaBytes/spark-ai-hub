@@ -1774,7 +1774,20 @@ class DeepSeekHarness(Integration):
         write_text(settings, yaml_dump(self.settings(model)))
         settings.chmod(0o600)
         patch = self.patch_path()
-        write_text(patch, yaml_dump([{"id": "settings", "config": {"path": str(settings)}}]))
+        write_text(patch, yaml_dump([
+            {"id": "settings", "config": {"path": str(settings)}},
+            {"insert": [{
+                "id": "mcp-sah",
+                "name": "@deepseek-ai/dsh-mcp-client",
+                "config": {
+                    "serverName": MCP_SERVER,
+                    "transport": "streamable-http",
+                    "url": mcp_url(),
+                    "headers": mcp_headers(),
+                    "toolCallTimeoutMs": MCP_TOOL_TIMEOUT * 1000,
+                },
+            }]},
+        ]))
         patch.chmod(0o600)
         return patch
 

@@ -24,10 +24,8 @@ import asyncio
 import base64
 import hashlib
 import hmac
-import ipaddress
 import json
 import secrets
-import socket
 import time
 import urllib.parse
 from datetime import datetime, timedelta, timezone
@@ -35,6 +33,7 @@ from datetime import datetime, timedelta, timezone
 import aiohttp
 
 from daemon.db import get_db
+from daemon.services import web_service
 from daemon.services.auth_service import now_iso, token_digest
 
 SCOPE = "mcp"
@@ -152,14 +151,6 @@ async def register_client(meta: dict) -> dict:
     }
 
 
-def _host_is_public(host: str, port: int) -> bool:
-    try:
-        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
-    except OSError:
-        return False
-    return bool(infos) and all(ipaddress.ip_address(i[4][0]).is_global for i in infos)
-
-
 async def _fetch_metadata_document(client_id: str) -> dict | None:
     """A Client ID Metadata Document: the client_id URL serves the client's JSON."""
     hit = _cimd_cache.get(client_id)
@@ -171,11 +162,11 @@ async def _fetch_metadata_document(client_id: str) -> dict | None:
         # The daemon fetches whatever URL a stranger names, so it must not be
         # a way to reach anything that is not on the public internet.
         if parts.scheme == "https" and parts.hostname and await asyncio.to_thread(
-                _host_is_public, parts.hostname, parts.port or 443):
+                web_service.is_public, parts.hostname, parts.port or 443):
             timeout = aiohttp.ClientTimeout(total=5)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 async with session.get(client_id, allow_redirects=False) as r:
-                    raw = await r.content.read(CIMD_MAX_BYTES + 1)
+                    raw = await web_service.read_capped(r, CIMD_MAX_BYTES)
                     ok = r.status == 200 and len(raw) <= CIMD_MAX_BYTES
             doc = json.loads(raw) if ok else None
             uris = doc.get("redirect_uris") if isinstance(doc, dict) else None

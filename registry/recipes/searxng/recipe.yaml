@@ -1,0 +1,36 @@
+name: "SearXNG"
+slug: searxng
+version: "1.0.0"
+description: "Private web search for you and your agents. Queries Brave, Startpage, Wikipedia and Mojeek without accounts, cookies or API keys, keeps no logs, and powers the Hub's web_search tool for every connected harness."
+author: "SearXNG"
+source: "official"
+website: "https://docs.searxng.org/"
+upstream: "https://github.com/searxng/searxng"
+category: multi-modal
+tags:
+  - search
+  - privacy
+  - web
+  - agents
+icon: "🔍"
+logo: "/logos/searxng.png"
+requirements:
+  min_memory_gb: 1
+  recommended_memory_gb: 1
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  type: web
+  # Port inside the container. Nothing is published to the host: the app is
+  # served at /run/searxng/ behind the Hub's sign-in, and the daemon's
+  # web_search tool reaches it the same way.
+  port: 8080
+  proxy: true
+  path: "/"
+  health_path: "/healthz"
+docker:
+  build: false
+  build_time_minutes: 1
+  gpu: false
+status: official
+release_date: "2021-09"

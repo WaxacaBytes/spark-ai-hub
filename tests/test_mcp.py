@@ -15,6 +15,7 @@ from daemon import db as db_module
 from daemon.routers import files, links, mcp, uploads
 from daemon.services import (
     audio_service, image_service, link_service, media_store, upload_service, video_service,
+    web_service,
 )
 
 # Stand-ins for AuthMiddleware's request.state.user. Rows 1-3 exist in the
@@ -110,7 +111,7 @@ class McpProtocolTests(unittest.TestCase):
                                  "list_image_models", "generate_video", "get_video",
                                  "list_video_models", "generate_music",
                                  "create_upload", "create_download",
-                                 "start_model", "stop_model"})
+                                 "start_model", "stop_model", "web_search", "web_fetch"})
 
     def test_get_has_no_stream(self):
         self.assertEqual(self.client.get("/mcp").status_code, 405)
@@ -319,6 +320,66 @@ class ImageServiceTests(unittest.TestCase):
         self.assertEqual((result.width, result.height), (1024, 512))
         with Image.open(io.BytesIO(base64.b64decode(result.preview_jpeg_b64))) as preview:
             self.assertEqual(preview.size, (512, 256))
+
+
+class WebToolTests(unittest.TestCase):
+    def test_results_are_numbered_with_url_snippet_and_infobox(self):
+        text = web_service.format_results({
+            "infoboxes": [{"infobox": "Rust", "content": "A language.",
+                           "urls": [{"url": "https://en.wikipedia.org/wiki/Rust"}]}],
+            "results": [{"title": "A", "url": "https://a.example", "content": "first",
+                         "publishedDate": "2026-09-01T00:00:00"},
+                        {"title": "B", "url": "https://b.example", "content": ""},
+                        {"title": "C", "url": "https://c.example"}],
+        }, 2)
+        self.assertIn("Rust: A language. (https://en.wikipedia.org/wiki/Rust)", text)
+        self.assertIn("1. A\n   https://a.example\n   first\n   Published: 2026-09-01", text)
+        self.assertIn("2. B\n   https://b.example", text)
+        self.assertNotIn("c.example", text)
+
+    def test_no_results_names_the_engines_that_failed(self):
+        text = web_service.format_results(
+            {"results": [], "unresponsive_engines": [["brave", "too many requests"]]}, 8)
+        self.assertIn("brave (too many requests)", text)
+
+    def test_fetch_is_https_and_public_only(self):
+        async def go():
+            for url in ("http://example.com/", "file:///etc/passwd",
+                        "https://127.0.0.1:9010/api/admin/users", "https://localhost/"):
+                with self.assertRaises(web_service.WebError, msg=url):
+                    await web_service.fetch(url)
+        asyncio.run(go())
+
+    def test_html_keeps_the_content_and_drops_the_furniture(self):
+        text = web_service._html_to_markdown(
+            "<html><head><title>T</title><script>evil()</script></head><body>"
+            "<nav>Menu</nav><main><h2>Heading</h2><p>Body <a href='https://x.example'>link</a></p>"
+            "</main><footer>Legal</footer></body></html>", "https://x.example/docs/")
+        self.assertIn("## Heading", text)
+        self.assertIn("[link](https://x.example)", text)
+        self.assertIn("[next](https://x.example/docs/next)", web_service._html_to_markdown(
+            "<body><p><a href='next'>next</a></p></body>", "https://x.example/docs/"))
+        for gone in ("evil", "Menu", "Legal"):
+            self.assertNotIn(gone, text)
+
+    def test_empty_query_is_a_tool_error(self):
+        r = _client().post("/mcp", json=_rpc("tools/call", {
+            "name": "web_search", "arguments": {"query": " "}}))
+        self.assertTrue(r.json()["result"]["isError"])
+
+
+class ReadCappedTests(unittest.TestCase):
+    def test_reads_every_chunk_not_just_the_first(self):
+        chunks = [b"a" * 70_000, b"b" * 70_000, b"c" * 10]
+
+        class Content:
+            async def iter_chunked(self, _size):
+                for chunk in chunks:
+                    yield chunk
+
+        response = mock.Mock(content=Content())
+        self.assertEqual(len(asyncio.run(web_service.read_capped(response, 1_000_000))), 140_010)
+        self.assertGreater(len(asyncio.run(web_service.read_capped(response, 100_000))), 100_000)
 
 
 class PresetAndCapabilityTests(unittest.TestCase):
