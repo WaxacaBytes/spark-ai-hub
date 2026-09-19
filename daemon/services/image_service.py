@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import collections
 import io
 import contextlib
 import ipaddress
@@ -193,17 +194,14 @@ async def pick_backend(kind: str, model: str | None) -> Backend:
                 return backend
             starting.append(backend.slug)
     if starting:
-        raise ImageError(
-            f"{starting[0]} is still starting (loading weights). Try again in a minute."
-        )
+        raise ImageError(f"{starting[0]} is still starting (loading weights). Call start_model "
+                         f"with model {starting[0]} to wait until it is ready.")
     if not candidates:
         raise ImageError(f"No image model that can {kind} is installed on the Spark. "
                          f"Install one from the Spark AI Hub first.")
     names = " or ".join(b.slug for b in candidates)
-    raise ImageError(
-        f"No image model that can {kind} is running on the Spark. Launch {names} "
-        f"from the Spark AI Hub first."
-    )
+    raise ImageError(f"No image model that can {kind} is running on the Spark. Start {names} "
+                     f"with start_model first.")
 
 
 def _app_base(slug: str) -> str:
@@ -495,6 +493,24 @@ def store(raw: bytes, model: str, seed: int | None) -> Result:
                   base64.b64encode(buf.getvalue()).decode())
 
 
+# Renders in flight per model, image and music alike, so stop_model never
+# pulls a model out from under one.
+_rendering: collections.Counter[str] = collections.Counter()
+
+
+@contextlib.contextmanager
+def rendering(slug: str):
+    _rendering[slug] += 1
+    try:
+        yield
+    finally:
+        _rendering[slug] -= 1
+
+
+def renders_on(slug: str) -> int:
+    return _rendering[slug]
+
+
 async def run(kind: str, params: Params, images: list[str], model: str | None,
               on_progress: Callable[[str], None] | None = None,
               user: dict | None = None) -> Result:
@@ -504,11 +520,12 @@ async def run(kind: str, params: Params, images: list[str], model: str | None,
     # the seed that reproduces the image.
     seed = params.seed if params.seed is not None else secrets.randbelow(MAX_SEED)
     timeout = aiohttp.ClientTimeout(total=JOB_TIMEOUT, sock_connect=10)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        inputs = [to_png(await load_input(ref, session, user)) for ref in images]
-        if on_progress:
-            on_progress(f"rendering on {backend.slug}")
-        raw = await _render(session, backend, kind, params, inputs, seed)
+    with rendering(backend.slug):
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            inputs = [to_png(await load_input(ref, session, user)) for ref in images]
+            if on_progress:
+                on_progress(f"rendering on {backend.slug}")
+            raw = await _render(session, backend, kind, params, inputs, seed)
     result = await asyncio.to_thread(store, raw, backend.slug, seed)
     await media_store.record(f"{result.image_id}.png", user and user["id"])
     result.steps = params.steps

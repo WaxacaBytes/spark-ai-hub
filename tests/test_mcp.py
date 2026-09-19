@@ -109,7 +109,8 @@ class McpProtocolTests(unittest.TestCase):
         self.assertEqual(names, {"generate_image", "edit_image", "get_image",
                                  "list_image_models", "generate_video", "get_video",
                                  "list_video_models", "generate_music",
-                                 "create_upload", "create_download"})
+                                 "create_upload", "create_download",
+                                 "start_model", "stop_model"})
 
     def test_get_has_no_stream(self):
         self.assertEqual(self.client.get("/mcp").status_code, 405)
@@ -765,7 +766,7 @@ class UnifiedVideoEditAndMusicTests(unittest.TestCase):
             self.assertEqual(listed[0]["state"], "stopped")
             with self.assertRaisesRegex(image_service.ImageError, "not an installed model"):
                 asyncio.run(image_service.pick_backend("generate", "b-catalog-only"))
-            with self.assertRaisesRegex(image_service.ImageError, "Launch a-installed"):
+            with self.assertRaisesRegex(image_service.ImageError, "Start a-installed with start_model"):
                 asyncio.run(image_service.pick_backend("generate", None))
         with mock.patch.object(image_service, "get_recipes", return_value=recipes), \
              mock.patch.object(image_service, "get_installed_slugs", mock.AsyncMock(return_value=set())):
@@ -821,6 +822,116 @@ class UnifiedVideoEditAndMusicTests(unittest.TestCase):
                          ["text-to-video", "video-editing"])
         self.assertEqual(Recipe(name="m", slug="m", tags=["openai-music", "text-to-music"]).media_capabilities,
                          ["music-generation"])
+
+
+class StartStopModelTests(unittest.TestCase):
+    """Agents start and stop the media models they list -- and nothing else."""
+
+    def setUp(self):
+        from types import SimpleNamespace
+        recipe = lambda name, gb, *tags: SimpleNamespace(
+            name=name, tags=list(tags), image_defaults=None, video_defaults=None, audio_defaults=None,
+            requirements=SimpleNamespace(min_memory_gb=gb))
+        self.recipes = {
+            "img-big": recipe("Big image", 60, "openai-images", "text-to-image"),
+            "img-small": recipe("Small image", 20, "openai-images", "text-to-image"),
+            "llm": recipe("Chat LLM", 80),
+        }
+        self.running = {"img-small", "llm"}
+        self.ready = {"img-small", "llm"}
+        self.launch = mock.AsyncMock(side_effect=lambda slug: self.running.add(slug))
+        self.stop = mock.AsyncMock(side_effect=lambda slug: (self.running.discard(slug),
+                                                             {"status": "stopped"})[1])
+        get_recipes = mock.Mock(return_value=self.recipes)
+        self.patches = [
+            *(mock.patch.object(m, "get_recipes", get_recipes)
+              for m in (mcp, image_service, video_service, audio_service)),
+            mock.patch.object(mcp, "get_installed_slugs", mock.AsyncMock(return_value=set(self.recipes))),
+            mock.patch.object(mcp, "is_recipe_running",
+                              mock.AsyncMock(side_effect=lambda slug: slug in self.running)),
+            mock.patch.object(mcp, "is_ready", side_effect=lambda slug: slug in self.ready),
+            mock.patch.object(mcp, "get_pending", return_value=None),
+            mock.patch.object(mcp, "start_health_check", mock.AsyncMock()),
+            mock.patch.object(mcp, "READY_POLL_SECONDS", 0.01),
+            mock.patch.object(mcp.containers, "launch", self.launch),
+            mock.patch.object(mcp.containers, "stop", self.stop),
+            mock.patch.object(mcp, "_available_gb", return_value=50.0),
+        ]
+        for patch in self.patches:
+            patch.start()
+
+    def tearDown(self):
+        for patch in reversed(self.patches):
+            patch.stop()
+
+    def call(self, name, **args):
+        return asyncio.run(mcp.call_tool(name, args, "http://h", user=OWNER))
+
+    def test_only_installed_media_models(self):
+        for name in ("start_model", "stop_model"):
+            result = self.call(name, model="llm")
+            self.assertTrue(result["isError"])
+            self.assertIn("not an installed image, video or music model", result["content"][0]["text"])
+        self.launch.assert_not_called()
+        self.stop.assert_not_called()
+
+    def test_start_refused_when_memory_is_short_names_what_is_running(self):
+        result = self.call("start_model", model="img-big", wait_seconds=0)
+        text = result["content"][0]["text"]
+        self.assertTrue(result["isError"])
+        self.assertIn("img-big needs about 60 GB and only 50 GB is free", text)
+        self.assertIn("stop with stop_model: img-small", text)
+        self.assertIn("only the Hub can stop these): Chat LLM", text)
+        self.launch.assert_not_called()
+
+    def test_a_loading_app_counts_against_free_memory(self):
+        self.running.discard("img-small")
+        self.ready.discard("llm")
+        result = self.call("start_model", model="img-small", wait_seconds=0)
+        self.assertTrue(result["isError"])   # 50 GB free, but the LLM still loading takes 80
+        self.launch.assert_not_called()
+
+    def test_start_launches_then_reports_starting_then_ready(self):
+        self.running.discard("img-small")
+        self.ready.discard("img-small")
+        pending = self.call("start_model", model="img-small", wait_seconds=0)
+        self.launch.assert_awaited_once_with("img-small")
+        self.assertFalse(pending["isError"])
+        self.assertEqual(pending["structuredContent"]["next_call"],
+                         {"tool": "start_model", "arguments": {"model": "img-small"}})
+        self.ready.add("img-small")
+        done = self.call("start_model", model="img-small")
+        self.assertEqual(done["structuredContent"]["status"], "ready")
+        self.launch.assert_awaited_once()     # already running: no second launch
+
+    def test_start_reports_a_model_that_died_while_loading(self):
+        self.running.discard("img-small")
+        self.ready.discard("img-small")
+        self.launch.side_effect = None        # compose up returned, container gone
+        result = self.call("start_model", model="img-small", wait_seconds=5)
+        self.assertTrue(result["isError"])
+        self.assertIn("stopped before it finished loading", result["content"][0]["text"])
+
+    def test_stop_refused_while_rendering(self):
+        with image_service.rendering("img-small"):
+            result = self.call("stop_model", model="img-small")
+        self.assertTrue(result["isError"])
+        self.assertIn("rendering 1 job right now", result["content"][0]["text"])
+        self.stop.assert_not_called()
+        self.assertEqual(self.call("stop_model", model="img-small")["structuredContent"]["status"],
+                         "stopped")
+        self.stop.assert_awaited_once_with("img-small")
+
+    def test_stop_refused_while_a_video_job_is_open(self):
+        with mock.patch.object(video_service, "rendering_on", mock.AsyncMock(return_value=2)):
+            result = self.call("stop_model", model="img-small")
+        self.assertIn("rendering 2 jobs right now", result["content"][0]["text"])
+        self.stop.assert_not_called()
+
+    def test_stopping_a_stopped_model_is_a_no_op(self):
+        result = self.call("stop_model", model="img-big")
+        self.assertEqual((result["isError"], result["structuredContent"]["status"]), (False, "stopped"))
+        self.stop.assert_not_called()
 
 
 class ProxiedApiRecipeTests(unittest.TestCase):

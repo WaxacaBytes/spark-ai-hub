@@ -22,14 +22,19 @@ import asyncio
 import json
 from typing import Any
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
+from daemon.routers import containers
 from daemon.services import (
     audio_service, image_service, link_service, media_store, upload_service, video_service,
 )
 from daemon.config import settings
 from daemon.services.connect_service import request_origin
+from daemon.services.docker_service import (
+    get_installed_slugs, get_pending, is_ready, is_recipe_running, start_health_check,
+)
+from daemon.services.registry_service import get_recipes
 
 router = APIRouter(tags=["mcp"])
 
@@ -40,7 +45,8 @@ KEEPALIVE_SECONDS = 10
 INSTRUCTIONS = (
     "Generates and edits images, generates and edits videos, and composes music, with open models running on "
     "the user's DGX Spark. Call list_image_models / list_video_models to see which "
-    "are running. Every result is saved on the Hub and returned as a URL plus a "
+    "are running. A stopped model can be started with start_model; when memory is short, "
+    "stop_model frees a media model that is not rendering. Every result is saved on the Hub and returned as a URL plus a "
     "preview. Show the user the URL. To refine an image, pass its URL to edit_image. "
     "The URLs are private: they open for the user signed in to the Hub, not for you. "
     "Results are deleted after 30 days, so tell the user to download what they want to keep; "
@@ -82,6 +88,9 @@ _WAIT_HINT = (
     "How long this call waits for the job before reporting it still running. "
     "Omit for 120. Stay under ~240: some clients cut a tool call off after about 5 minutes."
 )
+
+_MODEL_ARG = {"type": "string",
+              "description": "A model id from list_image_models or list_video_models, or a music model."}
 
 _IMAGE_REFS = (
     "Each item is a URL returned by generate_image or edit_image, an upload's URL "
@@ -281,6 +290,45 @@ TOOLS = [
         },
     },
     {
+        "name": "start_model",
+        "title": "Start model",
+        "description": (
+            "Start one of the Spark's stopped image, video or music models so the other "
+            "tools can use it. Loading takes from under a minute to about 15 minutes for "
+            "the largest. Waits up to wait_seconds; returns once the model is ready, or "
+            "status \"starting\", in which case call start_model again with the same model "
+            "until it is ready. Refused when the model needs more memory than is free: the "
+            "error names what is running, and stop_model can free a media model among them."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "model": _MODEL_ARG,
+                "wait_seconds": {"type": "integer", "minimum": 0, "maximum": image_service.MAX_WAIT,
+                                 "default": 120, "description": _WAIT_HINT},
+            },
+            "required": ["model"],
+            "additionalProperties": False,
+        },
+        "annotations": {"destructiveHint": False, "idempotentHint": True},
+    },
+    {
+        "name": "stop_model",
+        "title": "Stop model",
+        "description": (
+            "Stop a running image, video or music model to free its memory, e.g. to start "
+            "another with start_model. Refused while the model is rendering a job. Only "
+            "media models can be stopped here; LLMs and other apps are managed in the Hub."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"model": _MODEL_ARG},
+            "required": ["model"],
+            "additionalProperties": False,
+        },
+        "annotations": {"destructiveHint": True, "idempotentHint": True},
+    },
+    {
         "name": "list_image_models",
         "title": "List image models",
         "description": ("List the Spark's image models: what each does, whether it is "
@@ -333,6 +381,11 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             return _text(json.dumps(await image_service.list_models(), indent=2))
         if name in ("create_upload", "create_download"):
             return await _link_tool(name, args, origin, user)
+        if name == "start_model":
+            wait = _int(args, "wait_seconds")
+            return await _start_model(args, 120 if wait is None else wait, on_progress)
+        if name == "stop_model":
+            return await _stop_model(args)
         if name == "generate_music":
             lyrics = str(args.get("lyrics") or "").strip()
             style = str(args.get("style") or "").strip()
@@ -420,6 +473,123 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
 def _next_call(tool: str, job_id: str) -> dict:
     """What an unfinished job's result tells a client that reads structuredContent only."""
     return {"done": False, "next_call": {"tool": tool, "arguments": {"job_id": job_id}}}
+
+
+# ------------------------------------------------------------ start / stop
+# Agents may start and stop the media models the tools above list, and nothing
+# else: LLMs and other apps stay the Hub's. Both go through the same launch and
+# stop the Hub's buttons use.
+
+READY_POLL_SECONDS = 2
+# One start at a time, so two agents cannot both see the same free memory and
+# launch into it together.
+_start_lock = asyncio.Lock()
+
+
+def _media_slugs() -> set[str]:
+    return set(image_service.backends()) | set(video_service.backends()) | set(audio_service.backends())
+
+
+async def _media_model(args: dict) -> str:
+    """The installed image, video or music model `args` names."""
+    slug = str(args.get("model") or "").strip()
+    installed = _media_slugs() & await get_installed_slugs()
+    if slug not in installed:
+        raise image_service.ImageError(
+            f"'{slug}' is not an installed image, video or music model. "
+            f"Installed: {', '.join(sorted(installed)) or 'none'}.")
+    return slug
+
+
+def _available_gb() -> float:
+    with open("/proc/meminfo") as f:
+        for line in f:
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) / 2**20
+    return 0.0
+
+
+async def _check_memory(slug: str) -> None:
+    """Refuse a start that would not fit, and say what holds the memory.
+
+    An app still loading has not taken all of its memory yet, so its share is
+    counted as spoken for.
+    """
+    recipes = get_recipes()
+    need = recipes[slug].requirements.min_memory_gb
+    media = _media_slugs()
+    loading, running_media, running_other = 0, [], []
+    for other in sorted(await get_installed_slugs()):
+        if other == slug or other not in recipes:
+            continue
+        if not await is_recipe_running(other) and get_pending(other) != "launching":
+            continue
+        if not is_ready(other):
+            loading += recipes[other].requirements.min_memory_gb
+        (running_media if other in media else running_other).append(other)
+    free = _available_gb() - loading
+    if free >= need:
+        return
+    lines = [f"{slug} needs about {need} GB and only {max(free, 0):.0f} GB is free."]
+    if running_media:
+        lines.append("Running media models you can stop with stop_model: "
+                     + ", ".join(running_media) + ".")
+    if running_other:
+        lines.append("Also running (only the Hub can stop these): "
+                     + ", ".join(recipes[o].name for o in running_other) + ".")
+    raise image_service.ImageError(" ".join(lines))
+
+
+async def _start_model(args: dict, wait: int, on_progress=None) -> dict:
+    slug = await _media_model(args)
+    async with _start_lock:
+        if not await is_recipe_running(slug) and get_pending(slug) != "launching":
+            await _check_memory(slug)
+            if on_progress:
+                on_progress(f"starting {slug}")
+            try:
+                await containers.launch(slug)
+            except HTTPException as exc:
+                raise image_service.ImageError(
+                    f"{slug} failed to launch: {str(exc.detail)[-500:]}") from None
+
+    deadline = asyncio.get_running_loop().time() + min(wait, image_service.MAX_WAIT)
+    while not is_ready(slug):
+        if not await is_recipe_running(slug) and get_pending(slug) != "launching":
+            raise image_service.ImageError(
+                f"{slug} stopped before it finished loading. Its log is on its page in the Hub.")
+        if asyncio.get_running_loop().time() >= deadline:
+            return {"content": [{"type": "text", "text": (
+                        f"Not done yet: {slug} is still loading its weights. Call start_model "
+                        f"with model {slug} again, and keep calling it until it is ready.")}],
+                    "structuredContent": {"model": slug, "status": "starting", "done": False,
+                                          "next_call": {"tool": "start_model",
+                                                        "arguments": {"model": slug}}},
+                    "isError": False}
+        # The Hub's own check gives up after five minutes; the largest models
+        # take longer. It no-ops while one is already polling.
+        await start_health_check(slug)
+        await asyncio.sleep(READY_POLL_SECONDS)
+    return {"content": [{"type": "text", "text": f"{slug} is ready."}],
+            "structuredContent": {"model": slug, "status": "ready", "done": True},
+            "isError": False}
+
+
+async def _stop_model(args: dict) -> dict:
+    slug = await _media_model(args)
+    if not await is_recipe_running(slug):
+        return {"content": [{"type": "text", "text": f"{slug} is already stopped."}],
+                "structuredContent": {"model": slug, "status": "stopped"}, "isError": False}
+    busy = image_service.renders_on(slug) + await video_service.rendering_on(slug)
+    if busy:
+        raise image_service.ImageError(
+            f"{slug} is rendering {busy} job{'s' * (busy > 1)} right now; stopping it would lose "
+            f"{'them' if busy > 1 else 'it'}. Collect the results first, then stop it.")
+    result = await containers.stop(slug)
+    if result["status"] != "stopped":
+        raise image_service.ImageError(f"Stopping {slug} failed; try again or stop it in the Hub.")
+    return {"content": [{"type": "text", "text": f"Stopped {slug}; its memory is free."}],
+            "structuredContent": {"model": slug, "status": "stopped"}, "isError": False}
 
 
 def _image_result(info: dict, origin: str) -> dict:

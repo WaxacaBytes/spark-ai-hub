@@ -135,13 +135,14 @@ async def pick_backend(kind: str, model: str | None) -> Backend:
                 return backend
             starting.append(backend.slug)
     if starting:
-        raise ImageError(f"{starting[0]} is still starting (loading weights). Try again in a minute.")
+        raise ImageError(f"{starting[0]} is still starting (loading weights). Call start_model "
+                         f"with model {starting[0]} to wait until it is ready.")
     if not candidates:
         raise ImageError(f"No video model that can {label} is installed on the Spark. "
                          f"Install one from the Spark AI Hub first.")
     names = " or ".join(b.slug for b in candidates)
     raise ImageError(f"No video model that can {label} is running on the Spark. "
-                     f"Launch {names} from the Spark AI Hub first.")
+                     f"Start {names} with start_model first.")
 
 
 def video_fields(defaults, *, prompt: str, seconds: int | None, aspect_ratio: str,
@@ -261,6 +262,30 @@ async def start(*, prompt: str, image: str | None, seconds: int | None, aspect_r
             **_summary(_jobs[job_id])}
 
 
+async def rendering_on(slug: str) -> int:
+    """Video jobs `slug` is still working on, as its server reports them.
+
+    Asked of the server rather than kept here, because a job nobody collects
+    never learns locally that it finished.
+    """
+    open_jobs = [j for j in _jobs.values()
+                 if j["slug"] == slug and not j.get("video_id") and not j.get("failed")]
+    if not open_jobs:
+        return 0
+    busy = 0
+    timeout = aiohttp.ClientTimeout(total=10, sock_connect=5)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        for job in open_jobs:
+            try:
+                async with session.get(f"{_app_base(slug)}/v1/videos/{job['remote_id']}",
+                                       headers=_headers()) as r:
+                    state = (await r.json()).get("status") if r.status == 200 else None
+            except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
+                state = None
+            busy += state in ("queued", "in_progress")
+    return busy
+
+
 def _summary(job: dict) -> dict:
     return {k: job.get(k) for k in ("seconds", "size", "seed", "steps")}
 
@@ -320,6 +345,7 @@ async def check(job_id: str, wait: int = 0, on_progress=None, user: dict | None 
                 return {**base, "status": "completed", "video_id": video_id,
                         "poster": job["poster"], "inference_time_s": job["inference_time_s"]}
             if state == "failed":
+                job["failed"] = True
                 error = (remote.get("error") or {}).get("message") or "no detail given"
                 return {**base, "status": "failed", "error": error}
             if time.time() >= deadline:

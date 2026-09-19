@@ -21,7 +21,7 @@ import aiohttp
 
 from daemon.config import settings
 from daemon.services.docker_service import get_installed_slugs, is_ready, is_recipe_running
-from daemon.services.image_service import ImageError, _app_base, _headers
+from daemon.services.image_service import ImageError, _app_base, _headers, rendering
 from daemon.services.registry_service import get_recipes
 
 AUDIO_DIR = settings.data_dir / "audio"
@@ -70,13 +70,14 @@ async def pick_backend(model: str | None) -> Backend:
                 return backend
             starting.append(backend.slug)
     if starting:
-        raise ImageError(f"{starting[0]} is still starting (loading weights). Try again in a minute.")
+        raise ImageError(f"{starting[0]} is still starting (loading weights). Call start_model "
+                         f"with model {starting[0]} to wait until it is ready.")
     if not candidates:
         raise ImageError("No music model is installed on the Spark. "
                          "Install one from the Spark AI Hub first.")
     names = " or ".join(b.slug for b in candidates)
-    raise ImageError(f"No music model is running on the Spark. Launch {names} "
-                     f"from the Spark AI Hub first.")
+    raise ImageError(f"No music model is running on the Spark. Start {names} "
+                     f"with start_model first.")
 
 
 def music_body(*, lyrics: str, style: str, seconds: int, seed: int) -> dict:
@@ -107,13 +108,14 @@ async def generate(*, lyrics: str, style: str, seconds: int | None, seed: int | 
     if on_progress:
         on_progress(f"composing on {backend.slug}")
     timeout = aiohttp.ClientTimeout(total=JOB_TIMEOUT, sock_connect=10)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(f"{_app_base(backend.slug)}/v1/audio/speech", headers=_headers(),
-                                json=music_body(lyrics=lyrics, style=style,
-                                                seconds=seconds, seed=seed)) as r:
-            if r.status != 200:
-                raise ImageError(f"{backend.slug} failed (HTTP {r.status}): {(await r.text())[:500]}")
-            raw = await r.read()
+    with rendering(backend.slug):
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(f"{_app_base(backend.slug)}/v1/audio/speech", headers=_headers(),
+                                    json=music_body(lyrics=lyrics, style=style,
+                                                    seconds=seconds, seed=seed)) as r:
+                if r.status != 200:
+                    raise ImageError(f"{backend.slug} failed (HTTP {r.status}): {(await r.text())[:500]}")
+                raw = await r.read()
     AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     audio_id = secrets.token_hex(16)
     (AUDIO_DIR / f"{audio_id}.wav").write_bytes(raw)
