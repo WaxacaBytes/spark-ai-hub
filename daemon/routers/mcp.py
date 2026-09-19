@@ -40,7 +40,7 @@ from daemon.services.registry_service import get_recipes
 router = APIRouter(tags=["mcp"])
 
 PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26")
-SERVER_INFO = {"name": "spark-ai-hub-images", "title": "Spark AI Hub Images", "version": "1.0.0"}
+SERVER_INFO = {"name": "spark-ai-hub", "title": "Spark AI Hub", "version": "1.0.0"}
 KEEPALIVE_SECONDS = 10
 
 INSTRUCTIONS = (

@@ -246,10 +246,10 @@ def api_base() -> str:
     return f"{hub_url()}/v1"
 
 
-# The Hub's MCP server: generate_image / edit_image on whatever image model the
-# Spark is running. Registered in every client sah wires, under one name, so the
-# agent can make pictures with the same key it uses for the LLM.
-MCP_SERVER = "sah-images"
+# The Hub's MCP server: private web search, and images, video and music on the
+# Spark. Registered in every client sah wires, under one name, so the agent
+# reaches it with the same key it uses for the LLM.
+MCP_SERVER = "sah"
 # A render takes minutes. Most clients default to a tool timeout well under
 # that (OpenCode 5s, Hermes 120s), so each one is told explicitly.
 MCP_TOOL_TIMEOUT = 900
@@ -2611,7 +2611,7 @@ def cmd_env(args) -> None:
 
 
 def cmd_mcp(args) -> None:
-    """The image MCP server's details, for clients sah does not wire itself."""
+    """The Hub MCP server's details, for clients sah does not wire itself."""
     config = {"mcpServers": {MCP_SERVER: {
         "type": "http", "url": mcp_url(), "headers": mcp_headers(),
     }}}
@@ -2621,7 +2621,7 @@ def cmd_mcp(args) -> None:
     kv("MCP URL", mcp_url())
     kv("Transport", "Streamable HTTP")
     kv("Header", f"Authorization: Bearer {API_KEY}")
-    kv("Tools", "generate_image, edit_image, list_image_models")
+    kv("Tools", "web_search, web_fetch, image, video and music generation")
     kv("Tool timeout", f"allow at least {MCP_TOOL_TIMEOUT}s — a render takes minutes")
     print(f"\nWired automatically by: sah claude, opencode, opencode-desktop, codex, qwen, hermes, openclaw, dsh")
     print("Any other client (Claude Desktop, osaurus, Cursor, ...):\n")
@@ -2723,7 +2723,7 @@ def main() -> None:
     sp.add_argument("--anthropic", action="store_true", help="Anthropic-shaped env vars")
     sp.set_defaults(func=cmd_env)
 
-    sp = sub.add_parser("mcp", help="Show the Hub's image MCP server details")
+    sp = sub.add_parser("mcp", help="Show the Hub's MCP server details")
     sp.add_argument("--json", action="store_true", help="Print only the mcpServers JSON")
     sp.set_defaults(func=cmd_mcp)
 
