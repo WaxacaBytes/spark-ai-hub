@@ -33,10 +33,8 @@ import aiohttp
 
 from daemon.config import settings
 from daemon.services.docker_service import get_installed_slugs, is_ready, is_recipe_running
-from daemon.services import media_store
-from daemon.services.image_service import (
-    ImageError, _app_base, _headers, load_input, owns_job, to_png,
-)
+from daemon.services import media_store, proxy_service
+from daemon.services.image_service import ImageError, load_input, owns_job, to_png
 from daemon.services.registry_service import get_recipes
 
 VIDEO_DIR = settings.data_dir / "videos"
@@ -226,7 +224,7 @@ async def start(*, prompt: str, image: str | None, seconds: int | None, aspect_r
     seed = seed if seed is not None else secrets.randbelow(MAX_SEED)
     fields = video_fields(backend.defaults, prompt=prompt, seconds=seconds,
                           aspect_ratio=aspect_ratio, seed=seed, steps=steps)
-    url = f"{_app_base(backend.slug)}/v1/videos"
+    url = f"{proxy_service.internal_url(backend.slug)}/v1/videos"
     timeout = aiohttp.ClientTimeout(total=300, sock_connect=10)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         # Multipart for every job: SGLang and vLLM-Omni both accept it, and it is
@@ -243,7 +241,7 @@ async def start(*, prompt: str, image: str | None, seconds: int | None, aspect_r
                            filename="input.mp4", content_type="video/mp4")
         for key, value in fields.items():
             form.add_field(key, json.dumps(value) if isinstance(value, dict) else str(value))
-        async with session.post(url, data=form, headers=_headers()) as r:
+        async with session.post(url, data=form, headers=proxy_service.probe_headers()) as r:
             if r.status != 200:
                 raise ImageError(f"{backend.slug} refused the video job (HTTP {r.status}): "
                                  f"{(await r.text())[:500]}")
@@ -277,8 +275,8 @@ async def rendering_on(slug: str) -> int:
     async with aiohttp.ClientSession(timeout=timeout) as session:
         for job in open_jobs:
             try:
-                async with session.get(f"{_app_base(slug)}/v1/videos/{job['remote_id']}",
-                                       headers=_headers()) as r:
+                async with session.get(f"{proxy_service.internal_url(slug)}/v1/videos/{job['remote_id']}",
+                                       headers=proxy_service.probe_headers()) as r:
                     state = (await r.json()).get("status") if r.status == 200 else None
             except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
                 state = None
@@ -317,11 +315,11 @@ async def check(job_id: str, wait: int = 0, on_progress=None, user: dict | None 
                 "poster": job.get("poster"), "inference_time_s": job.get("inference_time_s")}
 
     deadline = time.time() + max(0, min(wait, MAX_WAIT))
-    url = f"{_app_base(job['slug'])}/v1/videos/{job['remote_id']}"
+    url = f"{proxy_service.internal_url(job['slug'])}/v1/videos/{job['remote_id']}"
     timeout = aiohttp.ClientTimeout(total=MAX_WAIT + 300, sock_connect=10)
     async with aiohttp.ClientSession(timeout=timeout) as session:
         while True:
-            async with session.get(url, headers=_headers()) as r:
+            async with session.get(url, headers=proxy_service.probe_headers()) as r:
                 if r.status == 404:
                     raise ImageError(f"{job['slug']} no longer has this job (was it restarted?).")
                 if r.status != 200:
@@ -332,7 +330,7 @@ async def check(job_id: str, wait: int = 0, on_progress=None, user: dict | None 
                 VIDEO_DIR.mkdir(parents=True, exist_ok=True)
                 video_id = secrets.token_hex(16)
                 path = VIDEO_DIR / f"{video_id}.mp4"
-                async with session.get(f"{url}/content", headers=_headers()) as r:
+                async with session.get(f"{url}/content", headers=proxy_service.probe_headers()) as r:
                     if r.status != 200:
                         raise ImageError(f"Fetching the video from {job['slug']} failed (HTTP {r.status}).")
                     with open(path, "wb") as f:

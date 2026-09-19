@@ -32,7 +32,7 @@ services:
     container_name: spark-ai-hub-hidream-o1-image
     # No published port: the Hub reaches this container by name through its
     # front door at /run/hidream-o1-image/, so it never collides with the LLM
-    # on 9001 or with another image model.
+    # or with another image model.
     networks:
       - spark-ai-hub-net
     environment:

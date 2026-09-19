@@ -21,7 +21,8 @@ import aiohttp
 
 from daemon.config import settings
 from daemon.services.docker_service import get_installed_slugs, is_ready, is_recipe_running
-from daemon.services.image_service import ImageError, _app_base, _headers, rendering
+from daemon.services import proxy_service
+from daemon.services.image_service import ImageError, rendering
 from daemon.services.registry_service import get_recipes
 
 AUDIO_DIR = settings.data_dir / "audio"
@@ -110,7 +111,7 @@ async def generate(*, lyrics: str, style: str, seconds: int | None, seed: int | 
     timeout = aiohttp.ClientTimeout(total=JOB_TIMEOUT, sock_connect=10)
     with rendering(backend.slug):
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(f"{_app_base(backend.slug)}/v1/audio/speech", headers=_headers(),
+            async with session.post(f"{proxy_service.internal_url(backend.slug)}/v1/audio/speech", headers=proxy_service.probe_headers(),
                                     json=music_body(lyrics=lyrics, style=style,
                                                     seconds=seconds, seed=seed)) as r:
                 if r.status != 200:

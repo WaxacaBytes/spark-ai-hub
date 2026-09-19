@@ -9,7 +9,7 @@ Required completion checklist:
 - Restart the Hub backend when recipe/catalog/interface state may be cached or stale.
 - Verify the backend responds after restart, normally with `GET http://127.0.0.1:9000/api/recipes`.
 - Verify expected recipes/apps are present or removed through the API.
-- Verify no unintended model/app container is occupying shared app ports such as `9001`.
+- Verify no unintended model/app container is left running (LLMs share memory, not a port: `GET /v1/models` lists every one that is up).
 - State in the final response whether the server was restarted and what was verified.
 
 This is mandatory for Hub-facing work. The user expects to open the interface immediately after a task and see the completed changes.

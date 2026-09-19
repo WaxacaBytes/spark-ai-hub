@@ -103,8 +103,8 @@ services:
         COPY --from=weights /weights /models/GLM-5.3-Flash-EXL3-K2
         RUN python -c "import vllm, exllamav3_ext, glm53_exl3_plugin; print('vllm', vllm.__version__)"
     container_name: spark-ai-hub-vllm-glm53-flash-exl3-k2
-    ports:
-      - "9001:8000"
+    networks:
+      - spark-ai-hub-net
     ipc: host
     shm_size: 16gb
     environment:
@@ -188,3 +188,9 @@ services:
 secrets:
   hf_token:
     environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

@@ -135,8 +135,8 @@ services:
         COPY draft_vocab.txt /models/draft_vocab.txt
     image: spark-ai-hub/vllm-qwen38-flash-next-nvfp4-ple-mmap:mia-ef1af5fa-frspec
     container_name: spark-ai-hub-vllm-qwen38-flash-next-nvfp4-ple-mmap
-    ports:
-      - "9001:8000"
+    networks:
+      - spark-ai-hub-net
     ipc: host
     cap_add:
       - SYS_NICE
@@ -249,3 +249,9 @@ services:
 secrets:
   hf_token:
     environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

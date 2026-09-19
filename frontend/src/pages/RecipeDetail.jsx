@@ -38,7 +38,7 @@ function RecipeDetailPage({ slug }) {
   const installRecipe = useStore((s) => s.installRecipe)
   const ensureHfAccess = useStore((s) => s.ensureHfAccess)
   const updateRecipe = useStore((s) => s.updateRecipe)
-  const launchRecipe = useStore((s) => s.launchRecipe)
+  const launchOrSwap = useStore((s) => s.launchOrSwap)
   const stopRecipe = useStore((s) => s.stopRecipe)
   const removeRecipe = useStore((s) => s.removeRecipe)
   const purging = useStore((s) => s.purging)
@@ -148,7 +148,7 @@ function RecipeDetailPage({ slug }) {
     }
     if (!(await ensureHfAccess(recipe.slug, 'launch'))) return
     setLaunching(true)
-    await launchRecipe(recipe.slug)
+    await launchOrSwap(recipe.slug)
     setLaunching(false)
   }
 
@@ -167,7 +167,7 @@ function RecipeDetailPage({ slug }) {
       setHfToken('')
       if (!(await ensureHfAccess(recipe.slug, 'launch'))) return
       setLaunching(true)
-      await launchRecipe(recipe.slug)
+      await launchOrSwap(recipe.slug)
       setLaunching(false)
     } catch {
       setHfError('Failed to save token. Please try again.')
@@ -643,8 +643,9 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
                 <div className="text-[11px] uppercase tracking-[0.16em] text-text-dim font-label">API Integration</div>
                 {(recipe.tags?.includes('vllm') || recipe.tags?.includes('sglang') || recipe.tags?.includes('atlas')) && (
                   <div className="text-[10px] text-text-muted mt-1">
-                    The Hub forwards /v1 to whichever model is loaded on port 9001, so this
-                    address keeps working from wherever you reached this page.
+                    The Hub forwards /v1 to the running model a request names, or to the
+                    largest one up, so this address keeps working from wherever you reached
+                    this page.
                   </div>
                 )}
               </div>
@@ -668,8 +669,7 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
                     value={`python3 - <<'EOF'
 import os, time, urllib.request, urllib.error, json
 # The Hub's own endpoint, exactly as this page was reached, so the script runs
-# from any machine that can open the Hub. On the Spark itself you can point
-# HOST at http://127.0.0.1:9001 to take the proxy hop out of the measurement.
+# from any machine that can open the Hub.
 HOST = "${hubOrigin()}"
 KEY = "${benchKeyLiteral}"  # your own Hub key, already filled in
 MODEL = "${recipe.integration.model_id}"

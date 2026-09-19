@@ -24,8 +24,8 @@ services:
         COPY --from=weights /weights /root/.cache/huggingface
     image: spark-ai-hub/vllm-nemotron3-puzzle-75b-a9b-nvfp4:v0.27.1-aarch64
     container_name: spark-ai-hub-vllm-nemotron3-puzzle-75b-a9b-nvfp4
-    ports:
-      - "9001:8000"
+    networks:
+      - spark-ai-hub-net
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
@@ -78,3 +78,9 @@ services:
 secrets:
   hf_token:
     environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

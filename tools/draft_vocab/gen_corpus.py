@@ -15,7 +15,11 @@ import os
 # point these scripts at a different working directory.
 WORK = os.environ.get("DRAFT_VOCAB_WORK", "/home/abel/draft-vocab-work")
 
-VLLM = "http://127.0.0.1:9001/v1/chat/completions"
+# The Hub's /v1, with this machine's sah key. It routes by "model", so the
+# request reaches MODEL even with other models running.
+URL = "http://127.0.0.1:9000/v1/chat/completions"
+HEADERS = {"Content-Type": "application/json",
+           "Authorization": "Bearer " + open(os.path.expanduser("~/.config/sah/key")).read().strip()}
 MODEL = "Mia-AiLab/Qwen3.8-Flash-Next-NVFP4"
 OUT = WORK + "/model_out.jsonl"
 
@@ -78,8 +82,8 @@ def one(p):
         "temperature": 0.8,
         "top_p": 0.95,
     }).encode()
-    req = urllib.request.Request(VLLM, data=body,
-                                 headers={"Content-Type": "application/json"})
+    req = urllib.request.Request(URL, data=body,
+                                 headers=HEADERS)
     try:
         with urllib.request.urlopen(req, timeout=900) as r:
             d = json.loads(r.read().decode())

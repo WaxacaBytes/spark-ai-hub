@@ -1,34 +1,33 @@
 """OpenAI-compatible proxy.
 
-One stable endpoint (the Hub itself) that forwards every /v1/* request to
-whichever LLM is loaded on the upstream slot. POST bodies that carry a
-"model" field have it rewritten to the actually-loaded model so clients
-can be configured once with any placeholder and survive model swaps in
-the Hub.
+One stable endpoint (the Hub itself) in front of every LLM that is running.
+Each model server publishes no host port: it sits on the Hub's app network and
+is reached through the front door at /run/{slug}/v1. A request goes to the
+server that serves the model it names; one naming anything else goes to the
+largest model up, with its "model" field rewritten, so clients configured
+once with any placeholder survive model swaps in the Hub.
 """
 from __future__ import annotations
 
 import asyncio
 import base64
+import collections
 import json
 import shutil
 import subprocess
 import tempfile
 import time
-import urllib.parse
+from dataclasses import dataclass
 from typing import Any
 
 import aiohttp
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from daemon.config import settings
-from daemon.services import auth_service
+from daemon.services import auth_service, proxy_service
+from daemon.services.registry_service import get_recipes
 
 router = APIRouter(prefix="/v1", tags=["openai"])
-
-_MODEL_CACHE: dict[str, Any] = {"name": None, "fetched_at": 0.0}
-_MODEL_CACHE_TTL = 5.0  # seconds
 
 # Hop-by-hop headers we shouldn't forward in either direction
 _HOP_BY_HOP = {
@@ -42,30 +41,7 @@ _HOP_BY_HOP = {
 _CREDENTIAL_HEADERS = {"authorization", "x-api-key", "api-key", "cookie"}
 
 
-async def _fetch_current_model() -> str | None:
-    now = time.time()
-    if _MODEL_CACHE["name"] and (now - _MODEL_CACHE["fetched_at"]) < _MODEL_CACHE_TTL:
-        return _MODEL_CACHE["name"]
-    url = f"{settings.upstream_openai_url.rstrip('/')}/models"
-    try:
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2)) as s:
-            async with s.get(url) as r:
-                if r.status != 200:
-                    return None
-                data = await r.json()
-    except Exception:
-        return None
-    items = data.get("data") or []
-    if not items:
-        return None
-    name = items[0].get("id")
-    if name:
-        _MODEL_CACHE["name"] = name
-        _MODEL_CACHE["fetched_at"] = now
-    return name
-
-
-# Capabilities ---------------------------------------------------------------
+# Upstreams ------------------------------------------------------------------
 #
 # OpenAI's /v1/models object carries no capability information, and neither
 # vLLM nor SGLang add any — they only extend it with max_model_len. Clients that
@@ -73,18 +49,24 @@ async def _fetch_current_model() -> str | None:
 # guessing from the model name, which is unreliable and goes stale with every
 # new model family.
 #
-# The Hub already knows the answer: every recipe is hand-tagged. So the proxy
-# annotates each /v1/models entry with the capabilities of the recipe that is
-# actually serving the upstream port. This mirrors how Ollama reports
-# capabilities from /api/show, in the one place an OpenAI-compatible client can
-# reach. Unknown fields are ignored by OpenAI-shaped clients, so this is
-# additive for anything that does not look for it.
+# The Hub already knows the answer: every recipe is hand-tagged. So each
+# /v1/models entry is annotated with the capabilities of the recipe serving it
+# (the tag → capability mapping lives on the Recipe model, so the detail page
+# shows the user exactly what is reported here), plus its size and slug. This
+# mirrors how Ollama reports capabilities from /api/show, in the one place an
+# OpenAI-compatible client can reach. Unknown fields are ignored by
+# OpenAI-shaped clients, so this is additive for anything that does not look.
 
-# The tag → capability mapping lives on the Recipe model, so the detail page
-# shows the user exactly what is reported here.
+@dataclass
+class Upstream:
+    slug: str
+    base: str            # {front door}/run/{slug}/v1
+    model: str           # the id the server itself answers to
+    entries: list[dict]  # its annotated /v1/models entries, as the Hub lists them
 
-_CAPABILITY_CACHE: dict[str, Any] = {"caps": None, "fetched_at": 0.0}
-_CAPABILITY_CACHE_TTL = 30.0  # seconds; recipes change far less often than models
+
+_UPSTREAM_CACHE: dict[str, Any] = {"list": [], "fetched_at": 0.0}
+_UPSTREAM_CACHE_TTL = 5.0  # seconds
 
 
 async def _running_slugs() -> set[str]:
@@ -105,53 +87,63 @@ async def _running_slugs() -> set[str]:
     }
 
 
-async def _serving_capabilities() -> list[str]:
-    """Capabilities of the recipe answering on the upstream port.
-
-    Always includes "completion"; the rest come from the recipe's tags. An
-    empty list means the Hub genuinely does not know, and clients should treat
-    the model as text-only rather than assume.
-    """
-    now = time.time()
-    if _CAPABILITY_CACHE["caps"] is not None and (now - _CAPABILITY_CACHE["fetched_at"]) < _CAPABILITY_CACHE_TTL:
-        return _CAPABILITY_CACHE["caps"]
-
-    caps: list[str] = []
+async def _upstream(session: aiohttp.ClientSession, recipe) -> Upstream | None:
+    """One running model server, or None while it is still loading."""
+    base = f"{proxy_service.internal_url(recipe.slug)}/v1"
     try:
-        from daemon.services.registry_service import get_recipes
-
-        upstream_port = urllib.parse.urlsplit(settings.upstream_openai_url).port
-        running = await _running_slugs()
-        for slug in running:
-            recipe = get_recipes().get(slug)
-            if recipe is None or recipe.ui.port != upstream_port:
-                continue
-            caps = recipe.capabilities
-            break
+        async with session.get(f"{base}/models", headers=proxy_service.probe_headers()) as r:
+            if r.status != 200:
+                return None
+            data = await r.json(content_type=None)
     except Exception:
-        caps = []
+        return None
+    entries = [e for e in (data or {}).get("data") or [] if isinstance(e, dict) and e.get("id")]
+    for entry in entries:
+        entry.setdefault("capabilities", recipe.capabilities)
+        entry["params_b"] = recipe.params_b
+        entry["recipe"] = recipe.slug
+    return Upstream(recipe.slug, base, entries[0]["id"], entries) if entries else None
 
-    _CAPABILITY_CACHE["caps"] = caps
-    _CAPABILITY_CACHE["fetched_at"] = now
-    return caps
+
+async def _upstreams() -> list[Upstream]:
+    """Every model server that answers, largest first."""
+    now = time.time()
+    if _UPSTREAM_CACHE["list"] and (now - _UPSTREAM_CACHE["fetched_at"]) < _UPSTREAM_CACHE_TTL:
+        return _UPSTREAM_CACHE["list"]
+    recipes = get_recipes()
+    running = [recipes[s] for s in await _running_slugs() if s in recipes and recipes[s].is_llm]
+    async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2)) as session:
+        found = await asyncio.gather(*(_upstream(session, r) for r in running))
+    size = {r.slug: (r.params_b or 0, r.memory_gb) for r in running}
+    ups = sorted((u for u in found if u), key=lambda u: size[u.slug], reverse=True)
+    # Two builds of one model (with and without a drafter, say) answer to the
+    # same id. Listing it twice would leave all but one unreachable by name,
+    # so each copy is listed under its recipe slug instead.
+    counts = collections.Counter(e["id"] for u in ups for e in u.entries)
+    for up in ups:
+        for entry in up.entries:
+            if counts[entry["id"]] > 1:
+                entry["id"] = up.slug
+    if ups:
+        _UPSTREAM_CACHE["list"] = ups
+        _UPSTREAM_CACHE["fetched_at"] = now
+    return ups
 
 
-async def _annotate_models(payload: bytes) -> bytes:
-    """Attach `capabilities` to every entry of a /v1/models response."""
-    try:
-        body = json.loads(payload)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return payload
-    items = body.get("data") if isinstance(body, dict) else None
-    if not isinstance(items, list) or not items:
-        return payload
-    caps = await _serving_capabilities()
-    if not caps:
-        return payload
-    for item in items:
-        if isinstance(item, dict):
-            item.setdefault("capabilities", caps)
-    return json.dumps(body).encode()
+async def route(requested: Any) -> tuple[Upstream, str] | None:
+    """The server for the model a request names, and the id to send it.
+
+    A model is named by its listed id, its served id or its recipe slug; a
+    served id shared by several goes to the largest of them. Any other name
+    goes to the largest model up. None when nothing is running.
+    """
+    ups = await _upstreams()
+    if not ups:
+        return None
+    for up in ups:
+        if requested in (up.slug, up.model) or any(e["id"] == requested for e in up.entries):
+            return up, up.model
+    return ups[0], ups[0].model
 
 
 def _no_model_running() -> JSONResponse:
@@ -315,66 +307,72 @@ def _normalize_pdf_file_parts(body: dict) -> bool:
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 )
 async def proxy(path: str, request: Request):
-    upstream_base = settings.upstream_openai_url.rstrip("/")
-    url = f"{upstream_base}/{path}"
+    # The model list is the Hub's own answer, merged from every running server.
+    if request.method == "GET" and path.strip("/") == "models":
+        entries = [e for up in await _upstreams() for e in up.entries]
+        return JSONResponse({"object": "list", "data": entries})
 
     raw_body = await request.body()
-
-    # Rewrite model field on JSON POST/PUT/PATCH bodies that carry one,
-    # and patch role="developer" → "system" for vLLM compat (Responses API).
+    body: Any = None
     if request.method in ("POST", "PUT", "PATCH") and raw_body:
         try:
             body = json.loads(raw_body)
         except (json.JSONDecodeError, UnicodeDecodeError):
             body = None
-        if isinstance(body, dict):
-            mutated = False
-            if "model" in body:
-                current = await _fetch_current_model()
-                if not current:
-                    return _no_model_running()
-                body["model"] = current
-                mutated = True
-            if _normalize_pdf_file_parts(body):
-                mutated = True
-            # vLLM compat: messages with role="developer" must become "system",
-            # and Responses-API "input" items with role="developer" must be
-            # folded into top-level "instructions" (vLLM rejects mixed system
-            # placements when both fields are present).
-            messages = body.get("messages")
-            if isinstance(messages, list):
-                for item in messages:
-                    if isinstance(item, dict) and item.get("role") == "developer":
-                        item["role"] = "system"
-                        mutated = True
-            input_items = body.get("input")
-            if isinstance(input_items, list):
-                extra_instr_parts: list[str] = []
-                kept: list[Any] = []
-                for item in input_items:
-                    if isinstance(item, dict) and item.get("role") == "developer":
-                        content = item.get("content")
-                        if isinstance(content, str):
-                            extra_instr_parts.append(content)
-                        elif isinstance(content, list):
-                            for c in content:
-                                if isinstance(c, dict):
-                                    text = c.get("text") or c.get("content")
-                                    if isinstance(text, str):
-                                        extra_instr_parts.append(text)
-                        mutated = True
-                        continue
-                    kept.append(item)
-                if extra_instr_parts:
-                    existing = body.get("instructions") or ""
-                    body["instructions"] = (
-                        existing + ("\n\n" if existing else "") + "\n\n".join(extra_instr_parts)
-                    )
-                    body["input"] = kept
-            if mutated:
-                raw_body = json.dumps(body).encode()
 
-    upstream_headers = _upstream_headers(request.headers)
+    routed = await route(body.get("model") if isinstance(body, dict) else None)
+    if not routed:
+        return _no_model_running()
+    upstream, model_id = routed
+    url = f"{upstream.base}/{path}"
+
+    # Rewrite model field on JSON POST/PUT/PATCH bodies that carry one,
+    # and patch role="developer" → "system" for vLLM compat (Responses API).
+    if isinstance(body, dict):
+        mutated = False
+        if "model" in body and body["model"] != model_id:
+            body["model"] = model_id
+            mutated = True
+        if _normalize_pdf_file_parts(body):
+            mutated = True
+        # vLLM compat: messages with role="developer" must become "system",
+        # and Responses-API "input" items with role="developer" must be
+        # folded into top-level "instructions" (vLLM rejects mixed system
+        # placements when both fields are present).
+        messages = body.get("messages")
+        if isinstance(messages, list):
+            for item in messages:
+                if isinstance(item, dict) and item.get("role") == "developer":
+                    item["role"] = "system"
+                    mutated = True
+        input_items = body.get("input")
+        if isinstance(input_items, list):
+            extra_instr_parts: list[str] = []
+            kept: list[Any] = []
+            for item in input_items:
+                if isinstance(item, dict) and item.get("role") == "developer":
+                    content = item.get("content")
+                    if isinstance(content, str):
+                        extra_instr_parts.append(content)
+                    elif isinstance(content, list):
+                        for c in content:
+                            if isinstance(c, dict):
+                                text = c.get("text") or c.get("content")
+                                if isinstance(text, str):
+                                    extra_instr_parts.append(text)
+                    mutated = True
+                    continue
+                kept.append(item)
+            if extra_instr_parts:
+                existing = body.get("instructions") or ""
+                body["instructions"] = (
+                    existing + ("\n\n" if existing else "") + "\n\n".join(extra_instr_parts)
+                )
+                body["input"] = kept
+        if mutated:
+            raw_body = json.dumps(body).encode()
+
+    upstream_headers = {**_upstream_headers(request.headers), **proxy_service.probe_headers()}
 
     streaming = False
     client_wants_usage = False
@@ -440,9 +438,7 @@ async def proxy(path: str, request: Request):
             headers=upstream_headers, params=params,
         ) as r:
             content = await r.read()
-            if request.method == "GET" and path.strip("/") == "models" and r.status == 200:
-                content = await _annotate_models(content)
-            elif r.status == 200 and request.method == "POST":
+            if r.status == 200 and request.method == "POST":
                 try:
                     await record_call(
                         request, endpoint, _usage_from(json.loads(content))

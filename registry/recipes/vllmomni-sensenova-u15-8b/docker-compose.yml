@@ -25,7 +25,7 @@ services:
     image: spark-ai-hub/vllmomni-sensenova-u15-8b:v0.28.0
     container_name: spark-ai-hub-vllmomni-sensenova-u15-8b
     # No published port: the Hub reaches this container by name through its
-    # front door at /run/vllmomni-sensenova-u15-8b/, so it never collides with the LLM on 9001
+    # front door at /run/vllmomni-sensenova-u15-8b/, so it never collides with the LLM
     # or with another media model.
     networks:
       - spark-ai-hub-net

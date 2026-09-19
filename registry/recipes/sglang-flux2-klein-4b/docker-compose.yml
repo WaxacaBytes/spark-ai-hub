@@ -34,7 +34,7 @@ services:
     container_name: spark-ai-hub-sglang-flux2-klein-4b
     # No published port: the Hub reaches this container by name through its
     # front door at /run/sglang-flux2-klein-4b/, so it never collides with the
-    # LLM on 9001 and both can run at once.
+    # LLM and both can run at once.
     networks:
       - spark-ai-hub-net
     environment:

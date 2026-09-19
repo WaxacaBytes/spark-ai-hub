@@ -6,7 +6,7 @@ import { openUrl } from '../components/RecipeCard'
 export default function Running() {
   const recipes = useStore((s) => s.recipes)
   const selectRecipe = useStore((s) => s.selectRecipe)
-  const launchRecipe = useStore((s) => s.launchRecipe)
+  const launchOrSwap = useStore((s) => s.launchOrSwap)
   const stopRecipe = useStore((s) => s.stopRecipe)
   const metrics = useStore((s) => s.metrics)
   const installing = useStore((s) => s.installing)
@@ -61,7 +61,7 @@ export default function Running() {
           </div>
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
             {installed.map((r) => (
-              <StoppedCard key={r.slug} recipe={r} onSelect={selectRecipe} onLaunch={launchRecipe} />
+              <StoppedCard key={r.slug} recipe={r} onSelect={selectRecipe} onLaunch={launchOrSwap} />
             ))}
           </div>
         </div>

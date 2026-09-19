@@ -32,8 +32,8 @@ services:
         COPY --from=weights /weights /root/.cache/huggingface
     image: spark-ai-hub/vllm-laguna-xs-21-nvfp4:v0.25.1-aarch64
     container_name: spark-ai-hub-vllm-laguna-xs-21-nvfp4
-    ports:
-      - "9001:8000"
+    networks:
+      - spark-ai-hub-net
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
       # Offline-first: install prefetches both the NVFP4 weights and the DFlash
@@ -94,3 +94,9 @@ services:
 secrets:
   hf_token:
     environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

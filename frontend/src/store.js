@@ -1,11 +1,9 @@
 import { create } from 'zustand'
 
-// Ready-to-serve models all bind the same port and the same GPU, so only one
-// can run at a time; anything else conflicts only when it wants the same port.
-const isModelSlug = (slug) => /^(vllm|llamacpp|atlas)-/.test(slug || '')
-
+// Only recipes that publish the same host port conflict here. Models share no
+// port -- several run at once when they fit in memory, and the backend's
+// launch plan names the ones to stop when they do not.
 function conflictsWith(target, other) {
-  if (isModelSlug(target.slug) && isModelSlug(other.slug)) return true
   // Proxied apps publish nothing to the host and are told apart by container
   // name, so their ui.port is an internal number -- 14 of them say 7860. Only
   // recipes that still publish a host port can contend for one.
@@ -130,7 +128,7 @@ export const useStore = create((set, get) => ({
     if (req.action === 'install') {
       get().installRecipe(req.slug)
     } else if (req.action === 'launch') {
-      get().launchRecipe(req.slug)
+      get().launchOrSwap(req.slug)
     }
     return { ok: true }
   },
@@ -180,7 +178,7 @@ export const useStore = create((set, get) => ({
     if (req.action === 'install') {
       get().installRecipe(req.slug)
     } else if (req.action === 'launch') {
-      get().launchRecipe(req.slug)
+      get().launchOrSwap(req.slug)
     }
     return { ok: true }
   },
@@ -446,11 +444,24 @@ export const useStore = create((set, get) => ({
       }
     }
     if (!(await get().ensureHfAccess(slug, 'launch'))) return
-    const blockers = get().recipes
+    await get().launchOrSwap(slug)
+  },
+
+  // Launch, or first confirm stopping whatever it cannot run beside.
+  launchOrSwap: async (slug) => {
+    const recipe = get().recipes.find((r) => r.slug === slug)
+    if (!recipe) return
+    const blockers = new Set(get().recipes
       .filter((r) => r.slug !== slug && (r.running || r.starting) && conflictsWith(recipe, r))
-      .map((r) => r.slug)
-    if (blockers.length > 0) {
-      set({ launchRequest: { slug, blockers } })
+      .map((r) => r.slug))
+    try {
+      const res = await fetch(`/api/recipes/${slug}/launch-plan`)
+      if (res.ok) (await res.json()).stop.forEach((s) => blockers.add(s))
+    } catch (e) {
+      console.warn('Launch plan failed, launching anyway:', e)
+    }
+    if (blockers.size > 0) {
+      set({ launchRequest: { slug, blockers: [...blockers] } })
       return
     }
     await get().launchRecipe(slug)

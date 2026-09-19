@@ -5,8 +5,9 @@ translate the Anthropic Messages shape into upstream OpenAI Chat Completions,
 and translate the response back. Lets Claude Code (and any Anthropic-shaped
 client) target the Hub directly via ANTHROPIC_BASE_URL.
 
-Same upstream as openai_proxy.py, same model-rewrite trick: the client's
-"model" field is replaced with whatever's loaded on the Hub slot.
+Same routing as openai_proxy.py, same model-rewrite trick: a "model" field
+no running server serves (every Claude model name, in practice) goes to the
+largest model up.
 """
 from __future__ import annotations
 
@@ -18,10 +19,8 @@ import aiohttp
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from daemon.config import settings
-from daemon.routers.openai_proxy import (
-    _fetch_current_model, _no_model_running, _usage_from, record_call,
-)
+from daemon.routers.openai_proxy import _no_model_running, _usage_from, record_call, route
+from daemon.services import proxy_service
 
 router = APIRouter(tags=["anthropic"])
 
@@ -402,12 +401,14 @@ async def messages(request: Request):
         })
 
     requested_model = body.get("model") or "claude"
-    current = await _fetch_current_model()
-    if not current:
+    routed = await route(requested_model)
+    if not routed:
         return _no_model_running()
+    upstream, current = routed
 
     upstream_payload = _anthropic_to_openai(body, current)
-    url = f"{settings.upstream_openai_url.rstrip('/')}/chat/completions"
+    url = f"{upstream.base}/chat/completions"
+    headers = proxy_service.probe_headers()
 
     if upstream_payload.get("stream"):
         # _anthropic_to_openai already sets stream_options.include_usage, so
@@ -416,7 +417,7 @@ async def messages(request: Request):
             usage_sink: dict = {}
             timeout = aiohttp.ClientTimeout(total=None, sock_read=None)
             async with aiohttp.ClientSession(timeout=timeout) as s:
-                async with s.post(url, json=upstream_payload) as r:
+                async with s.post(url, json=upstream_payload, headers=headers) as r:
                     if r.status != 200:
                         err = (await r.text())[:500]
                         print(f"[anthropic] upstream {r.status} (stream): {err}", flush=True)
@@ -432,7 +433,7 @@ async def messages(request: Request):
 
     timeout = aiohttp.ClientTimeout(total=600)
     async with aiohttp.ClientSession(timeout=timeout) as s:
-        async with s.post(url, json=upstream_payload) as r:
+        async with s.post(url, json=upstream_payload, headers=headers) as r:
             try:
                 data = await r.json()
             except aiohttp.ContentTypeError:

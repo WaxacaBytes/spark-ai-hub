@@ -47,8 +47,7 @@ class RecipeUI(BaseModel):
     health_path: str | None = None
     # True: served at /run/{slug}/ through the Hub's front door, so the whole
     # catalog lives behind one port. False: the recipe still publishes its own
-    # host port and is reached directly (the model servers on 9001, which are
-    # already fronted by the OpenAI/Anthropic proxies instead).
+    # host port and is reached directly.
     proxy: bool = False
     # True (the default): the /run/{slug} prefix is stripped before the request
     # reaches the container, so the app serves the same paths it would at the
@@ -228,6 +227,10 @@ class Recipe(BaseModel):
     benchmarks: dict[str, float] = {}
     context_tokens: int | None = None     # served context window; read off the
                                           # compose command when not declared
+    # vLLM and SGLang claim a fixed share of the whole memory pool at boot and
+    # refuse to start without it free. That share in GiB, read off the compose
+    # command by the registry loader; 0 for engines that claim no fixed share.
+    reserved_gb: float = 0.0
 
     # runtime state (not from yaml)
     installed: bool = False
@@ -236,6 +239,16 @@ class Recipe(BaseModel):
     starting: bool = False
     installing: bool = False
     has_leftovers: bool = False
+
+    @property
+    def memory_gb(self) -> float:
+        """What the app holds once it is up, in GiB."""
+        return max(float(self.requirements.min_memory_gb), self.reserved_gb)
+
+    @property
+    def is_llm(self) -> bool:
+        """An OpenAI-compatible model server the Hub's /v1 routes to."""
+        return self.category == "llm" and bool(self.ui and self.ui.type == "api-only")
 
     @computed_field
     @property

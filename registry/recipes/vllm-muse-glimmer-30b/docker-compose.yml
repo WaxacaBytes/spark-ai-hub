@@ -22,8 +22,8 @@ services:
         COPY --from=weights /weights /root/.cache/huggingface
     image: spark-ai-hub/vllm-muse-glimmer-30b:ae1de325b8ea670288c328460a95d3807838cd254e8e9961ea7f6a741ce2c563
     container_name: spark-ai-hub-vllm-muse-glimmer-30b
-    ports:
-      - "9001:8000"
+    networks:
+      - spark-ai-hub-net
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
@@ -73,3 +73,9 @@ services:
 secrets:
   hf_token:
     environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

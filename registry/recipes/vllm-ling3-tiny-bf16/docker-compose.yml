@@ -23,8 +23,8 @@ services:
         COPY --from=weights /weights /root/.cache/huggingface
     image: spark-ai-hub/vllm-ling3-tiny-bf16:01945934eb699a136507c44ca30618f508c465621230247ff4e3356462e14fcb
     container_name: spark-ai-hub-vllm-ling3-tiny-bf16
-    ports:
-      - "9001:8000"
+    networks:
+      - spark-ai-hub-net
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
@@ -89,3 +89,9 @@ services:
 secrets:
   hf_token:
     environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

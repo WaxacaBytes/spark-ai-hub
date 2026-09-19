@@ -26,7 +26,7 @@ services:
     image: spark-ai-hub/sglang-z-image-turbo:v0.5.19-cu130
     container_name: spark-ai-hub-sglang-z-image-turbo
     # No published port: the Hub reaches this container by name through its
-    # front door at /run/sglang-z-image-turbo/, so it never collides with the LLM on 9001 or
+    # front door at /run/sglang-z-image-turbo/, so it never collides with the LLM or
     # with another image model.
     networks:
       - spark-ai-hub-net

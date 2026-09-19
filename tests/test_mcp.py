@@ -14,7 +14,8 @@ from PIL import Image
 from daemon import db as db_module
 from daemon.routers import files, links, mcp, uploads
 from daemon.services import (
-    audio_service, image_service, link_service, media_store, upload_service, video_service,
+    audio_service, docker_service, image_service, link_service, media_store, upload_service,
+    video_service,
     web_service,
 )
 
@@ -892,7 +893,7 @@ class StartStopModelTests(unittest.TestCase):
         from types import SimpleNamespace
         recipe = lambda name, gb, *tags: SimpleNamespace(
             name=name, tags=list(tags), image_defaults=None, video_defaults=None, audio_defaults=None,
-            requirements=SimpleNamespace(min_memory_gb=gb))
+            memory_gb=gb, requirements=SimpleNamespace(min_memory_gb=gb))
         self.recipes = {
             "img-big": recipe("Big image", 60, "openai-images", "text-to-image"),
             "img-small": recipe("Small image", 20, "openai-images", "text-to-image"),
@@ -916,7 +917,15 @@ class StartStopModelTests(unittest.TestCase):
             mock.patch.object(mcp, "READY_POLL_SECONDS", 0.01),
             mock.patch.object(mcp.containers, "launch", self.launch),
             mock.patch.object(mcp.containers, "stop", self.stop),
-            mock.patch.object(mcp, "_available_gb", return_value=50.0),
+            # The memory check itself lives in docker_service.
+            mock.patch("daemon.services.registry_service.get_recipes", get_recipes),
+            mock.patch.object(docker_service, "get_installed_slugs",
+                              mock.AsyncMock(return_value=set(self.recipes))),
+            mock.patch.object(docker_service, "is_recipe_running",
+                              mock.AsyncMock(side_effect=lambda slug: slug in self.running)),
+            mock.patch.object(docker_service, "is_ready", side_effect=lambda slug: slug in self.ready),
+            mock.patch.object(docker_service, "get_pending", return_value=None),
+            mock.patch.object(docker_service, "available_memory_gb", return_value=50.0),
         ]
         for patch in self.patches:
             patch.start()
@@ -1005,13 +1014,13 @@ class ProxiedApiRecipeTests(unittest.TestCase):
         self.assertEqual(r.app_url, "/run/img/v1/models")
 
     def test_unproxied_api_recipe_keeps_host_port_fallback(self):
-        self.assertEqual(self._recipe(type="api-only", port=9001, path="/v1/models").app_url, "")
+        self.assertEqual(self._recipe(type="api-only", port=8000, path="/v1/models").app_url, "")
 
     def test_proxy_routes_api_only_recipes(self):
         from daemon.services import proxy_service
         recipes = {
             "img": self._recipe(type="api-only", port=30000, proxy=True),
-            "llm": self._recipe(type="api-only", port=9001),
+            "llm": self._recipe(type="api-only", port=8000),
         }
         with mock.patch("daemon.services.registry_service.get_recipes", return_value=recipes), \
              mock.patch.object(proxy_service, "_container_name", side_effect=lambda s: f"c-{s}"):

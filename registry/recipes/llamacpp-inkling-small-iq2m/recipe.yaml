@@ -27,7 +27,8 @@ requirements:
   cuda_compute: "12.1"
 ui:
   type: api-only
-  port: 9001
+  port: 8080
+  proxy: true
   path: "/v1/models"
 docker:
   build: true

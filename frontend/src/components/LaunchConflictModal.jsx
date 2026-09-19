@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useStore } from '../store'
 
-// Only one model can hold the GPU and port 9001 at a time, so launching from a
-// catalog tile has to evict whatever is already up. Stopping a running model
-// is not something to discover after the fact, so it is confirmed first.
+// Models run side by side while they fit in memory. When the next one does not
+// fit, launching it has to stop some of what is up, and stopping a running
+// model is not something to discover after the fact, so it is confirmed first.
 export default function LaunchConflictModal() {
   const request = useStore((s) => s.launchRequest)
   const confirmLaunch = useStore((s) => s.confirmLaunch)
@@ -27,7 +27,7 @@ export default function LaunchConflictModal() {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fadeIn">
       <div className="w-full max-w-md rounded-2xl border border-outline-dim bg-surface-high p-6 shadow-2xl">
         <h3 className="m-0 font-display text-lg font-bold text-text">Swap running model?</h3>
-        <p className="m-0 mt-1 text-sm text-text-dim">Only one runs at a time.</p>
+        <p className="m-0 mt-1 text-sm text-text-dim">They don&apos;t fit in memory together.</p>
 
         {/* The swap, drawn rather than described — the names appear once, and
             the shape of the trade reads before the words do. */}

@@ -37,7 +37,7 @@ services:
     container_name: spark-ai-hub-sglang-ideogram-4-nvfp4
     # No published port: the Hub reaches this container by name through its
     # front door at /run/sglang-ideogram-4-nvfp4/, so it never collides with
-    # the LLM on 9001 or with another image model.
+    # the LLM or with another image model.
     networks:
       - spark-ai-hub-net
     environment:

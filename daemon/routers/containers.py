@@ -23,8 +23,9 @@ from daemon.services.docker_service import (
     set_pending,
     clear_pending,
     get_pending,
+    memory_plan,
 )
-from daemon.services.registry_service import get_recipe, get_recipe_dir
+from daemon.services.registry_service import get_recipe, get_recipe_dir, get_recipes
 from daemon.models.container import ContainerInfo
 
 router = APIRouter(tags=["containers"])
@@ -95,6 +96,34 @@ async def build_status(slug: str):
         "status": "done" if build["done"] else "building",
         "lines": build["lines"],
     }
+
+
+@router.get("/api/recipes/{slug}/launch-plan")
+async def launch_plan(slug: str):
+    """The running LLMs to stop before `slug` fits in memory; none when it
+    fits beside everything already up. Several LLMs run at once when they
+    fit, so the Hub only asks to swap when they do not."""
+    recipe = get_recipe(slug)
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    stop: list[str] = []
+    if recipe.is_llm:
+        need, free, running = await memory_plan(slug)
+        recipes = get_recipes()
+        llms = sorted((o for o in running if recipes[o].is_llm), key=lambda o: recipes[o].memory_gb)
+        if free < need:
+            # The smallest model that frees enough on its own; failing that,
+            # the largest ones until it fits.
+            one = next((o for o in llms if free + recipes[o].memory_gb >= need), None)
+            if one:
+                stop = [one]
+            else:
+                for other in reversed(llms):
+                    stop.append(other)
+                    free += recipes[other].memory_gb
+                    if free >= need:
+                        break
+    return {"stop": stop}
 
 
 @router.post("/api/recipes/{slug}/launch")

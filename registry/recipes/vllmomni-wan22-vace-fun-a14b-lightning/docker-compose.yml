@@ -42,7 +42,7 @@ services:
     container_name: spark-ai-hub-vllmomni-wan22-vace-fun-a14b-lightning
     # No published port: the Hub reaches this container by name through its
     # front door at /run/vllmomni-wan22-vace-fun-a14b-lightning/, so it never
-    # collides with the LLM on 9001 or with another media model.
+    # collides with the LLM or with another media model.
     networks:
       - spark-ai-hub-net
     environment:

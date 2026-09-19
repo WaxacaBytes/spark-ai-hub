@@ -21,8 +21,8 @@ services:
         COPY --from=weights /weights /root/.cache/huggingface
     image: spark-ai-hub/vllm-diffusiongemma-26b-a4b-it-nvfp4:e7d5835566d26faaefa2f7b0f9c365e8bda83aa340f2ebf2f9ba8e53ed5c7e55
     container_name: spark-ai-hub-vllm-diffusiongemma-26b-a4b-it-nvfp4
-    ports:
-      - "9001:8000"
+    networks:
+      - spark-ai-hub-net
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
@@ -73,3 +73,9 @@ services:
 secrets:
   hf_token:
     environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

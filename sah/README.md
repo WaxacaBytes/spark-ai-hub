@@ -32,6 +32,7 @@ curl http://<hub>:9000/sah/install.sh | sh -s -- --hub http://other-host:9000
 
 ```sh
 sah info                # show Hub URL and current model
+sah models              # list every running model (sah <client> uses the biggest)
 sah integrations        # list integrations, support mode, and lifecycle commands
 sah env                 # print OPENAI_BASE_URL / OPENAI_API_KEY exports
 sah env --anthropic     # same but ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN
@@ -75,10 +76,12 @@ tells you to run `sah set-key`.
 ## How it works
 
 The Hub exposes an OpenAI-compatible proxy at `http://<hub>:9000/v1` (and an
-Anthropic-shaped one at the root) that forwards to whichever LLM is loaded on
-its upstream slot. The `model` field on incoming requests is rewritten to the
-actually-loaded model, so clients don't need to know or care which model is
-current.
+Anthropic-shaped one at the root) in front of every LLM it is running. Several
+can run at once. `sah <client>` lists every running model in the client's own
+model picker and makes the biggest the default, so you switch models inside the
+client rather than by re-running sah; launch or stop a model in the Hub and the
+next `sah <client>` picks the change up. A request naming a model that is
+running goes to it, and any other `model` value goes to the biggest one.
 
 `sah <client>` wires the client to the Hub and execs it. Clients configured
 purely through environment variables or an inline config flag (`claude`,

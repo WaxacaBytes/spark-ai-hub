@@ -86,7 +86,7 @@ services:
     container_name: spark-ai-hub-vllmomni-minimax-music3
     # No published port: the Hub reaches this container by name through its
     # front door at /run/vllmomni-minimax-music3/, so it never collides with the
-    # LLM on 9001 or with another media model.
+    # LLM or with another media model.
     networks:
       - spark-ai-hub-net
     environment:

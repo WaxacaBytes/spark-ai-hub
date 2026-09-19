@@ -97,6 +97,16 @@ def probe_token() -> str:
     return token
 
 
+def probe_headers() -> dict[str, str]:
+    return {PROBE_HEADER: probe_token()}
+
+
+def internal_url(slug: str) -> str:
+    """How the daemon itself reaches an app: through the front door, carrying
+    the probe token so forward_auth lets it past."""
+    return f"http://127.0.0.1:{settings.public_port}{APP_PREFIX}/{slug}"
+
+
 def _container_name(slug: str) -> str:
     """The name Caddy dials, read off the recipe's own compose file.
 

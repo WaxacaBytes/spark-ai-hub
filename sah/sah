@@ -296,8 +296,13 @@ def resolved_api_base() -> str:
 
 
 class Model:
-    """The model the Hub is currently serving — sah's equivalent of Ollama's
-    LaunchModel, built from one `/v1/models` entry.
+    """The model sah points agents at — the biggest one the Hub is serving,
+    sah's equivalent of Ollama's LaunchModel, built from one `/v1/models` entry.
+
+    Several models can run at once. `all` holds every one of them, biggest
+    first and this one included, so each client lists them all in its own
+    model picker with this one as the default: switching models happens in
+    the client, not by re-running sah.
 
     Capabilities come from the Hub only, as the `capabilities` array the proxy
     attaches to each /v1/models entry from the running recipe's tags. sah used
@@ -317,6 +322,7 @@ class Model:
             self.context_length = 0
         caps = info.get("capabilities")
         self.capabilities: tuple[str, ...] = tuple(caps) if isinstance(caps, list) else ()
+        self.all: list[Model] = [self]
 
     def has(self, capability: str) -> bool:
         return capability in self.capabilities
@@ -329,6 +335,17 @@ class Model:
 
     def input_modalities(self) -> list[str]:
         return ["text", "image"] if self.has("vision") else ["text"]
+
+
+def describe(model: Model) -> str:
+    """One line for a client's model picker: size, context and capabilities."""
+    parts = []
+    if params := model.info.get("params_b"):
+        parts.append(f"{params:g}B")
+    if model.context_length:
+        parts.append(f"{model.context_length // 1024}K context")
+    parts += [c for c in model.capabilities if c != "completion"]
+    return f"{PROVIDER_NAME}: " + (", ".join(parts) or "served model")
 
 
 def hub_request(url: str) -> urllib.request.Request:
@@ -347,7 +364,8 @@ def hub_request(url: str) -> urllib.request.Request:
     })
 
 
-def current_model_info() -> dict | None:
+def running_models() -> list[dict]:
+    """Every model the Hub is serving, as its /v1/models entries."""
     try:
         with urllib.request.urlopen(hub_request(f"{api_base()}/models"), timeout=2) as r:
             data = json.loads(r.read())
@@ -362,19 +380,32 @@ def current_model_info() -> dict | None:
         # "no model is running" would send you to the wrong place entirely.
         sys.exit(f"{hub_url()} answered HTTP {e.code} for /v1/models.")
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-        return None
-    items = data.get("data") or []
-    return items[0] if items else None
+        return []
+    return [i for i in data.get("data") or [] if isinstance(i, dict) and i.get("id")]
+
+
+def by_size(models: list[dict]) -> list[dict]:
+    """Biggest first. The Hub already lists them that way; sorting here keeps
+    sah right against a Hub that does not."""
+    return sorted(models, key=lambda i: i.get("params_b") or 0, reverse=True)
+
+
+def current_model_info() -> dict | None:
+    """The model `sah <client>` makes the default: the biggest running."""
+    return next(iter(by_size(running_models())), None)
 
 
 def require_model() -> Model:
-    info = current_model_info()
-    if not info:
+    """The biggest running model, with every running model in `.all`."""
+    models = [Model(info) for info in by_size(running_models())]
+    if not models:
         sys.exit(
             f"No model is running on {hub_url()}.\n"
             f"Launch one from the Spark AI Hub web UI first."
         )
-    return Model(info)
+    for model in models:
+        model.all = models
+    return models[0]
 
 
 # --------------------------------------------------------------------- output
@@ -873,11 +904,24 @@ class Claude(Integration):
             )
         return env
 
+    def picker(self, model: Model) -> dict:
+        """/model lists every running model, biggest first, and nothing else:
+        the built-in Opus/Sonnet/Haiku rows would all resolve to the default
+        Hub model anyway. Gateway model discovery cannot do this -- it keeps
+        only ids containing "claude" or "anthropic"."""
+        return {"modelPicker": {"replaceBuiltInOptions": True, "options": [
+            {"model": m.name, "label": m.name, "description": describe(m)} for m in model.all
+        ]}}
+
     def argv(self, model: Model, extra: list[str]) -> list[str]:
         mcp = {"mcpServers": {MCP_SERVER: {
             "type": "http", "url": mcp_url(), "headers": mcp_headers(),
         }}}
-        return ["--model", model.name, "--mcp-config", json.dumps(mcp), *extra]
+        args = ["--model", model.name, "--mcp-config", json.dumps(mcp)]
+        # --settings takes one source; the user's own wins over the picker.
+        if not has_flag(extra, "--settings"):
+            args += ["--settings", json.dumps(self.picker(model))]
+        return [*args, *extra]
 
 
 # -------------------------------------------------------------------- opencode
@@ -900,7 +944,8 @@ class OpenCode(Integration):
     def state_path(self) -> Path:
         return Path.home() / ".local/state/opencode/model.json"
 
-    def inline_config(self, model: Model) -> str:
+    @staticmethod
+    def entry(model: Model) -> dict:
         entry: dict = {"name": model.name}
         if model.has("vision"):
             entry["modalities"] = {"input": model.input_modalities(), "output": ["text"]}
@@ -908,6 +953,9 @@ class OpenCode(Integration):
             entry["reasoning"] = True
         if model.context_length:
             entry["limit"] = {"context": model.context_length, "output": model.max_output()}
+        return entry
+
+    def inline_config(self, model: Model) -> str:
         return json.dumps({
             "$schema": "https://opencode.ai/config.json",
             "provider": {
@@ -918,7 +966,7 @@ class OpenCode(Integration):
                     # Authorization: Bearer header. Without it OpenCode sends
                     # no credential at all and an authenticated Hub answers 401.
                     "options": {"baseURL": api_base(), "apiKey": API_KEY},
-                    "models": {model.name: entry},
+                    "models": {m.name: self.entry(m) for m in model.all},
                 }
             },
             "model": f"{PROVIDER}/{model.name}",
@@ -1046,7 +1094,7 @@ class Codex(Integration):
 
     def write_profile(self, model: Model) -> None:
         catalog = self.catalog_path()
-        write_json(catalog, {"models": [self.catalog_entry(model)]})
+        write_json(catalog, {"models": [self.catalog_entry(m) for m in model.all]})
         text = "\n".join([
             f"model = {json.dumps(model.name)}",
             f"model_provider = {json.dumps(CODEX_PROFILE)}",
@@ -1196,6 +1244,32 @@ class Qwen(Integration):
         cfg["env"] = env_cfg
 
         providers = cfg.get("modelProviders") if isinstance(cfg.get("modelProviders"), dict) else {}
+        others = [p for p in (providers.get("openai") or []) if not self._owned(p)]
+        providers["openai"] = [*(self.provider_entry(m) for m in model.all), *others]
+        cfg["modelProviders"] = providers
+
+        security = cfg.get("security") if isinstance(cfg.get("security"), dict) else {}
+        auth = security.get("auth") if isinstance(security.get("auth"), dict) else {}
+        auth["selectedType"] = "openai"
+        auth["baseUrl"] = api_base()
+        security["auth"] = auth
+        cfg["security"] = security
+
+        model_cfg = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
+        model_cfg["name"] = model.name
+        cfg["model"] = model_cfg
+
+        servers = cfg.get("mcpServers") if isinstance(cfg.get("mcpServers"), dict) else {}
+        servers[MCP_SERVER] = {
+            "httpUrl": mcp_url(),
+            "headers": mcp_headers(),
+            "timeout": MCP_TOOL_TIMEOUT * 1000,
+        }
+        cfg["mcpServers"] = servers
+        write_json(self.config_path(), cfg)
+
+    @staticmethod
+    def provider_entry(model: Model) -> dict:
         mine = {
             "id": model.name,
             "name": f"{model.name} ({PROVIDER_NAME})",
@@ -1218,29 +1292,7 @@ class Qwen(Integration):
             modalities["video"] = True
         if modalities:
             mine["generationConfig"] = {"modalities": modalities}
-        others = [p for p in (providers.get("openai") or []) if not self._owned(p)]
-        providers["openai"] = [mine, *others]
-        cfg["modelProviders"] = providers
-
-        security = cfg.get("security") if isinstance(cfg.get("security"), dict) else {}
-        auth = security.get("auth") if isinstance(security.get("auth"), dict) else {}
-        auth["selectedType"] = "openai"
-        auth["baseUrl"] = api_base()
-        security["auth"] = auth
-        cfg["security"] = security
-
-        model_cfg = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
-        model_cfg["name"] = model.name
-        cfg["model"] = model_cfg
-
-        servers = cfg.get("mcpServers") if isinstance(cfg.get("mcpServers"), dict) else {}
-        servers[MCP_SERVER] = {
-            "httpUrl": mcp_url(),
-            "headers": mcp_headers(),
-            "timeout": MCP_TOOL_TIMEOUT * 1000,
-        }
-        cfg["mcpServers"] = servers
-        write_json(self.config_path(), cfg)
+        return mine
 
     def wired(self) -> bool:
         cfg = read_json(self.config_path())
@@ -1309,7 +1361,7 @@ class Hermes(Integration):
             # api_key under `model:` below is not consulted on that path.
             "api_key": API_KEY,
             "default_model": model.name,
-            "models": [model.name],
+            "models": [m.name for m in model.all],
         })
         text = yaml_upsert(text, ["model"], {
             "provider": PROVIDER,
@@ -1426,18 +1478,7 @@ class OpenClaw(Integration):
         provider["baseUrl"] = api_base()
         provider["apiKey"] = API_KEY
         provider["api"] = "openai-completions"
-        entry: dict = {
-            "id": model.name,
-            "name": model.name,
-            "input": model.input_modalities(),
-            "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-        }
-        if model.has("thinking"):
-            entry["reasoning"] = True
-        if model.context_length:
-            entry["contextWindow"] = model.context_length
-            entry["maxTokens"] = model.max_output()
-        provider["models"] = [entry]
+        provider["models"] = [self.entry(m) for m in model.all]
         providers[PROVIDER] = provider
         models_section["providers"] = providers
         cfg["models"] = models_section
@@ -1462,6 +1503,21 @@ class OpenClaw(Integration):
 
         write_json(path, cfg)
         self._clear_session_overrides(model.name)
+
+    @staticmethod
+    def entry(model: Model) -> dict:
+        entry: dict = {
+            "id": model.name,
+            "name": model.name,
+            "input": model.input_modalities(),
+            "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+        }
+        if model.has("thinking"):
+            entry["reasoning"] = True
+        if model.context_length:
+            entry["contextWindow"] = model.context_length
+            entry["maxTokens"] = model.max_output()
+        return entry
 
     def _clear_session_overrides(self, primary: str) -> None:
         """Per-session overrides shadow the new primary model until cleared —
@@ -1637,7 +1693,7 @@ class Kimi(Integration):
     # model names are already in kimi's registry; Hub model names are not.
     _CAPABILITIES = {"vision": "image_in", "video": "video_in", "thinking": "thinking"}
 
-    def inline_config(self, model: Model) -> str:
+    def entry(self, model: Model) -> dict:
         entry: dict = {
             "provider": PROVIDER,
             "model": model.name,
@@ -1645,12 +1701,15 @@ class Kimi(Integration):
         }
         if caps := [v for k, v in self._CAPABILITIES.items() if model.has(k)]:
             entry["capabilities"] = caps
+        return entry
+
+    def inline_config(self, model: Model) -> str:
         return json.dumps({
-            "default_model": PROVIDER,
+            "default_model": model.name,
             "providers": {PROVIDER: {
                 "type": "openai_legacy", "base_url": api_base(), "api_key": API_KEY,
             }},
-            "models": {PROVIDER: entry},
+            "models": {m.name: self.entry(m) for m in model.all},
         })
 
     def argv(self, model: Model, extra: list[str]) -> list[str]:
@@ -1712,19 +1771,18 @@ class Muse(Integration):
             # this file — see write_credential().
             "auth": "bearer",
         }
-        ctx = model.context(32768)
         settings["model_catalog"] = [{
-            "model_id": model.name,
+            "model_id": m.name,
             "provider_id": self.PROVIDER_ID,
             "profile_id": self.PROFILE_ID,
-            "display_label": model.name,
+            "display_label": m.name,
             "visibility": "visible",
-            "display_order": 0,
-            "is_default": True,
-            "context_limit": ctx,
-            "output_limit": min(ctx, 32768),
-            "description": f"Served by {PROVIDER_NAME}",
-        }]
+            "display_order": order,
+            "is_default": m is model,
+            "context_limit": m.context(32768),
+            "output_limit": min(m.context(32768), 32768),
+            "description": describe(m),
+        } for order, m in enumerate(model.all)]
         return settings
 
     def auth_path(self) -> Path:
@@ -1795,7 +1853,8 @@ class DeepSeekHarness(Integration):
     def patch_path(self) -> Path:
         return self.config_dir() / "sah.cordis.yml"
 
-    def settings(self, model: Model) -> dict:
+    @staticmethod
+    def entry(model: Model) -> dict:
         entry: dict = {
             "id": model.name,
             "name": model.name,
@@ -1804,6 +1863,9 @@ class DeepSeekHarness(Integration):
         if model.context_length:
             entry["contextWindow"] = model.context_length
             entry["maxTokens"] = model.max_output()
+        return entry
+
+    def settings(self, model: Model) -> dict:
         return {
             "agent-default-model": {"provider": PROVIDER, "model": model.name},
             "llm-pi-ai": {"providers": {PROVIDER: {
@@ -1811,7 +1873,7 @@ class DeepSeekHarness(Integration):
                 "apiKeyEnv": self.API_KEY_ENV,
                 "api": "openai-completions",
                 "baseURL": api_base(),
-                "models": [entry],
+                "models": [self.entry(m) for m in model.all],
             }}},
         }
 
@@ -1883,11 +1945,15 @@ class OMP(Integration):
             "omp": self.agent_dir() / "config.yml",
         }
 
-    def configure(self, model: Model) -> None:
+    @staticmethod
+    def entry(model: Model) -> dict:
         entry: dict = {"id": model.name, "name": model.name, "input": model.input_modalities()}
         if model.context_length:
             entry["contextWindow"] = model.context_length
             entry["maxTokens"] = model.max_output()
+        return entry
+
+    def configure(self, model: Model) -> None:
         paths = self.files()
         write_text(paths["omp-models"], yaml_dump({"providers": {PROVIDER: {
             "baseUrl": api_base(),
@@ -1898,7 +1964,7 @@ class OMP(Integration):
             # symptom is a launch that hangs instead of an error.
             "auth": "apiKey",
             "apiKey": API_KEY,
-            "models": [entry],
+            "models": [self.entry(m) for m in model.all],
         }}}))
         write_text(paths["omp"], yaml_dump({"setupVersion": self.SETUP_VERSION}))
 
@@ -1942,16 +2008,11 @@ class Pi(Integration):
         # the key, so a placeholder is what makes them selectable.
         provider["apiKey"] = API_KEY
 
-        entry: dict = {"id": model.name, "_launch": True, "input": model.input_modalities()}
-        if model.has("thinking"):
-            entry["reasoning"] = True
-        if model.context_length:
-            entry["contextWindow"] = model.context_length
         kept = [
             m for m in (provider.get("models") or [])
             if isinstance(m, dict) and not m.get("_launch")
         ]
-        provider["models"] = [entry, *kept]
+        provider["models"] = [*(self.entry(m) for m in model.all), *kept]
         providers[PROVIDER] = provider
         config["providers"] = providers
         write_json(paths["pi-models"], config)
@@ -1963,6 +2024,15 @@ class Pi(Integration):
         # model is pinned here rather than on the command line.
         settings["defaultModel"] = model.name
         write_json(paths["pi"], settings)
+
+    @staticmethod
+    def entry(model: Model) -> dict:
+        entry: dict = {"id": model.name, "_launch": True, "input": model.input_modalities()}
+        if model.has("thinking"):
+            entry["reasoning"] = True
+        if model.context_length:
+            entry["contextWindow"] = model.context_length
+        return entry
 
     def wired(self) -> bool:
         models = read_json(self.files()["pi-models"])
@@ -2073,8 +2143,9 @@ class Droid(Integration):
     def files(self) -> dict[str, Path]:
         return {"droid": self.config_path()}
 
-    def model_id(self, model: Model) -> str:
-        return f"custom:{model.name}-0"
+    @staticmethod
+    def model_id(model: Model) -> str:
+        return f"custom:{model.name}-{model.all.index(model)}"
 
     def configure(self, model: Model) -> None:
         settings = read_json(self.config_path())
@@ -2082,17 +2153,17 @@ class Droid(Integration):
             m for m in (settings.get("customModels") or [])
             if not (isinstance(m, dict) and m.get("apiKey") == API_KEY)
         ]
-        settings["customModels"] = [{
-            "model": model.name,
-            "displayName": model.name,
+        settings["customModels"] = [*({
+            "model": m.name,
+            "displayName": m.name,
             "baseUrl": api_base(),
             "apiKey": API_KEY,
             "provider": "generic-chat-completion-api",
-            "maxOutputTokens": model.max_output(64000),
-            "supportsImages": model.has("vision"),
-            "id": self.model_id(model),
-            "index": 0,
-        }, *kept]
+            "maxOutputTokens": m.max_output(64000),
+            "supportsImages": m.has("vision"),
+            "id": self.model_id(m),
+            "index": index,
+        } for index, m in enumerate(model.all)), *kept]
         session = settings.get("sessionDefaultSettings")
         session = session if isinstance(session, dict) else {}
         session["model"] = self.model_id(model)
@@ -2198,7 +2269,7 @@ class ChatGPT(Integration):
         }
 
     def configure(self, model: Model) -> None:
-        write_json(self.catalog_path(), {"models": [self.catalog_entry(model)]})
+        write_json(self.catalog_path(), {"models": [self.catalog_entry(m) for m in model.all]})
         cfg = self.config_path()
         text = cfg.read_text() if cfg.is_file() else ""
         # A stale `profile` at the root would override everything set here.
@@ -2601,6 +2672,25 @@ def cmd_info(_args) -> None:
     kv("Current model", info["id"] if info else "(none — launch one in the Hub)")
 
 
+def cmd_models(_args) -> None:
+    models = running_models()
+    if not models:
+        print(f"No model is running on {hub_url()}. Launch one from the Spark AI Hub web UI.")
+        return
+    agent = next(iter(by_size(models)), None)
+    rows = [{
+        "id": m["id"],
+        "size": f"{m['params_b']:g}B" if m.get("params_b") else "?",
+        "context": f"{int(m['max_model_len']) // 1024}K" if m.get("max_model_len") else "?",
+        "caps": ", ".join(c for c in m.get("capabilities") or [] if c != "completion") or "-",
+        "agents": "uses this" if m is agent else "",
+    } for m in models]
+    print_table(rows, [("id", "Model"), ("size", "Size"), ("context", "Context"),
+                       ("caps", "Capabilities"), ("agents", "sah <client>")])
+    print(f"\nsah <client> uses the biggest. Other clients can pick any of these by "
+          f"its Model name.")
+
+
 def cmd_env(args) -> None:
     if args.anthropic:
         print(f"export ANTHROPIC_BASE_URL={hub_url()}")
@@ -2712,12 +2802,18 @@ def main() -> None:
             "\n"
             "Discover integrations:\n"
             "  sah integrations          List every integration's mode and commands\n"
+            "\n"
+            "Models:\n"
+            "  sah models                List every running model; sah <client> uses the biggest\n"
         ),
     )
     sub = parser.add_subparsers(dest="cmd", required=True, title="commands", metavar="<command>")
 
     sp = sub.add_parser("info", help="Show Hub URL and current model")
     sp.set_defaults(func=cmd_info)
+
+    sp = sub.add_parser("models", aliases=["ps"], help="List every running model")
+    sp.set_defaults(func=cmd_models)
 
     sp = sub.add_parser("env", help="Print Hub environment variables")
     sp.add_argument("--anthropic", action="store_true", help="Anthropic-shaped env vars")

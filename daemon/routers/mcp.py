@@ -33,7 +33,7 @@ from daemon.services import (
 from daemon.config import settings
 from daemon.services.connect_service import request_origin
 from daemon.services.docker_service import (
-    get_installed_slugs, get_pending, is_ready, is_recipe_running, start_health_check,
+    get_installed_slugs, get_pending, is_ready, is_recipe_running, memory_plan, start_health_check,
 )
 from daemon.services.registry_service import get_recipes
 
@@ -554,36 +554,16 @@ async def _media_model(args: dict) -> str:
     return slug
 
 
-def _available_gb() -> float:
-    with open("/proc/meminfo") as f:
-        for line in f:
-            if line.startswith("MemAvailable:"):
-                return int(line.split()[1]) / 2**20
-    return 0.0
-
-
 async def _check_memory(slug: str) -> None:
-    """Refuse a start that would not fit, and say what holds the memory.
-
-    An app still loading has not taken all of its memory yet, so its share is
-    counted as spoken for.
-    """
-    recipes = get_recipes()
-    need = recipes[slug].requirements.min_memory_gb
-    media = _media_slugs()
-    loading, running_media, running_other = 0, [], []
-    for other in sorted(await get_installed_slugs()):
-        if other == slug or other not in recipes:
-            continue
-        if not await is_recipe_running(other) and get_pending(other) != "launching":
-            continue
-        if not is_ready(other):
-            loading += recipes[other].requirements.min_memory_gb
-        (running_media if other in media else running_other).append(other)
-    free = _available_gb() - loading
+    """Refuse a start that would not fit, and say what holds the memory."""
+    need, free, running = await memory_plan(slug)
     if free >= need:
         return
-    lines = [f"{slug} needs about {need} GB and only {max(free, 0):.0f} GB is free."]
+    media = _media_slugs()
+    running_media = [o for o in running if o in media]
+    running_other = [o for o in running if o not in media]
+    recipes = get_recipes()
+    lines = [f"{slug} needs about {need:.0f} GB and only {max(free, 0):.0f} GB is free."]
     if running_media:
         lines.append("Running media models you can stop with stop_model: "
                      + ", ".join(running_media) + ".")

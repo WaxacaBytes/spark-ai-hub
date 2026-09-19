@@ -105,8 +105,8 @@ services:
             rm -rf /models/source
     image: spark-ai-hub/vllm-deepseek-v4-flash-exl3:sparkinfer-26.02
     container_name: spark-ai-hub-vllm-deepseek-v4-flash-exl3
-    ports:
-      - "9001:8000"
+    networks:
+      - spark-ai-hub-net
     ipc: host
     shm_size: 16gb
     environment:
@@ -205,3 +205,9 @@ services:
 secrets:
   hf_token:
     environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

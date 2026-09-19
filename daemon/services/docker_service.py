@@ -73,9 +73,7 @@ async def start_health_check(slug: str):
     ui_path = recipe.ui.path if recipe.ui else "/"
     health_path = recipe.ui.health_path if recipe.ui and recipe.ui.health_path else ui_path
     proxied = bool(recipe.ui and recipe.ui.proxy)
-    probe_headers = (
-        {proxy_service.PROBE_HEADER: proxy_service.probe_token()} if proxied else {}
-    )
+    probe_headers = proxy_service.probe_headers() if proxied else {}
 
     async def _check():
         if proxied:
@@ -83,7 +81,7 @@ async def start_health_check(slug: str):
             # publishes no host port, and this also proves the /run/{slug}/
             # path the user is about to click actually serves -- not merely
             # that something inside the container is listening.
-            url = f"http://127.0.0.1:{settings.public_port}/run/{slug}{health_path}"
+            url = f"{proxy_service.internal_url(slug)}{health_path}"
         else:
             url = f"http://127.0.0.1:{ui_port}{health_path}"
         # Up to 5 minutes of polling
@@ -751,6 +749,35 @@ async def get_installed_slugs() -> set[str]:
         return {row["slug"] for row in rows}
     finally:
         await db.close()
+
+
+def available_memory_gb() -> float:
+    with open("/proc/meminfo") as f:
+        for line in f:
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) / 2**20
+    return 0.0
+
+
+async def memory_plan(slug: str) -> tuple[float, float, list[str]]:
+    """(GiB `slug` needs, GiB free for it, other apps up or starting).
+
+    An app still loading has not taken all of its memory yet, so its share is
+    counted as spoken for.
+    """
+    from daemon.services.registry_service import get_recipes
+
+    recipes = get_recipes()
+    loading, running = 0.0, []
+    for other in sorted(await get_installed_slugs()):
+        if other == slug or other not in recipes:
+            continue
+        if not await is_recipe_running(other) and get_pending(other) != "launching":
+            continue
+        if not is_ready(other):
+            loading += recipes[other].memory_gb
+        running.append(other)
+    return recipes[slug].memory_gb, available_memory_gb() - loading, running
 
 
 def _parse_compose_images(slug: str) -> list[str]:

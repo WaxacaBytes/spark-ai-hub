@@ -20,9 +20,6 @@ class Settings(BaseSettings):
     data_dir: Path = Path(__file__).resolve().parent.parent / "data"
     db_path: Path = Path(__file__).resolve().parent.parent / "data" / "spark-ai-hub.db"
 
-    # Upstream OpenAI-compatible LLM endpoint (vLLM heavy slot)
-    upstream_openai_url: str = "http://localhost:9001/v1"
-
     # ── Authentication ──
     # Set SPARK_AI_HUB_AUTH_ENABLED=false only for a Hub on a trusted LAN
     # that you are certain is not reachable from the internet.

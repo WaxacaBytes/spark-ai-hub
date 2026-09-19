@@ -23,7 +23,7 @@ services:
     image: spark-ai-hub/vllmomni-wan22-vace-fun-a14b:v0.28.0
     container_name: spark-ai-hub-vllmomni-wan22-vace-fun-a14b
     # No published port: the Hub reaches this container by name through its
-    # front door at /run/vllmomni-wan22-vace-fun-a14b/, so it never collides with the LLM on 9001
+    # front door at /run/vllmomni-wan22-vace-fun-a14b/, so it never collides with the LLM
     # or with another media model.
     networks:
       - spark-ai-hub-net

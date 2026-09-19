@@ -60,8 +60,8 @@ services:
         COPY --from=weights /weights /models/Qwen3.8-Flash-Next-hibrid48-uncensored
     image: spark-ai-hub/vllm-qwen38-flash-next-uncensored-hibrid48-nvfp4-ple-mmap:mbx-v3
     container_name: spark-ai-hub-vllm-qwen38-flash-next-uncensored-hibrid48-nvfp4-ple-mmap
-    ports:
-      - "9001:8000"
+    networks:
+      - spark-ai-hub-net
     ipc: host
     # The GB10's ten Cortex-X925 cores (3.9 GHz); 0-4 and 10-14 are the
     # 2.8 GHz A725s. Upstream measured +2-3% at every concurrency.
@@ -162,3 +162,9 @@ services:
 secrets:
   hf_token:
     environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

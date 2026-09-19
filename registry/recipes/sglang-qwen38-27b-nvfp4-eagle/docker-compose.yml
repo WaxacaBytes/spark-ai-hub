@@ -33,8 +33,8 @@ services:
         COPY --from=weights /weights /root/.cache/huggingface
     image: spark-ai-hub/sglang-qwen38-27b-nvfp4-eagle:qwen38-27b
     container_name: spark-ai-hub-sglang-qwen38-27b-nvfp4-eagle
-    ports:
-      - "9001:8000"
+    networks:
+      - spark-ai-hub-net
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
       # Offline-first: both checkpoints are baked into the image above, so
@@ -114,3 +114,9 @@ services:
 secrets:
   hf_token:
     environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

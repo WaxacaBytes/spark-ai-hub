@@ -380,7 +380,7 @@ export default function Catalog({ search = '' }) {
           {shelves.active.length > 0 && (
             <CardRow
               title="Jump back in"
-              subtitle="Installed on this Spark · one model serves port 9001 at a time"
+              subtitle="Installed on this Spark"
               wrap
             >
               <InstalledStrip items={shelves.active} />
@@ -407,7 +407,7 @@ export default function Catalog({ search = '' }) {
                     Ready-to-Serve Models
                   </h2>
                   <p className="m-0 mt-0.5 text-xs text-text-dim">
-                    Curated for DGX Spark. Served on port 9001, one at a time.
+                    Curated for DGX Spark. Served at /v1, several at once when they fit.
                   </p>
                 </div>
                 <div className="ml-auto flex flex-wrap items-center gap-2">

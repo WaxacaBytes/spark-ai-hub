@@ -386,8 +386,8 @@ services:
       - "0.0.0.0"
       - --port
       - "8080"
-    ports:
-      - "9001:8080"
+    networks:
+      - spark-ai-hub-net
     environment:
       - GGML_CUDA_ENABLE_UNIFIED_MEMORY=1
       - HF_TOKEN=${HF_TOKEN:-}
@@ -407,3 +407,9 @@ services:
 secrets:
   hf_token:
     environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

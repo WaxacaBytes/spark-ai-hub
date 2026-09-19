@@ -202,15 +202,6 @@ async def pick_backend(kind: str, model: str | None) -> Backend:
                      f"with start_model first.")
 
 
-def _app_base(slug: str) -> str:
-    return f"http://127.0.0.1:{settings.public_port}{proxy_service.APP_PREFIX}/{slug}"
-
-
-def _headers() -> dict:
-    # The probe route skips forward_auth; without it every call 302s to sign-in.
-    return {proxy_service.PROBE_HEADER: proxy_service.probe_token()}
-
-
 # ---------------------------------------------------- OpenAI-images client
 
 
@@ -291,8 +282,8 @@ def chat_body(params: Params, seed: int, defaults, inputs: list[bytes]) -> dict:
 
 async def _render_chat(session: aiohttp.ClientSession, backend: Backend, params: Params,
                        inputs: list[bytes], seed: int) -> bytes:
-    url = f"{_app_base(backend.slug)}/v1/chat/completions"
-    async with session.post(url, headers=_headers(),
+    url = f"{proxy_service.internal_url(backend.slug)}/v1/chat/completions"
+    async with session.post(url, headers=proxy_service.probe_headers(),
                             json=chat_body(params, seed, backend.defaults, inputs)) as r:
         if r.status != 200:
             raise ImageError(f"{backend.slug} failed (HTTP {r.status}): {(await r.text())[:500]}")
@@ -343,15 +334,15 @@ def parse_sse(buffer: bytes) -> tuple[list[dict], bytes]:
 
 async def _render_hidream(session: aiohttp.ClientSession, backend: Backend, params: Params,
                           inputs: list[bytes], seed: int) -> bytes:
-    base = _app_base(backend.slug)
-    async with session.post(f"{base}/api/generate/start", headers=_headers(),
+    base = proxy_service.internal_url(backend.slug)
+    async with session.post(f"{base}/api/generate/start", headers=proxy_service.probe_headers(),
                             json=hidream_body(params, seed, inputs)) as r:
         if r.status != 200:
             raise ImageError(f"{backend.slug} failed (HTTP {r.status}): {(await r.text())[:500]}")
         job_id = (await r.json()).get("job_id")
     if not job_id:
         raise ImageError(f"{backend.slug} did not start a job.")
-    async with session.get(f"{base}/api/generate/stream/{job_id}", headers=_headers()) as r:
+    async with session.get(f"{base}/api/generate/stream/{job_id}", headers=proxy_service.probe_headers()) as r:
         if r.status != 200:
             raise ImageError(f"{backend.slug} failed (HTTP {r.status}): {(await r.text())[:500]}")
         buffer = b""
@@ -371,9 +362,9 @@ async def _render(session: aiohttp.ClientSession, backend: Backend, kind: str,
         return await _render_chat(session, backend, params, inputs, seed)
     if backend.protocol == "hidream":
         return await _render_hidream(session, backend, params, inputs, seed)
-    base = f"{_app_base(backend.slug)}/v1/images"
+    base = f"{proxy_service.internal_url(backend.slug)}/v1/images"
     if kind == "generate":
-        async with session.post(f"{base}/generations", headers=_headers(),
+        async with session.post(f"{base}/generations", headers=proxy_service.probe_headers(),
                                 json=generation_body(params, seed, backend.defaults)) as r:
             return await _openai_image(r, backend.slug)
 
@@ -390,7 +381,7 @@ async def _render(session: aiohttp.ClientSession, backend: Backend, kind: str,
         fields["num_inference_steps"] = str(params.steps)
     for key, value in fields.items():
         form.add_field(key, value)
-    async with session.post(f"{base}/edits", headers=_headers(), data=form) as r:
+    async with session.post(f"{base}/edits", headers=proxy_service.probe_headers(), data=form) as r:
         return await _openai_image(r, backend.slug)
 
 

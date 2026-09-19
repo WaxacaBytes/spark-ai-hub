@@ -22,7 +22,6 @@ import aiohttp
 from bs4 import BeautifulSoup
 from markdownify import markdownify
 
-from daemon.config import settings
 from daemon.services import proxy_service
 
 SEARXNG = "searxng"
@@ -76,8 +75,8 @@ async def read_capped(response: aiohttp.ClientResponse, limit: int) -> bytes:
 
 async def search(query: str, max_results: int | None = None) -> str:
     count = min(max(max_results or DEFAULT_RESULTS, 1), MAX_RESULTS)
-    url = f"http://127.0.0.1:{settings.public_port}{proxy_service.APP_PREFIX}/{SEARXNG}/search"
-    headers = {proxy_service.PROBE_HEADER: proxy_service.probe_token()}
+    url = f"{proxy_service.internal_url(SEARXNG)}/search"
+    headers = proxy_service.probe_headers()
     # POST keeps the query out of every URL, and so out of any log line.
     form = {"q": query, "format": "json"}
     try:

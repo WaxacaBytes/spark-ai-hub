@@ -8,6 +8,11 @@ import os
 # point these scripts at a different working directory.
 WORK = os.environ.get("DRAFT_VOCAB_WORK", "/home/abel/draft-vocab-work")
 M = "Mia-AiLab/Qwen3.8-Flash-Next-NVFP4"
+# The Hub's /v1, with this machine's sah key. It routes by "model", so the
+# request reaches MODEL even with other models running.
+URL = "http://127.0.0.1:9000/v1/chat/completions"
+HEADERS = {"Content-Type": "application/json",
+           "Authorization": "Bearer " + open(os.path.expanduser("~/.config/sah/key")).read().strip()}
 PROMPTS = [
     "请用中文详细说明宋代科举制度的运作方式及其社会影响，分四段。",
     "用中文解释什么是量子纠缠，并说明它为什么不能用来超光速通信。",
@@ -17,9 +22,9 @@ def call(p, mt=600):
     body = {"model": M, "messages": [{"role": "user", "content": p}],
             "max_tokens": mt, "temperature": 0,
             "chat_template_kwargs": {"enable_thinking": False, "thinking": False}}
-    r = urllib.request.Request("http://127.0.0.1:9001/v1/chat/completions",
+    r = urllib.request.Request(URL,
                                data=json.dumps(body).encode(),
-                               headers={"Content-Type": "application/json"})
+                               headers=HEADERS)
     t0 = time.time()
     d = json.loads(urllib.request.urlopen(r, timeout=900).read().decode())
     return d["usage"]["completion_tokens"] / (time.time() - t0)

@@ -35,8 +35,8 @@ services:
         COPY --from=weights /weights /root/.cache/huggingface
     image: spark-ai-hub/sglang-qwen38-27b-bf16-dflash2:dev-nightly-0820
     container_name: spark-ai-hub-sglang-qwen38-27b-bf16-dflash2
-    ports:
-      - "9001:8000"
+    networks:
+      - spark-ai-hub-net
     environment:
       - HF_TOKEN=${HF_TOKEN:-}
       # Offline-first: target and drafter are both baked into the image above,
@@ -105,3 +105,9 @@ services:
 secrets:
   hf_token:
     environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

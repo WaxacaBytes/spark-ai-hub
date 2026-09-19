@@ -9,6 +9,11 @@ import os
 # point these scripts at a different working directory.
 WORK = os.environ.get("DRAFT_VOCAB_WORK", "/home/abel/draft-vocab-work")
 M = "Mia-AiLab/Qwen3.8-Flash-Next-NVFP4"
+# The Hub's /v1, with this machine's sah key. It routes by "model", so the
+# request reaches MODEL even with other models running.
+URL = "http://127.0.0.1:9000/v1/chat/completions"
+HEADERS = {"Content-Type": "application/json",
+           "Authorization": "Bearer " + open(os.path.expanduser("~/.config/sah/key")).read().strip()}
 TOPICS = ["宋代科举制度", "光合作用", "城市热岛效应", "丝绸之路的香料贸易", "量子纠缠",
           "中医的经络学说", "京都的茶道", "区块链共识算法", "黄河的治理history", "唐诗的格律",
           "青藏高原的形成", "人工智能的伦理问题", "台风的形成机制", "围棋的基本战术",
@@ -18,8 +23,8 @@ PROMPTS = ([f"请用中文详细介绍{t}，分成四段。" for t in TOPICS] +
 def one(p):
     body = json.dumps({"model": M, "messages": [{"role": "user", "content": p}],
                        "max_tokens": 700, "temperature": 0.8, "top_p": 0.95}).encode()
-    r = urllib.request.Request("http://127.0.0.1:9001/v1/chat/completions", data=body,
-                               headers={"Content-Type": "application/json"})
+    r = urllib.request.Request(URL, data=body,
+                               headers=HEADERS)
     try:
         d = json.loads(urllib.request.urlopen(r, timeout=900).read().decode())
         m = d["choices"][0]["message"]

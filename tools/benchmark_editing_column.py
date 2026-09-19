@@ -15,7 +15,7 @@ The existing tokens_per_second (writing) value is NEVER touched by this script.
 
 The last model benchmarked is LEFT RUNNING, so it is ready to use the moment
 the script finishes. When several slugs are given, each one is stopped just
-before the next launches, so port 9001 is never contended.
+before the next launches, so every model is measured alone on the GPU.
 """
 
 import json
@@ -26,7 +26,8 @@ import urllib.request
 from pathlib import Path
 
 HUB_API = "http://127.0.0.1:9000"
-VLLM_API = "http://127.0.0.1:9001"
+# The Hub's /v1, which routes by model id -- the same path users' clients take.
+MODEL_API = f"{HUB_API}/v1"
 RECIPES_DIR = Path("/home/abel/sparkforge/registry/recipes")
 
 NOISE_THRESHOLD = 0.15  # |editing - writing| / writing <= 15% => treat as noise either direction
@@ -112,9 +113,9 @@ def get_recipe_yaml_fields(slug):
 
 
 def evict_conflicting_models(slug):
-    """Replicate the frontend's LaunchConflictModal: stop any other model
-    recipe currently running/starting before launching this one (all model
-    recipes conflict with each other — same GPU, same port 9001)."""
+    """Stop every other recipe running/starting before launching this one.
+    Models can share the Spark, but one measured beside another is measured
+    competing with it for the GPU."""
     try:
         all_recipes = http_json(f"{HUB_API}/api/recipes", timeout=15)
     except Exception as e:
@@ -125,11 +126,8 @@ def evict_conflicting_models(slug):
             continue
         if not (r.get("running") or r.get("starting")):
             continue
-        # every recipe in RECIPES_DIR here is a model-serving recipe (LLM), so
-        # any other running/starting one is a guaranteed port-9001 conflict
-        print(f"  Evicting conflicting running recipe: {r['slug']}")
+        print(f"  Evicting running recipe: {r['slug']}")
         stop(r["slug"])
-    # also defensively make sure nothing is left holding port 9001
     time.sleep(2)
 
 
@@ -215,18 +213,18 @@ def call(model_id, prompt, max_tokens=512, thinking=True):
     # just for the 3000-token code-edit call. 1s/token is a generous floor —
     # covers anything down to 1 tok/s — while still capping runaway hangs.
     timeout = max(600, max_tokens)  # seconds; 1s/token, floor 600s
-    d = http_json(f"{VLLM_API}/v1/chat/completions", data=payload, timeout=timeout)
+    d = http_json(f"{MODEL_API}/chat/completions", data=payload, timeout=timeout)
     dt = time.time() - t0
     return d["usage"]["completion_tokens"], dt
 
 
 def verify_serving_model(expected_model_id):
-    """Cheap sanity check that port 9001 is actually serving the model we
-    just launched (guards against a stale/conflicting server on the shared port)."""
-    d = http_json(f"{VLLM_API}/v1/models", timeout=10)
+    """Cheap sanity check that the Hub is actually serving the model we just
+    launched -- otherwise /v1 would quietly route the benchmark to another one."""
+    d = http_json(f"{MODEL_API}/models", timeout=10)
     ids = [m.get("id") for m in d.get("data", [])]
     if expected_model_id not in ids:
-        raise RuntimeError(f"port 9001 is serving {ids}, expected {expected_model_id}")
+        raise RuntimeError(f"the Hub is serving {ids}, expected {expected_model_id}")
 
 
 def run_benchmark(model_id):
@@ -335,9 +333,9 @@ def process(slug, results):
 
     # Deliberately NOT stopping here. A measured model is a model you want to
     # try, and tearing it down means a reload of ~100 GB of weights plus graph
-    # capture before anyone can send it a prompt. Successive slugs still get a
-    # clean port 9001 because main() stops the previous one before launching
-    # the next; the LAST slug is simply left running.
+    # capture before anyone can send it a prompt. Successive slugs still run
+    # alone because main() stops the previous one before launching the next;
+    # the LAST slug is simply left running.
 
     # Compared against the PUBLISHED writing rate, which is what the Editing
     # column is shown next to -- not against this run's own writing figure.
