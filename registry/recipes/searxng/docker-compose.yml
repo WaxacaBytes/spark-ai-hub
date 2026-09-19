@@ -20,6 +20,10 @@ services:
     configs:
       - source: searxng_settings
         target: /etc/searxng/settings.yml
+    # SearXNG logs the full engine URL, query included, whenever an engine
+    # request fails. Keep no container log, so no search is written to disk.
+    logging:
+      driver: "none"
     restart: unless-stopped
 
 configs:

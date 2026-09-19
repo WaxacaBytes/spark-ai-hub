@@ -326,6 +326,21 @@ async def container_log_ws(websocket: WebSocket, slug: str):
 
         health_task = asyncio.create_task(_notify_when_ready())
 
+        # `logging: driver: none` leaves nothing for `docker logs` to read, and
+        # Docker's own error would be all the log panel shows. Say so plainly
+        # and just deliver the ready (or error) verdict.
+        inspect = await asyncio.create_subprocess_exec(
+            "docker", "inspect", "-f", "{{.HostConfig.LogConfig.Type}}", container,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        )
+        driver, _ = await inspect.communicate()
+        if driver.decode().strip() == "none":
+            await websocket.send_text("[spark-ai-hub] This app keeps no logs: logging is "
+                                      "turned off in its docker-compose.yml.")
+            await health_task
+            await websocket.close()
+            return
+
         proc = await asyncio.create_subprocess_exec(
             "docker", "logs", "-f", "--tail", "200", container,
             stdout=asyncio.subprocess.PIPE,
