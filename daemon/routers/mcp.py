@@ -619,6 +619,8 @@ def _image_result(info: dict, origin: str) -> dict:
     if result.preset:
         lines.append(f"Preset: {result.preset}")
     lines.append("Pass this URL to edit_image to change it further.")
+    lines.append("To save it into your workspace, call create_download with this URL; "
+                 "the attached JPEG is a small preview, not the file.")
     return {
         "content": [
             {"type": "text", "text": "\n".join(lines)},
@@ -650,6 +652,8 @@ def _video_result(info: dict, origin: str) -> dict:
     lines = [f"Video: {url}", f"Model: {info['model']}", *details]
     if info.get("inference_time_s"):
         lines.append(f"Render time: {round(info['inference_time_s'])}s")
+    lines.append("To save it into your workspace, call create_download with this URL"
+                 + ("; the attached JPEG is only a poster frame, not the video." if info.get("poster") else "."))
     content = [{"type": "text", "text": "\n".join(lines)}]
     if info.get("poster"):
         content.append({"type": "image", "data": info["poster"], "mimeType": "image/jpeg"})
