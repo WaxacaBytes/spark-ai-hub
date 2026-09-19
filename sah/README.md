@@ -53,6 +53,7 @@ sah qwen                # launch Qwen Code against the Hub
 sah kimi                # launch Kimi Code CLI against the Hub
 sah muse                # launch Muse Code against the Hub
 sah chatgpt --install         # wire the ChatGPT desktop app to the Hub
+sah opencode-desktop --install  # wire the OpenCode desktop app to the Hub
 sah claude-desktop --install  # wire Claude Desktop to the Hub
 
 sah <client> --install  # configure the plain client to use the Hub, without launching

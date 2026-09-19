@@ -20,11 +20,6 @@ services:
     configs:
       - source: searxng_settings
         target: /etc/searxng/settings.yml
-    # SearXNG logs the full engine URL, query included, whenever an engine
-    # request fails. Keep no container log at all, so no search is ever
-    # written to disk on the Spark.
-    logging:
-      driver: "none"
     restart: unless-stopped
 
 configs:

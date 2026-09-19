@@ -954,6 +954,46 @@ class OpenCode(Integration):
         return (("Picker state", str(self.state_path())),)
 
 
+class OpenCodeDesktop(OpenCode):
+    """OpenCode's desktop app runs OpenCode's own server inside itself, with
+    the environment of the login shell rather than of whoever opened it, so
+    the per-launch OPENCODE_CONFIG_CONTENT of `sah opencode` never reaches it.
+    It does read the global opencode.json, so --install merges the same
+    provider and MCP server into that file, backed up for --restore."""
+    name, display = "opencode-desktop", "OpenCode Desktop"
+    aliases = ("opencode-app",)
+    kind = "Desktop"
+    binary = None
+    launchable = False
+    writes_config = True
+
+    def config_path(self) -> Path:
+        base = os.environ.get("XDG_CONFIG_HOME")
+        return (Path(base) if base else Path.home() / ".config") / "opencode" / "opencode.json"
+
+    def files(self) -> dict[str, Path]:
+        return {"opencode-desktop": self.config_path()}
+
+    def configure(self, model: Model) -> None:
+        cfg = read_json(self.config_path())
+        mine = json.loads(self.inline_config(model))
+        cfg.setdefault("$schema", mine["$schema"])
+        for key in ("provider", "mcp"):
+            section = cfg.get(key) if isinstance(cfg.get(key), dict) else {}
+            cfg[key] = {**section, **mine[key]}
+        cfg["model"] = mine["model"]
+        write_json(self.config_path(), cfg)
+
+    def wired(self) -> bool:
+        provider = (read_json(self.config_path()).get("provider") or {}).get(PROVIDER)
+        options = provider.get("options") if isinstance(provider, dict) else None
+        return isinstance(options, dict) and options.get("baseURL") == api_base()
+
+    def extras(self) -> tuple[tuple[str, str], ...]:
+        return (("Note", "global config: plain `opencode` also uses the Hub until --restore;"
+                         " reopen OpenCode Desktop to load it"),)
+
+
 # ----------------------------------------------------------------------- codex
 
 
@@ -1192,6 +1232,14 @@ class Qwen(Integration):
         model_cfg = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
         model_cfg["name"] = model.name
         cfg["model"] = model_cfg
+
+        servers = cfg.get("mcpServers") if isinstance(cfg.get("mcpServers"), dict) else {}
+        servers[MCP_SERVER] = {
+            "httpUrl": mcp_url(),
+            "headers": mcp_headers(),
+            "timeout": MCP_TOOL_TIMEOUT * 1000,
+        }
+        cfg["mcpServers"] = servers
         write_json(self.config_path(), cfg)
 
     def wired(self) -> bool:
@@ -2505,7 +2553,7 @@ class ClaudeDesktop(Integration):
 # OpenAI-compatible endpoint. Everything here talks to the Hub and nothing else.
 
 INTEGRATIONS: list[Integration] = [
-    Claude(), ChatGPT(), Hermes(), OpenClaw(), OpenCode(), HermesDesktop(), Codex(),
+    Claude(), ChatGPT(), Hermes(), OpenClaw(), OpenCode(), OpenCodeDesktop(), HermesDesktop(), Codex(),
     Copilot(), OMP(), Cline(), Droid(), DeepSeekHarness(), Pi(), Pool(), Qwen(),
     ClaudeDesktop(), Kimi(), Muse(),
 ]
@@ -2575,7 +2623,7 @@ def cmd_mcp(args) -> None:
     kv("Header", f"Authorization: Bearer {API_KEY}")
     kv("Tools", "generate_image, edit_image, list_image_models")
     kv("Tool timeout", f"allow at least {MCP_TOOL_TIMEOUT}s — a render takes minutes")
-    print(f"\nWired automatically by: sah claude, opencode, codex, hermes, openclaw")
+    print(f"\nWired automatically by: sah claude, opencode, opencode-desktop, codex, qwen, hermes, openclaw, dsh")
     print("Any other client (Claude Desktop, osaurus, Cursor, ...):\n")
     print(json.dumps(config, indent=2))
 
