@@ -5,6 +5,7 @@ from daemon.models.recipe import Recipe
 from daemon.services.registry_service import get_recipes, get_recipe, get_recipe_dir
 from daemon.services.docker_service import (
     get_installed_slugs,
+    get_launch_origins,
     is_recipe_running,
     is_ready,
     has_recipe_leftovers,
@@ -31,11 +32,13 @@ def _set_runtime_env_path(recipe: Recipe) -> None:
 async def list_recipes(category: str | None = None, search: str | None = None):
     recipes = list(get_recipes().values())
     installed = await get_installed_slugs()
+    origins = await get_launch_origins()
 
     result = []
     for r in recipes:
         _set_runtime_env_path(r)
         r.installed = r.slug in installed
+        r.launch_origin = origins.get(r.slug, "") if r.calls_hub else ""
         pending = get_pending(r.slug)
         r.error = get_startup_error(r.slug)
         if r.installed:
@@ -80,6 +83,8 @@ async def get_recipe_detail(slug: str):
     _set_runtime_env_path(recipe)
     installed = await get_installed_slugs()
     recipe.installed = slug in installed
+    recipe.launch_origin = ((await get_launch_origins()).get(slug, "")
+                            if recipe.calls_hub else "")
     pending = get_pending(slug)
     recipe.error = get_startup_error(slug)
     if recipe.installed:

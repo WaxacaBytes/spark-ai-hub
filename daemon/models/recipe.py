@@ -242,6 +242,13 @@ class Recipe(BaseModel):
     # Why the last launch died, in words. Set when a container exits before it
     # ever answers its health check; cleared on the next launch.
     error: str | None = None
+    # The Hub address this app was started with. An app that publishes its own
+    # port is told this once, at launch, and keeps handing out links built on
+    # it until it is launched again -- so the card compares it with the address
+    # the page is being read on and says when they have drifted apart. Only
+    # apps that call the Hub back (`calls_hub`) are told an address at all.
+    launch_origin: str = ""
+    calls_hub: bool = False
 
     @property
     def memory_gb(self) -> float:

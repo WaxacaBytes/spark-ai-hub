@@ -69,6 +69,20 @@ def _total_memory_gb() -> float:
     return 0.0
 
 
+def _calls_hub(recipe_dir: Path) -> bool:
+    """True when the app is told where the Hub is (`SAH_HUB_URL` in compose).
+
+    Read here, once, at load: whether an app talks back to the Hub decides
+    whether the address it was launched with is worth mentioning on its card,
+    and the listing is polled far too often to open files for that.
+    """
+    compose = recipe_dir / "docker-compose.yml"
+    try:
+        return "SAH_HUB_URL" in compose.read_text()
+    except OSError:
+        return False
+
+
 def _reserved_from_compose(recipe_dir: Path) -> float:
     """The GiB an engine claims at boot: its reserved fraction of the pool."""
     try:
@@ -97,6 +111,7 @@ def load_recipes() -> dict[str, Recipe]:
                     data.get("context_length") or _context_from_compose(recipe_dir)
                 )
             recipe.reserved_gb = _reserved_from_compose(recipe_dir)
+            recipe.calls_hub = _calls_hub(recipe_dir)
             _recipes[recipe.slug] = recipe
         except Exception as e:
             print(f"[registry] Failed to load {yaml_path}: {e}")

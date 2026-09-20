@@ -577,7 +577,8 @@ async def _prune_orphaned_images() -> str:
     return f"removed {removed} orphaned image(s); dangling layers: {dangling}"
 
 
-async def install_recipe(slug: str, api_key: str | None = None) -> AsyncGenerator[str, None]:
+async def install_recipe(slug: str, api_key: str | None = None,
+                         hub_url: str | None = None) -> AsyncGenerator[str, None]:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
         yield f"[error] Recipe directory not found for {slug}"
@@ -612,7 +613,7 @@ async def install_recipe(slug: str, api_key: str | None = None) -> AsyncGenerato
     rc = None
     # _launch_env() carries the auto-detected HF token, which the build needs
     # to pull gated checkpoints.
-    async for text, code in _stream_proc(cmd, str(recipe_dir), env=_launch_env(api_key)):
+    async for text, code in _stream_proc(cmd, str(recipe_dir), env=_launch_env(api_key, hub_url)):
         if text:
             yield text
         if code is not None:
@@ -628,8 +629,15 @@ async def install_recipe(slug: str, api_key: str | None = None) -> AsyncGenerato
     db = await get_db()
     try:
         await db.execute(
-            "INSERT OR REPLACE INTO installed_recipes (slug, status, compose_project) VALUES (?, 'installed', ?)",
-            (slug, _compose_project(slug)),
+            """INSERT INTO installed_recipes (slug, status, compose_project, launch_origin)
+                    VALUES (?, 'installed', ?, ?)
+               ON CONFLICT(slug) DO UPDATE SET
+                    status = 'installed',
+                    compose_project = excluded.compose_project,
+                    launch_origin = CASE WHEN excluded.launch_origin != ''
+                                         THEN excluded.launch_origin
+                                         ELSE installed_recipes.launch_origin END""",
+            (slug, _compose_project(slug), (hub_url or "").rstrip("/")),
         )
         await db.commit()
     finally:
@@ -643,7 +651,8 @@ async def install_recipe(slug: str, api_key: str | None = None) -> AsyncGenerato
     yield f"[spark-ai-hub] {slug} installed successfully!"
 
 
-async def update_recipe(slug: str, api_key: str | None = None) -> AsyncGenerator[str, None]:
+async def update_recipe(slug: str, api_key: str | None = None,
+                        hub_url: str | None = None) -> AsyncGenerator[str, None]:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
         yield f"[error] Recipe directory not found for {slug}"
@@ -676,7 +685,7 @@ async def update_recipe(slug: str, api_key: str | None = None) -> AsyncGenerator
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=str(recipe_dir),
-            env=_launch_env(api_key),
+            env=_launch_env(api_key, hub_url),
         )
 
         async for line in proc.stdout:
@@ -709,7 +718,7 @@ async def update_recipe(slug: str, api_key: str | None = None) -> AsyncGenerator
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         cwd=str(recipe_dir),
-        env=_launch_env(api_key),
+        env=_launch_env(api_key, hub_url),
     )
 
     async for line in proc.stdout:
@@ -735,7 +744,7 @@ async def update_recipe(slug: str, api_key: str | None = None) -> AsyncGenerator
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         cwd=str(recipe_dir),
-        env=_launch_env(api_key),
+        env=_launch_env(api_key, hub_url),
     )
 
     async for line in proc.stdout:
@@ -754,7 +763,7 @@ async def update_recipe(slug: str, api_key: str | None = None) -> AsyncGenerator
         yield f"[spark-ai-hub] Update failed with exit code {proc.returncode}"
 
 
-def _launch_env(api_key: str | None = None) -> dict:
+def _launch_env(api_key: str | None = None, hub_url: str | None = None) -> dict:
     """Environment for container launches.
 
     Carries the auto-detected HF token, and `SAH_API_KEY` — the key of the
@@ -764,6 +773,16 @@ def _launch_env(api_key: str | None = None) -> dict:
     already able to see the running models instead of waiting for someone to
     paste a key into its settings. The app is then bound to that account: its
     usage is logged there and its generated media is private to it.
+
+    `SAH_HUB_URL` is where that app should call the Hub: the address of the
+    person who pressed Launch, which is the same hostname their "Open" link
+    for the app carries (frontend/src/lib/urls.js). It matters because every
+    URL the Hub prints about itself is built from the address it was asked on
+    — ask on a Docker bridge address and a picture comes back linked to an
+    address that exists only inside Docker. An app published on its own port
+    can be reached at addresses the Hub never sees, so this is the Hub's best
+    answer and not a certain one; `launch_origin` on the app's row is what
+    lets the card say so when the two have drifted apart.
     """
     from daemon.services import hf_token
     env = {**os.environ}
@@ -773,10 +792,13 @@ def _launch_env(api_key: str | None = None) -> dict:
             env["HF_TOKEN"] = token
     if api_key:
         env["SAH_API_KEY"] = api_key
+    if hub_url:
+        env["SAH_HUB_URL"] = hub_url.rstrip("/")
     return env
 
 
-async def launch_recipe(slug: str, on_line=None, api_key: str | None = None) -> str:
+async def launch_recipe(slug: str, on_line=None, api_key: str | None = None,
+                        hub_url: str | None = None) -> str:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
         return f"Recipe directory not found for {slug}"
@@ -796,7 +818,7 @@ async def launch_recipe(slug: str, on_line=None, api_key: str | None = None) -> 
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         cwd=str(recipe_dir),
-        env=_launch_env(api_key),
+        env=_launch_env(api_key, hub_url),
     )
     # Read line by line rather than to EOF: `compose up -d` builds the image
     # inline when it is missing, and on a weights-in-image recipe that is an
@@ -821,8 +843,18 @@ async def launch_recipe(slug: str, on_line=None, api_key: str | None = None) -> 
         db = await get_db()
         try:
             await db.execute(
-                "INSERT OR REPLACE INTO installed_recipes (slug, status, compose_project) VALUES (?, 'installed', ?)",
-                (slug, _compose_project(slug)),
+                # Keep the address a previous launch recorded when this one
+                # came from somewhere with no address to offer (the CLI, a
+                # script): a blank would claim the app agrees with every page.
+                """INSERT INTO installed_recipes (slug, status, compose_project, launch_origin)
+                        VALUES (?, 'installed', ?, ?)
+                   ON CONFLICT(slug) DO UPDATE SET
+                        status = 'installed',
+                        compose_project = excluded.compose_project,
+                        launch_origin = CASE WHEN excluded.launch_origin != ''
+                                             THEN excluded.launch_origin
+                                             ELSE installed_recipes.launch_origin END""",
+                (slug, _compose_project(slug), (hub_url or "").rstrip("/")),
             )
             await db.commit()
         finally:
@@ -1001,6 +1033,17 @@ async def get_container_name(slug: str) -> str | None:
         return names[0] if names else None
     except Exception:
         return None
+
+
+async def get_launch_origins() -> dict[str, str]:
+    """slug -> the Hub address each installed app was last started with."""
+    db = await get_db()
+    try:
+        cursor = await db.execute(
+            "SELECT slug, launch_origin FROM installed_recipes WHERE launch_origin != ''")
+        return {row["slug"]: row["launch_origin"] for row in await cursor.fetchall()}
+    finally:
+        await db.close()
 
 
 async def get_installed_slugs() -> set[str]:
