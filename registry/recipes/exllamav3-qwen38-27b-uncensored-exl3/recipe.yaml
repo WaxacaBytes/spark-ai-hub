@@ -1,0 +1,75 @@
+name: "Qwen3.8-27B Uncensored EXL3 2.75bpw"
+slug: exllamav3-qwen38-27b-uncensored-exl3
+version: "1.0.0"
+description: "OrcaRouter's abliterated (refusal-removed) Qwen3.8-27B as a 2.75 bpw EXL3 quant — 12.3 GB, the smallest uncensored Qwen3.8-27B in the hub — served by ExLlamaV3 through MiaAI Lab's OpenAI-compatible server. Built to run next to an image or video model: the server hard-caps itself at 16 GB and inside that cap keeps the full 262K context (int4 KV), MTP speculative decoding off the checkpoint's own head, the vision tower and tool calling. Community quant; its uploader warns it can fall into token loops. Removes safety refusals the upstream model was trained to have; supply your own guardrails. Requests are served one at a time."
+author: "Alibaba Cloud + OrcaRouter + dr-housemd + MiaAI Lab"
+source: "community"
+website: "https://huggingface.co/orcarouter/Qwen3.8-27B-Uncensored"
+upstream: "https://huggingface.co/dr-housemd/orcarouter-Qwen3.8-27B-Uncensored-exl3-2.75bpw-H4-V4"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - reasoning
+  - coding
+  - uncensored
+  - abliterated
+  - tool-use
+  - exllamav3
+  - exl3
+  - trellis
+  - qwen
+  - speculative-decoding
+  - mtp
+  - long-context
+logo: "/logos/qwen.png"
+requirements:
+  min_memory_gb: 16
+  recommended_memory_gb: 24
+  disk_gb: 30
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8000
+  proxy: true
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 15
+  gpu: true
+status: community-verified
+engine: "ExLlamaV3"
+params_b: 27
+arch: dense
+quantization: "EXL3 2.75bpw"
+speculative_method: "mtp"
+artificial_analysis_index: null
+context_tokens: 262144
+weights_gb: 12.3
+release_date: "2026-08"
+requires_hf_token: false
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-09-16"
+tokens_per_second: 32.3
+tokens_per_second_editing: 48.4
+editing_workload: "code-edit"
+benchmarks:
+  prose: 28.46
+  explainer: 32.47
+  code: 37.17
+  code-edit: 48.4
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "qwen3.8-27b-uncensored-exl3-2.75bpw"
+  api_key: "<API_KEY>"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"qwen3.8-27b-uncensored-exl3-2.75bpw\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}], \"max_tokens\": 2048}'"
+
+cover:
+  image: qwen-27b.jpg
+  caption: "The Qwen capybara writing SQL. Shared by Qwen models of 27B parameters."
+  fit: contain
+  grade: false
+  credit: "cfahlgren1/flux-qwen-capybara — a FLUX.1-dev LoRA recreating the Qwen capybara · FLUX.1-dev non-commercial licence"
+  source: "https://huggingface.co/cfahlgren1/flux-qwen-capybara"

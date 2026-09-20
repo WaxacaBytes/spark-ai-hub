@@ -1,0 +1,73 @@
+name: "Qwen3.8-27B EXL3 2.0bpw"
+slug: exllamav3-qwen38-27b-exl3
+version: "1.0.0"
+description: "Qwen3.8-27B in turboderp's EXL3 2.0 bpw quant — 9.71 GB of weights, the smallest Qwen3.8-27B in the hub — served by ExLlamaV3 through MiaAI Lab's OpenAI-compatible server. Built to run next to an image or video model: the server hard-caps itself at 16 GB, and inside that cap it holds the full 262K context (int4 KV), MTP speculative decoding off the checkpoint's own head, the vision tower and tool calling. EXL3's trellis quantization keeps 2 bpw usable; turboderp rates it 'fair' (mean KL 0.35 vs BF16), so pick an NVFP4 build when the Spark is free and quality matters most. Requests are served one at a time."
+author: "Alibaba Cloud + turboderp + MiaAI Lab"
+source: "community"
+website: "https://huggingface.co/Qwen/Qwen3.8-27B"
+upstream: "https://github.com/MiaAI-Lab/Qwen3.8-27B-16gb-NVIDIA-GPUs-one-click-install"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - reasoning
+  - coding
+  - tool-use
+  - exllamav3
+  - exl3
+  - trellis
+  - qwen
+  - speculative-decoding
+  - mtp
+  - long-context
+logo: "/logos/qwen.png"
+requirements:
+  min_memory_gb: 16
+  recommended_memory_gb: 24
+  disk_gb: 30
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8000
+  proxy: true
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 15
+  gpu: true
+status: community-verified
+engine: "ExLlamaV3"
+params_b: 27
+arch: dense
+quantization: "EXL3 2.0bpw"
+speculative_method: "mtp"
+artificial_analysis_index: null
+context_tokens: 262144
+weights_gb: 9.7
+release_date: "2026-08"
+requires_hf_token: false
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-09-16"
+tokens_per_second: 31.8
+tokens_per_second_editing: 46.2
+editing_workload: "code-edit"
+benchmarks:
+  prose: 31.16
+  explainer: 30.97
+  code: 34.51
+  code-edit: 46.2
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "qwen3.8-27b-exl3-2.0bpw"
+  api_key: "<API_KEY>"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"qwen3.8-27b-exl3-2.0bpw\", \"messages\": [{\"role\": \"user\", \"content\": \"Hello\"}], \"max_tokens\": 2048}'"
+
+cover:
+  image: qwen-27b.jpg
+  caption: "The Qwen capybara writing SQL. Shared by Qwen models of 27B parameters."
+  fit: contain
+  grade: false
+  credit: "cfahlgren1/flux-qwen-capybara — a FLUX.1-dev LoRA recreating the Qwen capybara · FLUX.1-dev non-commercial licence"
+  source: "https://huggingface.co/cfahlgren1/flux-qwen-capybara"

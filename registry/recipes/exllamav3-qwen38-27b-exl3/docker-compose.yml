@@ -1,0 +1,130 @@
+services:
+  exllamav3:
+    # Qwen3.8-27B as turboderp's EXL3 2.0 bpw quant (SC_2.00bpw_H3_V3, 9.71 GB),
+    # served by ExLlamaV3 through MiaAI Lab's OpenAI-compatible server:
+    #   https://x.com/MiaAI_lab/status/2098712719956361351
+    #   https://github.com/MiaAI-Lab/Qwen3.8-27B-16gb-NVIDIA-GPUs-one-click-install
+    #
+    # Built to share the Spark with an image or video model: the server hard-caps
+    # its own CUDA allocation (--grid_size) so it behaves like a 16 GB card, and
+    # everything it needs - weights, int4 KV for the full 262K context, the MTP
+    # draft cache and the vision tower - fits under that cap.
+    #
+    # Weights come from turboderp's own repo by revision. Mia's
+    # Mia-AiLab/Qwen3.8-27B-EXL3-2.0bpw is a mirror of this exact branch.
+    #
+    # There is no stock aarch64 image for ExLlamaV3 (TabbyAPI's is amd64 only)
+    # and turboderp publishes no aarch64 wheel; the v1.4.4 source does not
+    # compile on ARM either (avx2_target.cpp calls __builtin_cpu_supports
+    # unguarded). The engine is instead the prebuilt cp312/aarch64 exllamav3
+    # 1.4.4 wheel from vcruz305's Spark wheel set - the same pinned wheel the
+    # vllm-glm53-flash-exl3-k2 recipe runs on. Nothing compiles here or at launch.
+    image: spark-ai-hub/exllamav3-qwen38-27b-exl3:exllamav3-1.4.4
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        # --- server stage ----------------------------------------------------
+        # Mia's server, pinned to one commit. Only serve_openai.py is used; it
+        # imports nothing else from the kit.
+        FROM alpine/git:latest AS server
+        RUN git clone https://github.com/MiaAI-Lab/Qwen3.8-27B-16gb-NVIDIA-GPUs-one-click-install /kit \
+         && git -C /kit checkout 622c7965ed5e02a13b188c9ef21bb9857fd2ba28
+
+        # --- engine stage ----------------------------------------------------
+        # Downloads one prebuilt wheel; no CUDA compile.
+        FROM python:3.12-slim AS engine
+        ENV HF_HUB_DISABLE_XET=1
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('vcruz305/GLM-5.3-Flash-EXL3-K2-spark-vllm', 'exllamav3-1.4.4-cp312-cp312-linux_aarch64.whl', revision='4c2348f756013024a95462caf14b6fd68b8a35a6', local_dir='/wheels')"
+
+        # --- weights stage ---------------------------------------------------
+        # Baked into the image, so `docker rmi` reclaims every byte.
+        FROM python:3.12-slim AS weights
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=30
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('turboderp/Qwen3.8-27B-exl3', revision='e5e1f4b37c77641e465e24adf5f44d01bdd48de2', local_dir='/weights', ignore_patterns=['.gitattributes'])"
+
+        # --- runtime stage ---------------------------------------------------
+        # CUDA 13.0 devel: flash-linear-attention's Triton kernels (the Gated
+        # DeltaNet layers) JIT-compile at first use and need a compiler.
+        FROM nvidia/cuda:13.0.3-devel-ubuntu24.04
+        ENV DEBIAN_FRONTEND=noninteractive
+        RUN apt-get update && apt-get install -y --no-install-recommends \
+              python3.12 python3.12-venv python3.12-dev python3-pip \
+              build-essential ca-certificates \
+         && rm -rf /var/lib/apt/lists/*
+        RUN python3.12 -m venv /opt/venv
+        ENV PATH=/opt/venv/bin:/usr/local/cuda/bin:$PATH
+        RUN pip install --no-cache-dir --upgrade pip setuptools wheel ninja \
+         && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu130 \
+              "torch==2.13.0+cu130"
+        # ExLlamaV3 1.4.4 - the exact version Mia's launcher checks for, and
+        # the first that decodes the quantized vision tower correctly.
+        RUN --mount=type=bind,from=engine,source=/wheels,target=/wheels \
+            pip install --no-cache-dir /wheels/exllamav3-1.4.4-cp312-cp312-linux_aarch64.whl
+        RUN pip install --no-cache-dir aiohttp pillow
+        COPY --from=server /kit/tools/serve_openai.py /app/serve_openai.py
+        COPY --from=weights /weights /models/Qwen3.8-27B-EXL3-2.0bpw
+        RUN python -c "import exllamav3, exllamav3_ext; from exllamav3.version import __version__ as v; print('exllamav3', v)"
+    container_name: spark-ai-hub-exllamav3-qwen38-27b-exl3
+    networks:
+      - spark-ai-hub-net
+    ipc: host
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    working_dir: /app
+    command:
+      - python
+      - -u
+      - /app/serve_openai.py
+      - --model
+      - /models/Qwen3.8-27B-EXL3-2.0bpw
+      - --model_id
+      - qwen3.8-27b-exl3-2.0bpw
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      # Memory budget in GB: autosplit size AND a hard per-process CUDA cap, so
+      # this server never grows past it and leaves the rest of the Spark to
+      # whatever else is running. Mia's planner puts 2.0 bpw at 262K with
+      # images at 14.6 GB.
+      - --grid_size
+      - "16"
+      # Full native context. Must be a multiple of 256.
+      - --cache_size
+      - "262144"
+      # int4 KV - Mia's measured default on every profile, within 0.001 KL of fp16.
+      - --cache_quant
+      - "4"
+      # Speculative decoding off the checkpoint's own MTP head; no extra weights.
+      - --draft_model
+      - mtp
+      - --vision
+      - auto
+      # API only: no landing page for a chat harness this image does not ship.
+      - --ui
+      - "off"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: on-failure:1
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true
