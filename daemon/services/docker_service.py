@@ -577,7 +577,8 @@ async def _prune_orphaned_images() -> str:
     return f"removed {removed} orphaned image(s); dangling layers: {dangling}"
 
 
-async def install_recipe(slug: str, api_key: str | None = None) -> AsyncGenerator[str, None]:
+async def install_recipe(slug: str, api_key: str | None = None,
+                         hub_url: str | None = None) -> AsyncGenerator[str, None]:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
         yield f"[error] Recipe directory not found for {slug}"
@@ -612,7 +613,7 @@ async def install_recipe(slug: str, api_key: str | None = None) -> AsyncGenerato
     rc = None
     # _launch_env() carries the auto-detected HF token, which the build needs
     # to pull gated checkpoints.
-    async for text, code in _stream_proc(cmd, str(recipe_dir), env=_launch_env(api_key)):
+    async for text, code in _stream_proc(cmd, str(recipe_dir), env=_launch_env(api_key, hub_url)):
         if text:
             yield text
         if code is not None:
@@ -643,7 +644,8 @@ async def install_recipe(slug: str, api_key: str | None = None) -> AsyncGenerato
     yield f"[spark-ai-hub] {slug} installed successfully!"
 
 
-async def update_recipe(slug: str, api_key: str | None = None) -> AsyncGenerator[str, None]:
+async def update_recipe(slug: str, api_key: str | None = None,
+                        hub_url: str | None = None) -> AsyncGenerator[str, None]:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
         yield f"[error] Recipe directory not found for {slug}"
@@ -676,7 +678,7 @@ async def update_recipe(slug: str, api_key: str | None = None) -> AsyncGenerator
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=str(recipe_dir),
-            env=_launch_env(api_key),
+            env=_launch_env(api_key, hub_url),
         )
 
         async for line in proc.stdout:
@@ -709,7 +711,7 @@ async def update_recipe(slug: str, api_key: str | None = None) -> AsyncGenerator
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         cwd=str(recipe_dir),
-        env=_launch_env(api_key),
+        env=_launch_env(api_key, hub_url),
     )
 
     async for line in proc.stdout:
@@ -735,7 +737,7 @@ async def update_recipe(slug: str, api_key: str | None = None) -> AsyncGenerator
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         cwd=str(recipe_dir),
-        env=_launch_env(api_key),
+        env=_launch_env(api_key, hub_url),
     )
 
     async for line in proc.stdout:
@@ -754,7 +756,7 @@ async def update_recipe(slug: str, api_key: str | None = None) -> AsyncGenerator
         yield f"[spark-ai-hub] Update failed with exit code {proc.returncode}"
 
 
-def _launch_env(api_key: str | None = None) -> dict:
+def _launch_env(api_key: str | None = None, hub_url: str | None = None) -> dict:
     """Environment for container launches.
 
     Carries the auto-detected HF token, and `SAH_API_KEY` — the key of the
@@ -764,6 +766,13 @@ def _launch_env(api_key: str | None = None) -> dict:
     already able to see the running models instead of waiting for someone to
     paste a key into its settings. The app is then bound to that account: its
     usage is logged there and its generated media is private to it.
+
+    `SAH_HUB_URL` is where that app should call the Hub: the address of the
+    person who pressed Launch, which is the same hostname their "Open" link
+    for the app carries (frontend/src/lib/urls.js). Every URL the Hub prints
+    about itself is built from the address it was asked on, so an app that
+    asks on the docker bridge address gets pictures linked to that address —
+    which exists only inside Docker, and is a broken image in the app's chat.
     """
     from daemon.services import hf_token
     env = {**os.environ}
@@ -773,10 +782,13 @@ def _launch_env(api_key: str | None = None) -> dict:
             env["HF_TOKEN"] = token
     if api_key:
         env["SAH_API_KEY"] = api_key
+    if hub_url:
+        env["SAH_HUB_URL"] = hub_url.rstrip("/")
     return env
 
 
-async def launch_recipe(slug: str, on_line=None, api_key: str | None = None) -> str:
+async def launch_recipe(slug: str, on_line=None, api_key: str | None = None,
+                        hub_url: str | None = None) -> str:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
         return f"Recipe directory not found for {slug}"
@@ -796,7 +808,7 @@ async def launch_recipe(slug: str, on_line=None, api_key: str | None = None) -> 
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         cwd=str(recipe_dir),
-        env=_launch_env(api_key),
+        env=_launch_env(api_key, hub_url),
     )
     # Read line by line rather than to EOF: `compose up -d` builds the image
     # inline when it is missing, and on a weights-in-image recipe that is an
