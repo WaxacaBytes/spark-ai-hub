@@ -3,7 +3,6 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { formatParams, openUrl } from '../components/RecipeCard'
-import HubAddressNotice from '../components/HubAddressNotice'
 import { fillPlaceholders, hubOrigin } from '../lib/urls'
 import { hasSecret, maskIn } from '../lib/secret'
 import { useApiKey } from '../hooks/useApiKey'
@@ -336,7 +335,6 @@ function RecipeDetailPage({ slug }) {
                     Open ↗
                   </a>
                 )}
-                <HubAddressNotice recipe={recipe} className="basis-full" />
                 <button disabled={stopping} onClick={handleStop} className="px-4 py-2.5 bg-surface-high text-text-muted border-none rounded-xl text-sm font-semibold cursor-pointer disabled:opacity-50">
                   {stopping ? '...' : '■ Stop'}
                 </button>

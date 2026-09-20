@@ -4,10 +4,9 @@ import subprocess
 from pathlib import Path
 
 _ANSI_RE = re.compile(r'\x1b\[[^A-Za-z]*[A-Za-z]')
-from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
-from daemon.services.connect_service import request_origin
 from daemon.services.docker_service import (
     install_recipe,
     update_recipe,
@@ -41,7 +40,7 @@ _builds: dict[str, dict] = {}
 
 
 @router.post("/api/recipes/{slug}/install")
-async def install(slug: str, request: Request, user: dict = Depends(current_user)):
+async def install(slug: str, user: dict = Depends(current_user)):
     recipe = get_recipe(slug)
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
@@ -56,8 +55,7 @@ async def install(slug: str, request: Request, user: dict = Depends(current_user
 
     async def _run_build():
         try:
-            async for line in install_recipe(slug, api_key=user.get("api_key"),
-                                             hub_url=request_origin(request)):
+            async for line in install_recipe(slug, api_key=user.get("api_key")):
                 _builds[slug]["lines"].append(line)
         except Exception as e:
             _builds[slug]["lines"].append(f"[error] {e}")
@@ -70,7 +68,7 @@ async def install(slug: str, request: Request, user: dict = Depends(current_user
 
 
 @router.post("/api/recipes/{slug}/update")
-async def update(slug: str, request: Request, user: dict = Depends(current_user)):
+async def update(slug: str, user: dict = Depends(current_user)):
     recipe = get_recipe(slug)
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
@@ -83,8 +81,7 @@ async def update(slug: str, request: Request, user: dict = Depends(current_user)
 
     async def _run_update():
         try:
-            async for line in update_recipe(slug, api_key=user.get("api_key"),
-                                            hub_url=request_origin(request)):
+            async for line in update_recipe(slug, api_key=user.get("api_key")):
                 _builds[slug]["lines"].append(line)
         except Exception as e:
             _builds[slug]["lines"].append(f"[error] {e}")
@@ -135,7 +132,7 @@ async def launch_plan(slug: str):
 
 
 @router.post("/api/recipes/{slug}/launch")
-async def launch(slug: str, request: Request, user: dict = Depends(current_user)):
+async def launch(slug: str, user: dict = Depends(current_user)):
     recipe = get_recipe(slug)
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
@@ -154,8 +151,7 @@ async def launch(slug: str, request: Request, user: dict = Depends(current_user)
         _builds[slug] = {"lines": [], "done": False}
         on_line = _builds[slug]["lines"].append
     try:
-        result = await launch_recipe(slug, on_line=on_line, api_key=user.get("api_key"),
-                                     hub_url=request_origin(request))
+        result = await launch_recipe(slug, on_line=on_line, api_key=user.get("api_key"))
     finally:
         if on_line is not None:
             _builds[slug]["done"] = True

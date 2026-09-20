@@ -8,12 +8,7 @@ CREATE TABLE IF NOT EXISTS installed_recipes (
     slug TEXT PRIMARY KEY,
     status TEXT NOT NULL DEFAULT 'installed',
     installed_at TEXT NOT NULL DEFAULT (datetime('now')),
-    compose_project TEXT,
-    -- The Hub address this app was last started with (SAH_HUB_URL). An app on
-    -- its own port cannot be told a new one without a restart, so the Hub
-    -- keeps it to say, on the app's card, when you are on a different address
-    -- than the links it is handing out.
-    launch_origin TEXT NOT NULL DEFAULT ''
+    compose_project TEXT
 );
 
 -- Accounts. The first account ever created is the admin and is active
@@ -129,7 +124,6 @@ async def get_db() -> aiosqlite.Connection:
 # ignores them in CREATE TABLE IF NOT EXISTS, so they are added here once.
 ADDED_COLUMNS = [
     ("media", "model", "TEXT NOT NULL DEFAULT ''"),
-    ("installed_recipes", "launch_origin", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 

@@ -4,7 +4,6 @@ import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { speedLabel } from '../models'
 import { openUrl } from '../lib/urls'
-import HubAddressNotice from './HubAddressNotice'
 
 // Where "Open" points. Lives in lib/urls.js with everything else the Hub says
 // about its own address; re-exported here because ModelList, PosterCard,
@@ -165,8 +164,6 @@ export default function RecipeCard({ recipe, hideCategories = false, highlight =
           )}
         </div>
       </div>
-
-      {!isBusy && <HubAddressNotice recipe={recipe} className="mt-3" />}
     </Link>
   )
 }

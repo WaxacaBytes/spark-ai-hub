@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { openUrl } from '../components/RecipeCard'
-import HubAddressNotice from '../components/HubAddressNotice'
 
 export default function Running() {
   const recipes = useStore((s) => s.recipes)
@@ -187,7 +186,6 @@ function RunningCard({ recipe, onSelect, onStop }) {
           </button>
         </div>
       </div>
-      <HubAddressNotice recipe={recipe} className="mt-3" />
     </div>
   )
 }
