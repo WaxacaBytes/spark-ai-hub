@@ -577,7 +577,7 @@ async def _prune_orphaned_images() -> str:
     return f"removed {removed} orphaned image(s); dangling layers: {dangling}"
 
 
-async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
+async def install_recipe(slug: str, api_key: str | None = None) -> AsyncGenerator[str, None]:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
         yield f"[error] Recipe directory not found for {slug}"
@@ -612,7 +612,7 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
     rc = None
     # _launch_env() carries the auto-detected HF token, which the build needs
     # to pull gated checkpoints.
-    async for text, code in _stream_proc(cmd, str(recipe_dir), env=_launch_env()):
+    async for text, code in _stream_proc(cmd, str(recipe_dir), env=_launch_env(api_key)):
         if text:
             yield text
         if code is not None:
@@ -643,7 +643,7 @@ async def install_recipe(slug: str) -> AsyncGenerator[str, None]:
     yield f"[spark-ai-hub] {slug} installed successfully!"
 
 
-async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
+async def update_recipe(slug: str, api_key: str | None = None) -> AsyncGenerator[str, None]:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
         yield f"[error] Recipe directory not found for {slug}"
@@ -676,7 +676,7 @@ async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd=str(recipe_dir),
-            env=_launch_env(),
+            env=_launch_env(api_key),
         )
 
         async for line in proc.stdout:
@@ -709,7 +709,7 @@ async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         cwd=str(recipe_dir),
-        env=_launch_env(),
+        env=_launch_env(api_key),
     )
 
     async for line in proc.stdout:
@@ -735,7 +735,7 @@ async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         cwd=str(recipe_dir),
-        env=_launch_env(),
+        env=_launch_env(api_key),
     )
 
     async for line in proc.stdout:
@@ -754,18 +754,29 @@ async def update_recipe(slug: str) -> AsyncGenerator[str, None]:
         yield f"[spark-ai-hub] Update failed with exit code {proc.returncode}"
 
 
-def _launch_env() -> dict:
-    """Environment for container launches, with auto-detected HF token."""
+def _launch_env(api_key: str | None = None) -> dict:
+    """Environment for container launches.
+
+    Carries the auto-detected HF token, and `SAH_API_KEY` — the key of the
+    account that asked for the launch. Recipes whose app talks back to the
+    Hub's own `/v1` or `/mcp` (Open WebUI, for one) read it as
+    `${SAH_API_KEY:-not-needed}` in their compose file, so the app comes up
+    already able to see the running models instead of waiting for someone to
+    paste a key into its settings. The app is then bound to that account: its
+    usage is logged there and its generated media is private to it.
+    """
     from daemon.services import hf_token
     env = {**os.environ}
     if not env.get("HF_TOKEN"):
         token = hf_token.read_token()
         if token:
             env["HF_TOKEN"] = token
+    if api_key:
+        env["SAH_API_KEY"] = api_key
     return env
 
 
-async def launch_recipe(slug: str, on_line=None) -> str:
+async def launch_recipe(slug: str, on_line=None, api_key: str | None = None) -> str:
     recipe_dir = get_recipe_dir(slug)
     if not recipe_dir:
         return f"Recipe directory not found for {slug}"
@@ -785,7 +796,7 @@ async def launch_recipe(slug: str, on_line=None) -> str:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         cwd=str(recipe_dir),
-        env=_launch_env(),
+        env=_launch_env(api_key),
     )
     # Read line by line rather than to EOF: `compose up -d` builds the image
     # inline when it is missing, and on a weights-in-image recipe that is an

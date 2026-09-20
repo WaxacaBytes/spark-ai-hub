@@ -436,7 +436,7 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             return await _link_tool(name, args, origin, user)
         if name == "start_model":
             wait = _int(args, "wait_seconds")
-            return await _start_model(args, 120 if wait is None else wait, on_progress)
+            return await _start_model(args, 120 if wait is None else wait, on_progress, user)
         if name == "stop_model":
             return await _stop_model(args)
         if name == "generate_music":
@@ -573,7 +573,7 @@ async def _check_memory(slug: str) -> None:
     raise image_service.ImageError(" ".join(lines))
 
 
-async def _start_model(args: dict, wait: int, on_progress=None) -> dict:
+async def _start_model(args: dict, wait: int, on_progress=None, user: dict | None = None) -> dict:
     slug = await _media_model(args)
     async with _start_lock:
         if not await is_recipe_running(slug) and get_pending(slug) != "launching":
@@ -581,7 +581,7 @@ async def _start_model(args: dict, wait: int, on_progress=None) -> dict:
             if on_progress:
                 on_progress(f"starting {slug}")
             try:
-                await containers.launch(slug)
+                await containers.launch(slug, user=user or {})
             except HTTPException as exc:
                 raise image_service.ImageError(
                     f"{slug} failed to launch: {str(exc.detail)[-500:]}") from None

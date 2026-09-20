@@ -901,7 +901,7 @@ class StartStopModelTests(unittest.TestCase):
         }
         self.running = {"img-small", "llm"}
         self.ready = {"img-small", "llm"}
-        self.launch = mock.AsyncMock(side_effect=lambda slug: self.running.add(slug))
+        self.launch = mock.AsyncMock(side_effect=lambda slug, user=None: self.running.add(slug))
         self.stop = mock.AsyncMock(side_effect=lambda slug: (self.running.discard(slug),
                                                              {"status": "stopped"})[1])
         get_recipes = mock.Mock(return_value=self.recipes)
@@ -965,7 +965,7 @@ class StartStopModelTests(unittest.TestCase):
         self.running.discard("img-small")
         self.ready.discard("img-small")
         pending = self.call("start_model", model="img-small", wait_seconds=0)
-        self.launch.assert_awaited_once_with("img-small")
+        self.launch.assert_awaited_once_with("img-small", user=OWNER)
         self.assertFalse(pending["isError"])
         self.assertEqual(pending["structuredContent"]["next_call"],
                          {"tool": "start_model", "arguments": {"model": "img-small"}})

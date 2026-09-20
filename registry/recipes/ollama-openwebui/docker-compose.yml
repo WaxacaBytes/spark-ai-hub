@@ -21,12 +21,22 @@ services:
     volumes:
       - openwebui-data:/app/backend/data
     environment:
-      - OLLAMA_BASE_URLS=http://host.docker.internal:11435;http://ollama:11434;http://172.17.0.1:11434
-      # The Hub's /v1 serves every running model and takes a Hub API key: put
-      # yours (Hub → Account) on this connection under Admin Settings →
-      # Connections after the first start.
+      - OLLAMA_BASE_URLS=http://ollama:11434;http://172.17.0.1:11434
+      # The Hub's /v1 serves every running model, and its /mcp adds image,
+      # video, music and private web search as chat tools. Both take a Hub API
+      # key: the Hub puts the key of whoever launches this app into
+      # SAH_API_KEY, so the connection and the tool server work on first start.
+      # This app therefore acts as that account: its usage is logged there and
+      # what it generates is private to it.
       - OPENAI_API_BASE_URLS=http://172.17.0.1:9000/v1;http://172.17.0.1:1234/v1
-      - OPENAI_API_KEYS=not-needed;not-needed
+      - OPENAI_API_KEYS=${SAH_API_KEY:-not-needed};not-needed
+      - TOOL_SERVER_CONNECTIONS=[{"url":"http://172.17.0.1:9000/mcp","path":"","type":"mcp","auth_type":"bearer","key":"${SAH_API_KEY:-not-needed}","config":{"enable":true},"info":{"id":"sah","name":"Spark AI Hub"}}]
+      # A tool server is listed but switched OFF in every new chat unless a
+      # model carries it in meta.toolIds, and a model served over a connection
+      # has no such entry — so without this the model never sees the tools.
+      # Clear it in Admin Settings → Models → Default Metadata to go back to
+      # per-chat toggling.
+      - DEFAULT_MODEL_METADATA={"toolIds":["server:mcp:sah"]}
     deploy:
       resources:
         reservations:
