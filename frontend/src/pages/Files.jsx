@@ -8,7 +8,8 @@ import { copyText } from '../lib/clipboard'
  * expires on its own; this page is where people see what they have, download
  * what they want to keep, delete the rest, and upload a local file to get a
  * link the tools accept. /upload lands here too. Only the signed-in account's
- * own files are ever listed, admins included. */
+ * own files are ever listed, admins included. Each result carries the model
+ * that made it, so a picture worth repeating can be traced back to one. */
 
 const FILTERS = [
   { id: 'all', label: 'All', test: () => true },
@@ -258,6 +259,9 @@ function FileCard({ file, picked, selecting, onToggle, onDelete }) {
           )}
           <span className="text-xs text-text-dim font-label ml-auto">{size(file.bytes)}</span>
         </div>
+        {file.model && (
+          <div className="text-xs text-text-muted truncate" title={file.model}>{file.model}</div>
+        )}
         <div className="text-xs text-text-dim">{when(file.created)}</div>
         <div className="text-[11px] text-text-dim font-label">{expiry(file.expires_at)}</div>
       </div>

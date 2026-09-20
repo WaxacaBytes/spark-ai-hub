@@ -89,11 +89,14 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_user ON oauth_tokens(user_id);
 
 -- Owner of each generated image/video/song and each upload, by file name
--- ('<32 hex>.png'). Media is private to its owner (daemon/services/media_store.py).
+-- ('<32 hex>.png'), and the recipe slug of the model that made it (empty for
+-- an upload, and for results from before this was recorded). Media is private
+-- to its owner (daemon/services/media_store.py).
 CREATE TABLE IF NOT EXISTS media (
     name TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    model TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_media_user ON media(user_id);
 
@@ -117,7 +120,18 @@ async def get_db() -> aiosqlite.Connection:
     return db
 
 
+# Columns added to a table that already exists in someone's database. SQLite
+# ignores them in CREATE TABLE IF NOT EXISTS, so they are added here once.
+ADDED_COLUMNS = [
+    ("media", "model", "TEXT NOT NULL DEFAULT ''"),
+]
+
+
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.executescript(SCHEMA)
+        for table, column, spec in ADDED_COLUMNS:
+            rows = await (await db.execute(f"PRAGMA table_info({table})")).fetchall()
+            if column not in {row[1] for row in rows}:
+                await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {spec}")
         await db.commit()

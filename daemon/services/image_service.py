@@ -508,7 +508,7 @@ async def run(kind: str, params: Params, images: list[str], model: str | None,
                 on_progress(f"rendering on {backend.slug}")
             raw = await _render(session, backend, kind, params, inputs, seed)
     result = await asyncio.to_thread(store, raw, backend.slug, seed)
-    await media_store.record(f"{result.image_id}.png", user and user["id"])
+    await media_store.record(f"{result.image_id}.png", user and user["id"], backend.slug)
     result.steps = params.steps
     result.preset = getattr(backend.defaults, "preset", None)
     return result

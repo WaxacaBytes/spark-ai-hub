@@ -28,14 +28,15 @@ RESULT_TTL = 30 * DAY
 UPLOAD_TTL = 7 * DAY
 
 
-async def record(name: str, user_id: int | None) -> None:
-    """Note that account `user_id` made the file <name> (e.g. '<32 hex>.png')."""
+async def record(name: str, user_id: int | None, model: str = "") -> None:
+    """Note that account `user_id` made the file <name> (e.g. '<32 hex>.png')
+    with the model `model` (a recipe slug; empty for an upload)."""
     if user_id is None:
         return
     db = await get_db()
     try:
-        await db.execute("INSERT OR REPLACE INTO media (name, user_id) VALUES (?, ?)",
-                         (name, user_id))
+        await db.execute("INSERT OR REPLACE INTO media (name, user_id, model) VALUES (?, ?, ?)",
+                         (name, user_id, model))
         await db.commit()
     finally:
         await db.close()
@@ -113,13 +114,24 @@ def find(name: str) -> Path | None:
     return None
 
 
-async def _owners() -> dict[str, int]:
+async def _rows() -> dict[str, dict]:
     db = await get_db()
     try:
-        rows = await (await db.execute("SELECT name, user_id FROM media")).fetchall()
+        rows = await (await db.execute("SELECT name, user_id, model FROM media")).fetchall()
     finally:
         await db.close()
-    return {row["name"]: row["user_id"] for row in rows}
+    return {row["name"]: row for row in rows}
+
+
+def _model_label(slug: str) -> str:
+    """What the file's model is called on the page: the recipe's own name when
+    the catalog still has it, else the slug it was made with."""
+    if not slug:
+        return ""
+    # Imported here: the registry loads the recipes at startup.
+    from daemon.services.registry_service import get_recipe
+    recipe = get_recipe(slug)
+    return recipe.name if recipe else slug
 
 
 def _visible(owner: int | None, user: dict | None) -> bool:
@@ -133,12 +145,13 @@ def _visible(owner: int | None, user: dict | None) -> bool:
 
 async def list_files(user: dict | None) -> list[dict]:
     """`user`'s own files, newest first."""
-    entries, owners = await asyncio.to_thread(_entries), await _owners()
+    entries, rows = await asyncio.to_thread(_entries), await _rows()
     files = []
     for entry in entries:
-        owner = owners.get(entry["name"])
-        if _visible(owner, user):
+        row = rows.get(entry["name"])
+        if _visible(row["user_id"] if row else None, user):
             entry.pop("_file")
+            entry["model"] = _model_label(row["model"] if row else "")
             files.append(entry)
     return sorted(files, key=lambda e: e["created"], reverse=True)
 

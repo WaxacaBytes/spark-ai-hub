@@ -337,7 +337,7 @@ async def check(job_id: str, wait: int = 0, on_progress=None, user: dict | None 
                         async for chunk in r.content.iter_chunked(1 << 20):
                             f.write(chunk)
                 job["video_id"] = video_id
-                await media_store.record(f"{video_id}.mp4", job.get("user_id"))
+                await media_store.record(f"{video_id}.mp4", job.get("user_id"), job["slug"])
                 job["poster"] = await asyncio.to_thread(poster_jpeg_b64, path)
                 job["inference_time_s"] = remote.get("inference_time_s")
                 return {**base, "status": "completed", "video_id": video_id,

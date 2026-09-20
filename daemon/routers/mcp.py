@@ -448,7 +448,7 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
                 lyrics=lyrics, style=style, seconds=_int(args, "seconds"), seed=_int(args, "seed"),
                 model=str(args.get("model") or "").strip() or None, on_progress=on_progress,
             )
-            await media_store.record(f"{info['audio_id']}.wav", user and user["id"])
+            await media_store.record(f"{info['audio_id']}.wav", user and user["id"], info["model"])
             url = f"{origin}{audio_service.PUBLIC_PREFIX}/{info['audio_id']}.wav"
             lines = [f"Music: {url}", f"Model: {info['model']}",
                      f"Length: {info['seconds']}s", f"Seed: {info['seed']}"]
