@@ -28,6 +28,208 @@ _health_tasks: dict[str, asyncio.Task] = {}
 # Track in-flight actions to prevent wrong states during transitions
 # slug -> "launching" | "stopping" | "installing"
 _pending_actions: dict[str, str] = {}
+# Why the last launch of a slug died, in words a user can act on. Set by the
+# health check when a container exits before it ever answers, cleared when the
+# same slug is launched again. slug -> message
+_startup_errors: dict[str, str] = {}
+
+
+def set_startup_error(slug: str, message: str):
+    _startup_errors[slug] = message
+
+
+def get_startup_error(slug: str) -> str | None:
+    return _startup_errors.get(slug)
+
+
+# The log tail of the last failed launch, kept because stopping the app runs
+# `compose down`, which deletes the container and with it the only copy of the
+# output that explains the failure. slug -> lines
+_last_failure_logs: dict[str, list[str]] = {}
+
+
+def clear_startup_error(slug: str):
+    _startup_errors.pop(slug, None)
+    _last_failure_logs.pop(slug, None)
+
+
+def get_last_failure_logs(slug: str) -> list[str]:
+    return _last_failure_logs.get(slug, [])
+
+
+async def get_any_container_name(slug: str) -> str | None:
+    """This recipe's container, running OR exited.
+
+    get_container_name() goes through `docker compose ps`, which lists only
+    running containers. That is right for "is it up?" and wrong for "why did
+    it die?" -- it is what left the log view showing "Container not running"
+    over a black screen at the exact moment there was something to read.
+    """
+    project = _compose_project(slug)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "ps", "-a",
+            "--filter", f"label=com.docker.compose.project={project}",
+            "--format", "{{.Names}}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        names = [n for n in stdout.decode().strip().splitlines() if n]
+        return names[0] if names else None
+    except Exception:
+        return None
+
+
+# ── Startup failure classification ──────────────────────────────────────────
+# A container that exits during model load leaves its reason in a Python
+# traceback that is hundreds of lines long, and the UI previously showed
+# nothing at all: `compose up -d` returns 0 the moment the container is
+# created, so a launch that dies 30 seconds later still read as "starting"
+# until the 5-minute health check quietly gave up. The single most common
+# cause on this box is by far the most confusing one -- the engine refuses to
+# start because the driver reports less FREE memory than the recipe asked for,
+# which on a unified-memory Spark usually means page cache and other apps, not
+# a model that is genuinely too big. Name that case explicitly.
+
+# vLLM: "Free memory on device cuda:0 (94.49/121.69 GiB) on startup is less
+# than desired GPU memory utilization (0.93, 113.17 GiB)."
+_VLLM_FREE_MEM_RE = re.compile(
+    r"Free memory on device \S+ \(([\d.]+)/([\d.]+) GiB\) on startup is less "
+    r"than desired GPU memory utilization \(([\d.]+), ([\d.]+) GiB\)"
+)
+
+# The generic allocator failure, once loading is already under way.
+_CUDA_OOM_RE = re.compile(r"CUDA out of memory|torch\.OutOfMemoryError|cudaErrorMemoryAllocation")
+
+# The KV cache check, which fails after weights are resident.
+_KV_CACHE_RE = re.compile(
+    r"To serve at least one request with the models's max seq len"
+    r"|No available memory for the cache blocks"
+)
+
+
+def classify_startup_failure(logs: str) -> str | None:
+    """Turn a dead container's logs into one actionable sentence.
+
+    Returns None when the failure is not one we recognise, so the caller can
+    fall back to showing the raw tail rather than inventing a cause.
+    """
+    m = _VLLM_FREE_MEM_RE.search(logs)
+    if m:
+        free, total, util, wanted = m.groups()
+        short = float(wanted) - float(free)
+        return (
+            f"Not enough free memory to start. The engine asked for {wanted} GiB "
+            f"({util} of {total} GiB) but only {free} GiB was free -- "
+            f"{short:.2f} GiB short. CPU and GPU share one memory pool on this "
+            f"machine, and this check counts only memory that is free right "
+            f"now: cached file data and the driver's own reserve count against "
+            f"it, so it can fail even with no other app running. Stop any other "
+            f"running app, or lower GPU_MEMORY_UTILIZATION in this recipe's "
+            f"docker-compose.yml."
+        )
+    if _KV_CACHE_RE.search(logs):
+        return (
+            "Not enough free memory for the context window. The weights loaded "
+            "but there was no room left for the KV cache. Lower MAX_MODEL_LEN "
+            "or MAX_NUM_SEQS in this recipe's docker-compose.yml, or stop "
+            "another running app and launch again."
+        )
+    if _CUDA_OOM_RE.search(logs):
+        return (
+            "Ran out of memory while loading the model. This machine shares one "
+            "memory pool between CPU and GPU, so other running apps count "
+            "against it. Stop any other running app and launch again."
+        )
+    return None
+
+
+# How many times a container may be restarted before the launch counts as
+# failed. Waiting for an "exited" state alone reports almost nothing: 132 of
+# the recipes carry `restart: unless-stopped`, so docker puts a crashed
+# container straight back to "running" and it is never at rest to be seen. A
+# server that has died this many times before answering once is not starting.
+_RESTART_LIMIT = 2
+
+
+async def _container_exit_info(slug: str) -> tuple[bool, str] | None:
+    """(failed, why) for this recipe's containers, or None if unknown.
+
+    Failed means either everything has exited with a non-zero code, or a
+    container has crash-looped past `_RESTART_LIMIT`. `why` is the phrase for
+    the message shown when the logs themselves are not recognisable.
+    """
+    project = _compose_project(slug)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "ps", "-a",
+            "--filter", f"label=com.docker.compose.project={project}",
+            "--format", "{{.Names}}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        names = [n for n in stdout.decode().strip().splitlines() if n]
+        if not names:
+            return None
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "inspect",
+            "--format", "{{.State.Status}}|{{.State.ExitCode}}|{{.RestartCount}}",
+            *names,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        parsed = []
+        for row in stdout.decode().strip().splitlines():
+            fields = row.split("|")
+            if len(fields) != 3:
+                continue
+            try:
+                parsed.append((fields[0].strip(), int(fields[1]), int(fields[2])))
+            except ValueError:
+                continue
+        if not parsed:
+            return None
+
+        # Crash-looping: docker keeps restarting it, so it is "running" or
+        # "restarting" whenever we look, but it has already died repeatedly.
+        for _, _, restarts in parsed:
+            if restarts >= _RESTART_LIMIT:
+                return True, f"it crashed and restarted {restarts} times"
+
+        # A multi-service recipe is only "dead" once nothing is left alive:
+        # a sidecar that exits 0 on purpose, or a container still restarting
+        # under `restart: on-failure:N`, must not trip this.
+        if any(status != "exited" for status, _, _ in parsed):
+            return False, ""
+        for _, code, _ in parsed:
+            if code != 0:
+                return True, f"exit code {code}"
+        # Everything exited cleanly. That is not a crash worth reporting.
+        return False, ""
+    except Exception:
+        return None
+
+
+async def _container_logs_tail(slug: str, lines: int = 400) -> str:
+    # NOT get_container_name(): that uses `docker compose ps`, which lists only
+    # running containers, so it returns nothing for the exact case this
+    # function exists to explain.
+    container = await get_any_container_name(slug)
+    if not container:
+        return ""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "docker", "logs", "--tail", str(lines), container,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        stdout, _ = await proc.communicate()
+        return stdout.decode(errors="replace")
+    except Exception:
+        return ""
 
 
 def mark_ready(slug: str):
@@ -86,7 +288,7 @@ async def start_health_check(slug: str):
             url = f"http://127.0.0.1:{ui_port}{health_path}"
         # Up to 5 minutes of polling
         async with aiohttp.ClientSession() as session:
-            for _ in range(300):
+            for tick in range(300):
                 await asyncio.sleep(1)
                 try:
                     async with session.get(
@@ -104,9 +306,58 @@ async def start_health_check(slug: str):
                             return
                 except Exception:
                     pass
+                # A container that died is never going to answer, and waiting
+                # out the full five minutes to say so is the whole complaint.
+                # Poll the state every few seconds (not every tick -- this is
+                # a `docker ps` per check) and report the moment it is gone.
+                # Recipes that carry `restart: on-failure:N` are still
+                # restarting at this point, which reads as a non-exited state,
+                # so this only fires once docker has given up for good.
+                if tick % 3 == 2:
+                    info = await _container_exit_info(slug)
+                    if info and info[0]:
+                        await _report_startup_failure(slug, info[1])
+                        return
         print(f"[health] {slug} health check timed out")
 
     _health_tasks[slug] = asyncio.create_task(_check())
+
+
+async def _report_startup_failure(slug: str, why: str):
+    """Record why a launch died, then take the app down.
+
+    Leaving a dead container in place is what made this state so hard to read:
+    the app still counted as installed-and-present, the UI still showed
+    "starting", and the next launch attempt inherited the corpse. So the
+    failure is classified first (the logs are only readable while the
+    container still exists) and the app is stopped second.
+    """
+    # More than one health task can be watching the same slug (a launch starts
+    # one, the catalog poll starts another), and each would otherwise classify
+    # the same death and take the app down again.
+    if get_startup_error(slug):
+        return
+    logs = await _container_logs_tail(slug)
+    message = classify_startup_failure(logs)
+    if message is None:
+        tail = [ln for ln in logs.strip().splitlines() if ln.strip()][-3:]
+        detail = " ".join(tail)[:300] if tail else "no output"
+        message = f"The app stopped before it finished starting ({why}): {detail}"
+    set_startup_error(slug, message)
+    # `compose down` below deletes the container, so this is the last chance to
+    # keep its output. Without it the log panel goes black right after the one
+    # moment the user most needs to read it.
+    _last_failure_logs[slug] = logs.strip().splitlines()[-400:]
+    print(f"[health] {slug} failed to start: {message}")
+    # NOT clear_ready(): it cancels the slug's health task, and that task is
+    # the one running this function. Drop the cache entries by hand instead.
+    _ready_cache.pop(slug, None)
+    _health_tasks.pop(slug, None)
+    set_pending(slug, "stopping")
+    try:
+        await stop_recipe(slug)
+    finally:
+        clear_pending(slug)
 
 
 

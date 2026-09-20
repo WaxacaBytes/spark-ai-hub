@@ -239,6 +239,9 @@ class Recipe(BaseModel):
     starting: bool = False
     installing: bool = False
     has_leftovers: bool = False
+    # Why the last launch died, in words. Set when a container exits before it
+    # ever answers its health check; cleared on the next launch.
+    error: str | None = None
 
     @property
     def memory_gb(self) -> float:

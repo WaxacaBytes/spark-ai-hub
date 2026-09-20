@@ -83,6 +83,20 @@ export const useStore = create((set, get) => ({
         get().fetchRecipes()
         return
       }
+      if (e.data.startsWith('[spark-ai-hub:error]')) {
+        // The launch died and the backend already stopped the app. Refetch so
+        // recipe.error lands on the card, and put the reason in the log panel
+        // the user is looking at rather than only in the banner above it.
+        const msg = e.data.slice('[spark-ai-hub:error]'.length).trim()
+        get().fetchRecipes()
+        set((s) => ({
+          containerLogs: {
+            ...s.containerLogs,
+            [slug]: [...(s.containerLogs[slug] || []), `[spark-ai-hub] ${msg}`],
+          },
+        }))
+        return
+      }
       set((s) => {
         const prev = s.containerLogs[slug] || []
         const line = e.data

@@ -152,6 +152,7 @@ function isModel(recipe) {
     || recipe.slug.startsWith('vllmomni-')
     || recipe.slug.startsWith('hidream-')
     || recipe.slug.startsWith('llamacpp-')
+    || recipe.slug.startsWith('exllamav3-')
     || recipe.slug.startsWith('atlas-')
 }
 

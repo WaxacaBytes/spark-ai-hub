@@ -348,6 +348,18 @@ function RecipeDetailPage({ slug }) {
         </div>
       </div>
 
+      {recipe.error && (
+        <div className="shrink-0 px-6 py-3 border-b border-outline-dim bg-error-surface">
+          <div className="flex items-start gap-3">
+            <span className="text-error text-base leading-6">⚠</span>
+            <div className="min-w-0">
+              <div className="text-error text-sm font-semibold font-label">Couldn't start</div>
+              <div className="text-text-muted text-sm mt-0.5">{recipe.error}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="shrink-0 px-6 py-3 border-b border-outline-dim bg-surface-low/40">
         <div className="inline-flex items-center gap-2 rounded-2xl bg-surface-high/70 p-1.5 border border-outline-dim">
           {DETAIL_TABS.map((tab) => {
@@ -641,7 +653,7 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
             <div className="space-y-4 pt-5 border-t border-outline-dim">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.16em] text-text-dim font-label">API Integration</div>
-                {(recipe.tags?.includes('vllm') || recipe.tags?.includes('sglang') || recipe.tags?.includes('atlas')) && (
+                {(recipe.tags?.includes('vllm') || recipe.tags?.includes('sglang') || recipe.tags?.includes('exllamav3') || recipe.tags?.includes('atlas')) && (
                   <div className="text-[10px] text-text-muted mt-1">
                     The Hub forwards /v1 to the running model a request names, or to the
                     largest one up, so this address keeps working from wherever you reached
@@ -663,7 +675,7 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
                   />
                 )}
                 <SpeedDetail recipe={recipe} />
-                {(recipe.tags?.includes('vllm') || recipe.tags?.includes('sglang') || recipe.tags?.includes('llama-cpp') || recipe.tags?.includes('atlas')) && (
+                {(recipe.tags?.includes('vllm') || recipe.tags?.includes('sglang') || recipe.tags?.includes('llama-cpp') || recipe.tags?.includes('exllamav3') || recipe.tags?.includes('atlas')) && (
                   <BenchmarkBlock
                     secret={benchKey}
                     value={`python3 - <<'EOF'

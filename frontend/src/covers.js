@@ -78,7 +78,7 @@ export function vendorKey(recipe) {
   if (!recipe) return 'generic'
   // The engine prefix is stripped first: otherwise every `llamacpp-*` recipe
   // contains "llama" and the whole llama.cpp shelf lands on Meta.
-  const family = (recipe.slug || '').replace(/^(vllm|llamacpp|atlas)-/, '')
+  const family = (recipe.slug || '').replace(/^(vllm|llamacpp|exllamav3|atlas)-/, '')
   for (const [needle, key] of FAMILY) {
     if (family.includes(needle)) return key
   }

@@ -23,6 +23,10 @@ from daemon.services.docker_service import (
     set_pending,
     clear_pending,
     get_pending,
+    get_startup_error,
+    clear_startup_error,
+    get_any_container_name,
+    get_last_failure_logs,
     memory_plan,
 )
 from daemon.services.registry_service import get_recipe, get_recipe_dir, get_recipes
@@ -133,6 +137,9 @@ async def launch(slug: str):
         raise HTTPException(status_code=404, detail="Recipe not found")
     set_pending(slug, "launching")
     clear_ready(slug)
+    # Last launch's failure is history the moment a new one starts; leaving it
+    # set would make a fresh attempt look like it had already failed.
+    clear_startup_error(slug)
     # A build-type recipe whose image is missing gets built by `compose up`
     # itself, which can run for an hour. Record that output in the same place
     # install/update put theirs, so /ws/build and the log panel can show it
@@ -162,6 +169,7 @@ async def stop(slug: str):
         raise HTTPException(status_code=404, detail="Recipe not found")
     set_pending(slug, "stopping")
     clear_ready(slug)
+    clear_startup_error(slug)
     result = await stop_recipe(slug)
     clear_pending(slug)
     return {"status": result, "slug": slug}
@@ -306,7 +314,10 @@ async def container_log_ws(websocket: WebSocket, slug: str):
         announced_wait = False
         build_seen = 0
         while deadline_ticks > 0:
-            container = await get_container_name(slug)
+            # Running OR exited: a container that died during model load still
+            # holds the only explanation of why, and resolving only running
+            # ones is what used to black out the log panel precisely then.
+            container = await get_any_container_name(slug)
             if container:
                 break
             # If a build is running for this slug there IS something to show:
@@ -329,7 +340,19 @@ async def container_log_ws(websocket: WebSocket, slug: str):
             await asyncio.sleep(1)
             deadline_ticks -= 1
         if not container:
-            await websocket.send_text("[spark-ai-hub] Container not running")
+            # The app may have been stopped after a failed launch, which runs
+            # `compose down` and deletes the container. The tail was preserved
+            # before that happened, so show it instead of a bare
+            # "Container not running" over an empty screen.
+            saved = get_last_failure_logs(slug)
+            if saved:
+                for line in saved:
+                    await websocket.send_text(line)
+                err = get_startup_error(slug)
+                if err:
+                    await websocket.send_text(f"[spark-ai-hub:error] {err}")
+            else:
+                await websocket.send_text("[spark-ai-hub] Container not running")
             await websocket.close()
             return
 
@@ -350,6 +373,14 @@ async def container_log_ws(websocket: WebSocket, slug: str):
             for _ in range(600):  # up to 10 minutes
                 if is_ready(slug):
                     await websocket.send_text("[spark-ai-hub:ready]")
+                    return
+                # The health check stops the app when its container dies, so
+                # `docker logs -f` below just ends with no explanation. Say
+                # what happened on the same socket the user is already
+                # watching, rather than only in the recipe list.
+                err = get_startup_error(slug)
+                if err:
+                    await websocket.send_text(f"[spark-ai-hub:error] {err}")
                     return
                 await asyncio.sleep(1)
 
@@ -383,6 +414,13 @@ async def container_log_ws(websocket: WebSocket, slug: str):
                 text = text.rsplit('\r', 1)[-1]
             if text:
                 await websocket.send_text(text)
+
+        # `docker logs -f` returns as soon as the container is gone. If the
+        # health check has already worked out why, say so here -- otherwise
+        # the stream simply stops mid-traceback with no verdict.
+        err = get_startup_error(slug)
+        if err:
+            await websocket.send_text(f"[spark-ai-hub:error] {err}")
     except (WebSocketDisconnect, RuntimeError):
         pass
     finally:

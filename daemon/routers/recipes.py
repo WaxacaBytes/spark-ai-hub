@@ -10,6 +10,7 @@ from daemon.services.docker_service import (
     has_recipe_leftovers,
     start_health_check,
     get_pending,
+    get_startup_error,
 )
 
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
@@ -36,6 +37,7 @@ async def list_recipes(category: str | None = None, search: str | None = None):
         _set_runtime_env_path(r)
         r.installed = r.slug in installed
         pending = get_pending(r.slug)
+        r.error = get_startup_error(r.slug)
         if r.installed:
             r.installing = False
             container_running = await is_recipe_running(r.slug)
@@ -79,6 +81,7 @@ async def get_recipe_detail(slug: str):
     installed = await get_installed_slugs()
     recipe.installed = slug in installed
     pending = get_pending(slug)
+    recipe.error = get_startup_error(slug)
     if recipe.installed:
         recipe.installing = False
         container_running = await is_recipe_running(slug)
