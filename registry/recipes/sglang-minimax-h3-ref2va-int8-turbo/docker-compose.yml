@@ -1,0 +1,121 @@
+services:
+  sglang:
+    # MiniMax-H3 (MiniMax) reference-conditioning weights in FP8 with a 4-bit
+    # text encoder, served by SGLang Diffusion on the OpenAI videos API:
+    # POST /v1/videos queues a job, GET /v1/videos/{id} reports progress,
+    # GET /v1/videos/{id}/content serves the MP4 -- H.264 video plus a 32 kHz
+    # stereo AAC soundtrack generated with it.
+    #
+    # Same shape as sglang-minimax-h3-fp8, on the OTHER weight partition. H3
+    # ships two: FL2VA, which reproduces a supplied picture as the clip's
+    # first or last frame, and Ref2VA, which takes an image, a video or audio
+    # as reference material for identity, style and motion without pinning it
+    # to a frame. --model-variant selects which one loads; a single server
+    # cannot serve both.
+    #
+    # Weights come from the model's publisher and Comfy-Org only:
+    #   * MiniMaxAI/MiniMax-H3: Ref2VA configs, tokenizer, processor, video VAE
+    #     (9.7 GB) and audio VAE -- without its BF16 DiT and text encoder.
+    #   * Comfy-Org/MiniMax-H3: the Qwen3-VL-32B text encoder in NVFP4-AWQ
+    #     (14.6 GB).
+    #   * PulpCut/MiniMax-H3-Ref2VA-Turbo-INT8-ConvRot: the AdaLN-pruned Ref2VA
+    #     DiT in INT8 ConvRot (19.5 GB) with lightx2v's Turbo step-distillation
+    #     ALREADY MERGED INTO THE WEIGHTS. That is the whole point of this
+    #     recipe: its sibling applies Turbo as a LoRA on every forward pass,
+    #     which costs ~20% per step (measured here: 78 s/step with the adapter
+    #     against ~65 s/step without) and occupies SGLang's single --lora-path,
+    #     of which there is exactly one. Merged weights give the step back and
+    #     leave that slot free.
+    #
+    #     This is a community re-quantization, not a publisher release, so it
+    #     is named here with what it actually is. Every ingredient has known
+    #     provenance -- MiniMax's model, Comfy-Org's pruned INT8 layout,
+    #     lightx2v's distillation -- and what is being trusted is PulpCut's
+    #     merge. Their own check is that running their pipeline at strength 0
+    #     regenerates Comfy-Org's official INT8 file with all 3,046,400 scales
+    #     identical. SGLang's H3 cookbook lists this repo as its merged-Ref2VA
+    #     example. Licence is the MiniMax-H3 Community License, same as base.
+    #
+    # Image: lmsysorg/sglang:v0.5.19-cu130 -- a stable numbered release (not a
+    # rolling dev/nightly tag), arm64 manifest present, and MiniMax-H3 is in its
+    # diffusion registry.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('MiniMaxAI/MiniMax-H3', local_dir='/models/MiniMax-H3', allow_patterns=['model_index.json', 'modular_model_index.json', 'LICENSE', 'Ref2VA/*'], ignore_patterns=['Ref2VA/transformer/*.safetensors', 'Ref2VA/text_encoder/*.safetensors', 'Ref2VA/*.index.json'])"
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Comfy-Org/MiniMax-H3', local_dir='/models/comfy', allow_patterns=['text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors'])"
+        # The turbo-merged DiT. NOT the *_input_major.safetensors sibling: that
+        # one is laid out for H3ddle, the macOS app this was built for. This
+        # file is the drop-in replacement for Comfy-Org's INT8 ConvRot layout,
+        # which is what SGLang reads.
+        RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('PulpCut/MiniMax-H3-Ref2VA-Turbo-INT8-ConvRot', 'minimax_h3_ref2va_pruned_turbo_int8_convrot.safetensors', local_dir='/models/pulpcut')"
+        FROM lmsysorg/sglang:v0.5.19-cu130
+        # INT8 ConvRot weights are decoded by comfy-kitchen's kernels, which
+        # SGLang's image does not ship (its cookbook states the requirement).
+        # Installed at BUILD time from the published aarch64 wheel -- nothing
+        # is compiled and nothing is fetched at launch, so the offline-launch
+        # guarantee holds.
+        RUN pip install --no-cache-dir comfy-kitchen==0.2.35 \
+         && python3 -c "import comfy_kitchen; print('comfy_kitchen ok')"
+        COPY --from=weights /models /models
+    image: spark-ai-hub/sglang-minimax-h3-ref2va-int8-turbo:v0.5.19-cu130
+    container_name: spark-ai-hub-sglang-minimax-h3-ref2va-int8-turbo
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/sglang-minimax-h3-ref2va-int8-turbo/, so it never collides
+    # with the LLM or with another media model.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    shm_size: 16gb
+    command:
+      - sglang
+      - serve
+      # The repo root (its name is what SGLang's registry matches);
+      # --model-variant picks the Ref2VA partition inside it.
+      - --model-path
+      - /models/MiniMax-H3
+      - --model-variant
+      - ref2va
+      - --component-weights-paths.transformer
+      - /models/pulpcut/minimax_h3_ref2va_pruned_turbo_int8_convrot.safetensors
+      - --component-weights-paths.text_encoder
+      - /models/comfy/text_encoders/qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors
+      - --host
+      - 0.0.0.0
+      - --port
+      - "30000"
+      # SGLang offloads the DiT and the text encoder to CPU by default. On the
+      # Spark CPU and GPU share the same memory, so offload only adds copies
+      # back and forth.
+      - --dit-cpu-offload
+      - "false"
+      - --text-encoder-cpu-offload
+      - "false"
+      # Pinned host buffers are only for fast CPU<->GPU transfer, which
+      # unified memory never needs; pinning would lock memory for nothing.
+      - --pin-cpu-memory
+      - "false"
+      - --output-path
+      - /tmp/sglang-outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

@@ -184,14 +184,21 @@ services:
       - "1"
       - --max-model-len
       - "262144"
-      # 0.786 x 121.7 GiB = 95.6 GiB, the value upstream derives from
-      # MemTotal - 26 GiB of host reserve. That reserve is not spare room: on
-      # this unified pool vLLM reads MemAvailable as "free GPU memory" and
-      # fills the budget exactly, so anything it takes comes out of the PLE
-      # page cache and the NVIDIA driver's free pages. Raising it hangs the
-      # kernel with no OOM and no logs.
+      # 0.770 x 121.7 GiB = 93.7 GiB, the value upstream derives from
+      # MemTotal - 28 GiB of host reserve. 28, not 26, because eight verify
+      # widths are captured below instead of four, and that capture spike is
+      # what trips the watchdog at 26 (upstream measured ~103 GiB driver and
+      # MemFree under 2 GiB there on 2026-09-11). Measured here on 2026-09-20:
+      # KV 14.43 GiB = 963,635 tokens, 3.68x a full-length request, and zero
+      # NV_ERR_NO_MEMORY across the boot and an 8-stream sweep.
+      #
+      # That reserve is not spare room: on this unified pool vLLM reads
+      # MemAvailable as "free GPU memory" and fills the budget exactly, so
+      # anything it takes comes out of the PLE page cache and the NVIDIA
+      # driver's free pages. Raising it hangs the kernel with no OOM and no
+      # logs.
       - --gpu-memory-utilization
-      - "0.786"
+      - "0.770"
       # FP8 KV is ~1.85x the pool of BF16 and is what puts a full 262K request
       # comfortably inside it (measured ~1.0-1.13M tokens, 3.8x a full-length
       # request). It costs ~4% decode and 11/11 on upstream's reasoning suite.
@@ -204,7 +211,7 @@ services:
       - --mamba-ssm-cache-dtype
       - bfloat16
       - --max-num-seqs
-      - "4"
+      - "8"
       - --max-num-batched-tokens
       - "2048"
       - --enable-chunked-prefill
@@ -216,6 +223,10 @@ services:
       # `uni` at TP1, which leaves the worker out and the model unable to load.
       - --distributed-executor-backend
       - mp
+      # Reports usage.prompt_tokens_details.cached_tokens on every
+      # response (upstream #46). Metadata only: it does not enable,
+      # retune or resize prefix caching.
+      - --enable-prompt-tokens-details
       - --reasoning-parser
       - qwen3
       - --tool-call-parser
@@ -229,12 +240,12 @@ services:
       # the vocabulary file above is loaded and never used.
       - '{"method":"mtp","num_speculative_tokens":3,"use_local_argmax_reduction":true}'
       # FULL decode graphs at every verify width the scheduler can build,
-      # (1+3)*S for S in 1..4. vLLM's own list is [1,2,4] plus multiples of 8,
+      # (1+3)*S for S in 1..8. vLLM's own list is [1,2,4] plus multiples of 8,
       # so a 3-sequence batch (12 tokens) would pad up to 16 and a width with
       # no graph decodes eager. mode 0 = no torch.compile: measured +0.3% at 1
       # stream, inside noise, on a decode that is bandwidth-bound.
       - --compilation-config
-      - '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY","cudagraph_capture_sizes":[4,8,12,16]}'
+      - '{"mode":0,"cudagraph_mode":"FULL_DECODE_ONLY","cudagraph_capture_sizes":[4,8,12,16,20,24,28,32]}'
     deploy:
       resources:
         reservations:

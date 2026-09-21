@@ -1,0 +1,92 @@
+services:
+  sglang:
+    # Qwen-Image-2.1 (Qwen/Qwen-Image-2.1, BF16) served by SGLang Diffusion on
+    # the OpenAI images API. One checkpoint covers text-to-image, editing with
+    # up to ten references, and native RGBA output.
+    #
+    # Image: lmsysorg/sglang:nightly-cu134-20260920-efa7be2, pinned by digest.
+    # A nightly is used here, and only because there is no released tag that
+    # can serve this model: support landed in sglang main on 2026-09-20 at
+    # 01:46 UTC (#39983), after v0.5.20 was cut on 2026-09-18, and this image
+    # was built from commit efa7be2 at 10:00 UTC the same day -- after that
+    # merge. The nightly-cu134 line is the only one lmsys publishes for arm64
+    # right now (the multi-arch nightly-dev-cu13 line has not built since
+    # 2026-09-18), and it is a native aarch64 image, not a custom build.
+    # The digest is what is actually pulled, because lmsys prunes nightly tags
+    # within days; the tag is kept in the comment for provenance only.
+    # Its CUDA is 13.4 against this host's 13.0 driver (580.173.02), which CUDA
+    # minor-version compatibility covers, and which was verified on this box
+    # before the recipe shipped.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        #
+        # Downloaded to a plain directory, not the HF cache: SGLang resolves a
+        # repo id through snapshot_download, and offline that refuses a cached
+        # snapshot with any file missing. A local path is loaded as-is. The
+        # directory name carries "qwen-image-2.1", which is what SGLang's
+        # diffusion registry matches on; --model-id below states it anyway.
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen-Image-2.1', revision='b3179ad355be050328e483a9dfdd9e60cd62adfa', local_dir='/models/Qwen-Image-2.1', ignore_patterns=['*.jpg', '*.png', '*.webp', 'assets/*'], max_workers=8)"
+        FROM lmsysorg/sglang@sha256:62162648f5bb518361cc346acc131c1c28515b79aa10e4c19c674665dc13b8cb
+        COPY --from=weights /models /models
+    image: spark-ai-hub/sglang-qwen-image-21:nightly-cu134-20260920
+    container_name: spark-ai-hub-sglang-qwen-image-21
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/sglang-qwen-image-21/, so it never collides with the
+    # LLM or with another image model.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    shm_size: 16gb
+    command:
+      - sglang
+      - serve
+      - --model-path
+      - /models/Qwen-Image-2.1
+      - --model-id
+      - Qwen-Image-2.1
+      - --served-model-name
+      - Qwen/Qwen-Image-2.1
+      - --num-gpus
+      - "1"
+      - --host
+      - 0.0.0.0
+      - --port
+      - "30000"
+      # "Resident": every component stays on the GPU. That is what the SGLang
+      # cookbook selects for any card with room for the whole pipeline (peak
+      # 38.4 GiB measured), and the Spark has 121 GB. On this box CPU and GPU
+      # share one pool, so an offload would only add copies back and forth.
+      - --performance-mode
+      - speed
+      - --pin-cpu-memory
+      - "false"
+      # This model always returns RGBA, even for an opaque prompt, so every
+      # request must ask for PNG -- SGLang's disk copy of the result is JPEG
+      # by default and dies with "cannot write mode RGBA as JPEG". The Hub's
+      # image tools always send output_format=png, so this only bites someone
+      # calling the served API by hand.
+      - --output-path
+      - /tmp/sglang-outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

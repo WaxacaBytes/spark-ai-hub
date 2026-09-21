@@ -205,13 +205,24 @@ async def pick_backend(kind: str, model: str | None) -> Backend:
 # ---------------------------------------------------- OpenAI-images client
 
 
+# Every side handed to an edit is a multiple of this. 16 was enough until
+# Qwen-Image-2.1, which refuses anything not divisible by 32 ("height and
+# width must be divisible by 32") -- and an edit derives its size from the
+# input picture, so a 1344x768 source rescaled toward a megapixel landed on
+# 1360x768 and was rejected. A multiple of 32 is also a multiple of 16, so
+# raising it satisfies the stricter model without changing what any other
+# model accepts; it only makes the chosen size a little coarser.
+EDIT_SIZE_MULTIPLE = 32
+
+
 def edit_size(png: bytes) -> tuple[int, int]:
-    """~1 megapixel at the input's aspect ratio, sides multiples of 16."""
+    """~1 megapixel at the input's aspect ratio, sides multiples of 32."""
     with Image.open(io.BytesIO(png)) as img:
         width, height = img.size
     scale = math.sqrt(1024 * 1024 / (width * height))
-    return (max(256, round(width * scale / 16) * 16),
-            max(256, round(height * scale / 16) * 16))
+    m = EDIT_SIZE_MULTIPLE
+    return (max(256, round(width * scale / m) * m),
+            max(256, round(height * scale / m) * m))
 
 
 def _guidance(defaults) -> dict:
@@ -464,12 +475,26 @@ def store(raw: bytes, model: str, seed: int | None) -> Result:
     IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     image_id = secrets.token_hex(16)
     with Image.open(io.BytesIO(raw)) as img:
-        img = img.convert("RGB")
+        # Keep the alpha channel when the model produced one. Qwen-Image-2.1
+        # renders real transparency, soft edges included, and flattening it
+        # here would throw away the whole point of an RGBA model -- the result
+        # would arrive as an opaque rectangle over whatever colour happened to
+        # sit under the alpha. Models that return RGB are untouched.
+        keep_alpha = img.mode in ("RGBA", "LA") or "transparency" in img.info
+        img = img.convert("RGBA" if keep_alpha else "RGB")
         img.save(IMAGE_DIR / f"{image_id}.png", format="PNG")
         width, height = img.size
-        img.thumbnail((PREVIEW_EDGE, PREVIEW_EDGE))
+        # JPEG has no alpha, so the inline preview is composited onto white
+        # rather than simply converted: dropping the channel would show the
+        # undefined colour beneath it instead of the subject.
+        preview = img
+        if keep_alpha:
+            preview = Image.alpha_composite(
+                Image.new("RGBA", img.size, (255, 255, 255, 255)), img)
+        preview = preview.convert("RGB")
+        preview.thumbnail((PREVIEW_EDGE, PREVIEW_EDGE))
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=85)
+        preview.save(buf, format="JPEG", quality=85)
     return Result(image_id, model, width, height, seed,
                   base64.b64encode(buf.getvalue()).decode())
 

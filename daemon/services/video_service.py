@@ -199,6 +199,53 @@ def video_form() -> aiohttp.FormData:
     return aiohttp.FormData(default_to_multipart=True)
 
 
+def takes_conditions_for(backend: "Backend") -> bool:
+    """Same question as takes_conditions(), asked of the recipe's defaults.
+
+    Needed before the request is built, to decide whether a clip and a picture
+    may be given together.
+    """
+    extra = getattr(backend.defaults, "extra_params", None) or {}
+    return isinstance(extra.get("conditions"), list)
+
+
+def takes_conditions(fields: dict) -> bool:
+    """Does this model read its reference from `extra_params.conditions`?
+
+    MiniMax-H3 does, and only that: SGLang documents that the generic
+    top-level upload fields "are not lowered into H3 reference conditions",
+    so a multipart input_reference reaches it as nothing at all and a ref2va
+    request is then rejected for having no reference. A recipe declares the
+    contract by shipping `conditions` as a list in its video_defaults.
+    """
+    return isinstance((fields.get("extra_params") or {}).get("conditions"), list)
+
+
+def with_condition(fields: dict, kind: str, raw: bytes) -> dict:
+    """Put the caller's picture or clip into `extra_params.conditions`.
+
+    The bytes travel as a base64 data URI, which SGLang materializes on its
+    own side -- no shared volume between the Hub and the model's container,
+    and no second fetch back out over the network.
+
+    `role` follows the task, because H3 reads the same picture two different
+    ways: a `fl2va` keyframe is reproduced as the clip's first frame, while a
+    `ref2va` reference only guides identity, style and composition and may be
+    recomposed or recropped.
+    """
+    extra = dict(fields.get("extra_params") or {})
+    mime = "image/png" if kind == "image" else "video/mp4"
+    condition = {
+        "type": kind,
+        "uri": f"data:{mime};base64,{base64.b64encode(raw).decode()}",
+        "role": "keyframe" if extra.get("task") == "fl2va" else "reference",
+    }
+    if condition["role"] == "keyframe":
+        condition["frame_index"] = 0
+    extra["conditions"] = [*extra["conditions"], condition]
+    return {**fields, "extra_params": extra}
+
+
 def clip_seconds(fields: dict) -> float | int | None:
     """The clip length a request asks for, however the model takes it."""
     if fields.get("seconds"):
@@ -217,31 +264,58 @@ def _prune() -> None:
 async def start(*, prompt: str, image: str | None, seconds: int | None, aspect_ratio: str,
                 seed: int | None, steps: int | None, model: str | None,
                 video: str | None = None, user: dict | None = None) -> dict:
-    if image and video:
-        raise ImageError("Give either a starting image or an input video, not both.")
     kind = "video" if video else "image" if image else "text"
     backend = await pick_backend(kind, model)
+    # A conditions model takes a LIST of references, so it can be given a clip
+    # AND a picture at once -- which is the whole shape of a face swap: the
+    # video whose face changes, plus the face to put there. Every other model
+    # has one input slot and must still be told to pick one.
+    if image and video and not takes_conditions_for(backend):
+        raise ImageError("Give either a starting image or an input video, not both.")
     seed = seed if seed is not None else secrets.randbelow(MAX_SEED)
     fields = video_fields(backend.defaults, prompt=prompt, seconds=seconds,
                           aspect_ratio=aspect_ratio, seed=seed, steps=steps)
     url = f"{proxy_service.internal_url(backend.slug)}/v1/videos"
     timeout = aiohttp.ClientTimeout(total=300, sock_connect=10)
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        # Multipart for every job: SGLang and vLLM-Omni both accept it, and it is
-        # the only shape that carries an input image or video. Forced, because
-        # aiohttp sends a file-less form as urlencoded -- which SGLang reads as a
-        # JSON body and rejects with "prompt: Field required".
-        form = video_form()
+        # Two request shapes, because the models take their references two
+        # different ways. A model with an `input_reference` upload slot needs
+        # multipart, and it must be FORCED -- aiohttp sends a file-less form as
+        # urlencoded, which SGLang reads as a JSON body and rejects with
+        # "prompt: Field required". A conditions model carries its references
+        # inside the JSON instead, so it gets a plain JSON body.
+        references = []
+        if video:
+            references.append(("video", await load_input(video, session, user, suffix=".mp4",
+                                                         max_bytes=MAX_VIDEO_INPUT_BYTES)))
         if image:
-            form.add_field("input_reference", to_png(await load_input(image, session, user)),
-                           filename="input.png", content_type="image/png")
-        elif video:
-            form.add_field("input_reference", await load_input(video, session, user, suffix=".mp4",
-                                                              max_bytes=MAX_VIDEO_INPUT_BYTES),
-                           filename="input.mp4", content_type="video/mp4")
-        for key, value in fields.items():
-            form.add_field(key, json.dumps(value) if isinstance(value, dict) else str(value))
-        async with session.post(url, data=form, headers=proxy_service.probe_headers()) as r:
+            references.append(("image", to_png(await load_input(image, session, user))))
+        conditions = takes_conditions(fields)
+        if references and conditions:
+            # Video first, then image, so the prompt's <Video 1> and <Picture 1>
+            # tags number the way the caller wrote them.
+            for kind_, raw in references:
+                fields = with_condition(fields, kind_, raw)
+
+        if conditions:
+            # JSON, not multipart. A conditions model carries its references
+            # inline as data URIs, so there is no file part to send -- and
+            # SGLang caps any single multipart part at 1024 KB, which one
+            # photograph's worth of base64 blows straight through.
+            payload = dict(fields)
+            body, kwargs = None, {"json": payload}
+        else:
+            form = video_form()
+            if references:
+                kind_, raw = references[0]
+                form.add_field("input_reference", raw,
+                               filename=f"input.{'png' if kind_ == 'image' else 'mp4'}",
+                               content_type="image/png" if kind_ == "image" else "video/mp4")
+            for key, value in fields.items():
+                form.add_field(key, json.dumps(value) if isinstance(value, dict) else str(value))
+            body, kwargs = form, {}
+        async with session.post(url, data=body, headers=proxy_service.probe_headers(),
+                                **kwargs) as r:
             if r.status != 200:
                 raise ImageError(f"{backend.slug} refused the video job (HTTP {r.status}): "
                                  f"{(await r.text())[:500]}")

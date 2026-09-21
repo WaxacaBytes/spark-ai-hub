@@ -1,0 +1,66 @@
+name: "MiniMax-H3 Ref2VA FP8"
+slug: sglang-minimax-h3-ref2va-fp8
+version: "1.0.0"
+description: "Generate video with a matching soundtrack from a reference, using MiniMax-H3's reference-conditioning weights. Give it a picture and the subject carries into a new scene; give it a clip and it follows the motion and appearance of what it saw, soundtrack included. Unlike the first/last-frame build, the reference guides identity, style and composition rather than being pinned as an endpoint frame, so H3 may recompose or recrop it. Compact build from Comfy-Org: the AdaLN-pruned FP8 Ref2VA video model and NVFP4 text encoder bring the weights from 144 GB to about 44 GB. Served by SGLang Diffusion; your coding agents reach it through the Hub's video tools (generate_video / get_video). MiniMax-H3 Community License."
+author: "MiniMax"
+source: "community"
+website: "https://huggingface.co/MiniMaxAI/MiniMax-H3"
+upstream: "https://github.com/sgl-project/sglang/blob/main/docs/cookbook/diffusion/MiniMax/MiniMax-H3.mdx"
+category: video-gen
+categories:
+  - video-gen
+tags:
+  - openai-videos
+  - image-to-video
+  - video-edit
+  - video-audio
+  - minimax
+  - sglang
+  - fp8
+icon: "\U0001F3AC"
+requirements:
+  min_memory_gb: 64
+  recommended_memory_gb: 121
+  disk_gb: 100
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP video tools call its API. Proxied so
+  # the Hub reaches it at /run/sglang-minimax-h3-ref2va-fp8/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 45
+  gpu: true
+status: experimental
+release_date: "2026-07"
+engine: "SGLang"
+quantization: "FP8"
+weights_gb: 44.4
+requires_hf_token: false
+# Ref2VA takes its reference INSIDE extra_params.conditions, as a URI -- SGLang
+# states that the generic top-level upload fields are not lowered into H3
+# conditions. The Hub's video service sees the `conditions` list below and puts
+# the picture or clip the caller passed into it as a base64 data URI, which
+# SGLang materializes server-side. `conditions` must therefore stay a list here.
+#
+# Timing and canvas come only from extra_params.target (768 short edge, 4-15 s
+# at 24 fps); fps, num_frames and guidance are rejected. MiniMax publishes no
+# step count, so none is sent. flow_shift 12 is the checkpoint's own
+# scheduler_config.json shift.
+video_defaults:
+  seconds: 5
+  flow_shift: 12.0
+  extra_params:
+    task: "ref2va"
+    conditions: []
+    target:
+      short_edge: 768
+      aspect_ratio: "16:9"
+      duration_seconds: 5.0
+    audio_flow_shift: 3.0
+  notes: "Needs a reference: a picture or a clip, never text alone. 768p short edge at 24 fps; clips run 4-15 s, per the model card; shift 12 from the checkpoint's scheduler config. Refer to the reference in the prompt as <Picture 1> for an image or <Video 1> for a clip."
+  source: "https://github.com/sgl-project/sglang/blob/main/docs/cookbook/diffusion/MiniMax/MiniMax-H3.mdx"

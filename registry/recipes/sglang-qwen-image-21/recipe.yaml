@@ -1,0 +1,59 @@
+name: "Qwen-Image-2.1"
+slug: sglang-qwen-image-21
+version: "1.0.0"
+description: "Generate and edit images with Qwen-Image-2.1, Alibaba's compact successor to Qwen-Image: a 7B visual generator over 32 single-stream DiT layers, with a Qwen3-VL 8B conditioner. One checkpoint does text-to-image, image editing with up to ten reference images, and native RGBA — it renders a real alpha channel, including soft edges, instead of keying a background out afterwards. Served by SGLang Diffusion on the OpenAI images API; your coding agents reach it through the Hub's image tools (generate_image / edit_image). Everything stays resident on the GPU at BF16, which the Spark's 121 GB has room for. Qwen Research License."
+author: "Qwen (Alibaba)"
+source: "community"
+website: "https://huggingface.co/Qwen/Qwen-Image-2.1"
+upstream: "https://github.com/sgl-project/sglang/blob/main/docs/cookbook/diffusion/Qwen-Image/Qwen-Image-2.1.mdx"
+category: image-gen
+categories:
+  - image-gen
+tags:
+  - openai-images
+  - text-to-image
+  - image-edit
+  - rgba
+  - qwen
+  - diffusion
+  - sglang
+icon: "\U0001F5BC️"
+logo: "/logos/qwen.png"
+requirements:
+  min_memory_gb: 48
+  recommended_memory_gb: 64
+  disk_gb: 60
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP image tools call its API. Proxied so
+  # the Hub reaches it at /run/sglang-qwen-image-21/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 25
+  gpu: true
+status: experimental
+release_date: "2026-09"
+engine: "SGLang"
+params_b: 7
+arch: dense
+quantization: "BF16"
+weights_gb: 30.9
+requires_hf_token: false
+# The Hub's image tools use these whenever an agent leaves them unset.
+# 40 steps and CFG 1 are the model card's own quickstart values, which are
+# also what SGLang's cookbook measured its latency table at.
+image_defaults:
+  steps: 40
+  true_cfg_scale: 1.0
+  notes: "40 steps at CFG 1 is the model card's quickstart, and the setting SGLang's own latency table was measured at. For a transparent PNG, ask for an isolated subject on a transparent background in the prompt."
+  source: "https://huggingface.co/Qwen/Qwen-Image-2.1"
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "Qwen/Qwen-Image-2.1"
+  api_key: "<API_KEY>"
+  curl_example: "curl <HUB>/v1/images/generations -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"Qwen/Qwen-Image-2.1\", \"prompt\": \"A neon shop sign that reads QWEN IMAGE 2.1, rainy night, reflections on wet pavement\", \"size\": \"1024x1024\"}'"

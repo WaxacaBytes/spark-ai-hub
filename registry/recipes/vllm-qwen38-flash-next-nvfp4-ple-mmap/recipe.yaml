@@ -48,15 +48,15 @@ release_date: "2026-08-27"
 requires_hf_token: false
 tested_on:
   dgx_os: "7.2"
-  date: "2026-09-06"
+  date: "2026-09-20"
 tokens_per_second: 41.0
-tokens_per_second_editing: 56.2
+tokens_per_second_editing: 54.0
 editing_workload: "code-edit"
 benchmarks:
-  prose: 38
-  explainer: 41.09
-  code: 46.73
-  code-edit: 56.18
+  prose: 37.57
+  explainer: 41.77
+  code: 50.25
+  code-edit: 54.0
 integration:
   api_url: "<HUB>/v1"
   model_id: "Mia-AiLab/Qwen3.8-Flash-Next-NVFP4"

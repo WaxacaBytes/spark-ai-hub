@@ -1,0 +1,74 @@
+name: "MiniMax-H3 Ref2VA Face Swap"
+slug: sglang-minimax-h3-ref2va-faceswap
+version: "1.0.0"
+description: "Generate video with a matching soundtrack from a reference, using MiniMax-H3's reference-conditioning weights. Give it a picture and the subject carries into a new scene; give it a clip and it follows the motion and appearance of what it saw, soundtrack included. Unlike the first/last-frame build, the reference guides identity, style and composition rather than being pinned as an endpoint frame, so H3 may recompose or recrop it. Runs the step-distilled build: lightx2v's Turbo distillation is merged into the Ref2VA weights themselves rather than applied as an adapter, so it denoises in 8 passes instead of 50 and nothing is computed on top of the weights at run time. Pruned INT8 ConvRot video model with Comfy-Org's NVFP4 text encoder, about 44 GB of weights. Adds UntMods' FaceSwap adapter on top: give it a clip plus one picture of a face, and it regenerates the clip with that face on the person in it, soundtrack included. Put the word Faceswap in the prompt to trigger it, and refer to the inputs as <Video 1> and <Picture 1>. Served by SGLang Diffusion; your coding agents reach it through the Hub's video tools (generate_video / get_video). MiniMax-H3 Community License."
+author: "MiniMax · Turbo by lightx2v/PulpCut · FaceSwap LoRA by UntMods"
+source: "community"
+website: "https://huggingface.co/UntMods/FaceSwap_MiniMaxH3_REF2VA"
+upstream: "https://github.com/sgl-project/sglang/blob/main/docs/cookbook/diffusion/MiniMax/MiniMax-H3.mdx"
+category: video-gen
+categories:
+  - video-gen
+tags:
+  - openai-videos
+  - image-to-video
+  - video-edit
+  - video-audio
+  - minimax
+  - sglang
+  - int8
+  - turbo
+  - faceswap
+icon: "\U0001F3AC"
+requirements:
+  min_memory_gb: 64
+  recommended_memory_gb: 121
+  disk_gb: 100
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP video tools call its API. Proxied so
+  # the Hub reaches it at /run/sglang-minimax-h3-ref2va-faceswap/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 45
+  gpu: true
+status: experimental
+release_date: "2026-07"
+engine: "SGLang"
+quantization: "INT8"
+weights_gb: 44.5
+requires_hf_token: false
+# Ref2VA takes its reference INSIDE extra_params.conditions, as a URI -- SGLang
+# states that the generic top-level upload fields are not lowered into H3
+# conditions. The Hub's video service sees the `conditions` list below and puts
+# the picture or clip the caller passed into it as a base64 data URI, which
+# SGLang materializes server-side. `conditions` must therefore stay a list here.
+#
+# Timing and canvas come only from extra_params.target (768 short edge, 4-15 s
+# at 24 fps); fps, num_frames and guidance are rejected.
+#
+# 8 denoising passes, the count PulpCut recommends and measured against. NOT 4:
+# the pruned ComfyUI conversion of the turbo adapter drops all 51 AdaLN adapter
+# pairs, and its own metadata warns four-step behaviour is degraded as a result.
+# SGLang counts sigma grid points including the terminal zero, so 8 passes are
+# requested as num_inference_steps 9. Shift 6 / audio shift 3 are lightx2v's
+# settings for the 8-step 768p distillation that is merged in here.
+video_defaults:
+  steps: 9
+  seconds: 5
+  flow_shift: 6.0
+  extra_params:
+    task: "ref2va"
+    conditions: []
+    target:
+      short_edge: 768
+      aspect_ratio: "16:9"
+      duration_seconds: 5.0
+    audio_flow_shift: 3.0
+  notes: "Face swap: pass the clip as `video` AND the new face as `image` in the same call, and include the word Faceswap in the prompt. Without both it is just reference-to-video. 768p short edge at 24 fps; clips run 4-15 s, per the model card; 8 denoising passes (steps 9 on this server), video shift 6, audio shift 3. Refer to the reference in the prompt as <Picture 1> for an image or <Video 1> for a clip."
+  source: "https://huggingface.co/PulpCut/MiniMax-H3-Ref2VA-Turbo-INT8-ConvRot"
