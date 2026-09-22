@@ -1,0 +1,66 @@
+name: "Ornith-1.5-9B Uncensored NVFP4"
+slug: vllm-ornith15-9b-uncensored-nvfp4
+version: "1.0.0"
+description: "ressl's abliterated Ornith-1.5-9B — the dense 9B member of the Ornith family — exported to NVFP4 with ModelOpt and served on vLLM. 8.9 GB of weights, the vision tower intact, 262K context, reasoning and tool calling live, 32.8 tok/s. The author reports hard refusals down from 767/1120 to 20/1120 across five red-team datasets, with GPQA-Diamond at 60.1% against the base model's 49.5%. No speculative decoding: the NVFP4 export drops the checkpoint's MTP head. Removes safety refusals the upstream model was trained to have; supply your own guardrails."
+author: "Ornith AI (DeepReinforce)"
+source: "community"
+website: "https://huggingface.co/ornith-ai/Ornith-1.5-9B"
+upstream: "https://huggingface.co/ressl/Ornith-1.5-9B-uncensored-NVFP4"
+category: llm
+tags:
+  - llm
+  - multimodal
+  - vision
+  - reasoning
+  - coding
+  - tool-use
+  - vllm
+  - nvfp4
+  - abliterated
+  - uncensored
+logo: "/logos/ornith.png"
+requirements:
+  min_memory_gb: 37
+  recommended_memory_gb: 40
+  disk_gb: 30
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8000
+  proxy: true
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 5
+  gpu: true
+status: community-verified
+engine: "vLLM"
+params_b: 9
+arch: dense
+quantization: "NVFP4"
+artificial_analysis_index: null
+weights_gb: 8.9
+release_date: "2026-08"
+requires_hf_token: false
+tokens_per_second: 32.8
+tokens_per_second_editing: 32.8
+editing_workload: "code-edit"
+benchmarks:
+  prose: 32.69
+  explainer: 32.7
+  code: 32.91
+  code-edit: 32.8
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-09-21"
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "ressl/Ornith-1.5-9B-uncensored-NVFP4"
+  api_key: "<API_KEY>"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"ressl/Ornith-1.5-9B-uncensored-NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512, \"temperature\": 0}'"
+
+cover:
+  image: ornith-cockatiel.jpg
+  caption: "A wild cockatiel — the species behind Ornith's mascot — foraging in South Australia."
+  credit: "Wild cockatiel.jpg · Annette Teng · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File:Wild_cockatiel_-_panoramio.jpg"

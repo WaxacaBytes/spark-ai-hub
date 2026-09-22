@@ -1,0 +1,85 @@
+services:
+  vllm:
+    # ressl's abliterated Ornith-1.5-9B, exported to NVFP4 with ModelOpt. It is
+    # the dense 9B member of the Ornith family (Qwen3_5ForConditionalGeneration:
+    # hybrid Gated DeltaNet, one full-attention layer in four) with the vision
+    # tower left intact, so it takes images as well as text.
+    #
+    # Image: vllm/vllm-openai:v0.28.0-aarch64, the stock arm64 release the
+    # checkpoint's author validated against. The card reports degenerate output
+    # on anything older, and SGLang crashes loading a dense qwen3_5 NVFP4 linear
+    # attention layer, so this checkpoint has one engine and one floor version.
+    #
+    # No speculative decoding: the ModelOpt export drops the checkpoint's mtp.*
+    # tensors, so the MTP head the stock Qwen3.5-9B recipe uses is not there.
+    #
+    # KV cache stays at the checkpoint's own dtype (BF16). The quant config
+    # declares no kv_cache_scheme and ships no k/v scales, and with only 8 of 32
+    # layers holding a KV cache a full 262K-token context costs 8 GiB, so an
+    # fp8 cache would save little and add risk.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('ressl/Ornith-1.5-9B-uncensored-NVFP4', revision='befe9b6666750c01ed5b76a0d590ce27c3111499')"
+        FROM vllm/vllm-openai:v0.28.0-aarch64
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/vllm-ornith15-9b-uncensored-nvfp4:v0.28.0-aarch64
+    container_name: spark-ai-hub-vllm-ornith15-9b-uncensored-nvfp4
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    command:
+      - --model
+      - ressl/Ornith-1.5-9B-uncensored-NVFP4
+      - --revision
+      - befe9b6666750c01ed5b76a0d590ce27c3111499
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --quantization
+      - modelopt
+      - --max-model-len
+      - "262144"
+      - --gpu-memory-utilization
+      - "0.30"
+      - --enable-prefix-caching
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --mm-processor-cache-type
+      - shm
+      - --mm-encoder-tp-mode
+      - data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true
