@@ -1,0 +1,60 @@
+name: "Qwen-Image-2.1 Heretic"
+slug: sglang-qwen-image-21-heretic
+version: "1.0.0"
+description: "The uncensored path of Qwen-Image-2.1: Qwen's own 7B DiT and VAE, unchanged, conditioned by pottokao's Heretic build of the Qwen3-VL 8B text encoder — refusal directions ablated from o_proj and down_proj (5/100 refusals against the stock encoder's 100/100, KL 0.022 on harmless prompts). Same shapes, same BF16, same parameter count, so everything else is the stock recipe: text-to-image, editing with up to ten reference images, and native RGBA, served by SGLang Diffusion on the OpenAI images API and reached by your coding agents through the Hub's image tools (generate_image / edit_image). Everything stays resident on the GPU at BF16. Qwen Research License (DiT, VAE); Apache-2.0 (text encoder)."
+author: "Qwen (Alibaba) + pottokao"
+source: "community"
+website: "https://huggingface.co/pottokao/Qwen-Image-2.1-Text-Encoder-Heretic"
+upstream: "https://github.com/p-e-w/heretic"
+category: image-gen
+categories:
+  - image-gen
+tags:
+  - openai-images
+  - text-to-image
+  - image-edit
+  - rgba
+  - qwen
+  - diffusion
+  - sglang
+  - abliterated
+  - uncensored
+icon: "\U0001F5BC️"
+logo: "/logos/qwen.png"
+requirements:
+  min_memory_gb: 48
+  recommended_memory_gb: 64
+  disk_gb: 60
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP image tools call its API. Proxied so
+  # the Hub reaches it at /run/sglang-qwen-image-21-heretic/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 25
+  gpu: true
+status: experimental
+release_date: "2026-09"
+engine: "SGLang"
+params_b: 7
+arch: dense
+quantization: "BF16"
+weights_gb: 30.9
+requires_hf_token: false
+# The encoder swap changes what the prompt is allowed to say, not how the DiT
+# samples, so the stock recipe's settings carry over unchanged.
+image_defaults:
+  steps: 40
+  true_cfg_scale: 1.0
+  notes: "40 steps at CFG 1 is the model card's quickstart, and the setting SGLang's own latency table was measured at. For a transparent PNG, ask for an isolated subject on a transparent background in the prompt."
+  source: "https://huggingface.co/Qwen/Qwen-Image-2.1"
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "Qwen-Image-2.1-Heretic"
+  api_key: "<API_KEY>"
+  curl_example: "curl <HUB>/v1/images/generations -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"Qwen-Image-2.1-Heretic\", \"prompt\": \"A neon shop sign that reads QWEN IMAGE 2.1, rainy night, reflections on wet pavement\", \"size\": \"1024x1024\"}'"

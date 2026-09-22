@@ -1,0 +1,98 @@
+services:
+  sglang:
+    # Qwen-Image-2.1 with an abliterated text encoder, served by SGLang
+    # Diffusion on the OpenAI images API. The DiT, VAE, scheduler and processor
+    # are Qwen/Qwen-Image-2.1's own; only the text encoder's weights are
+    # pottokao/Qwen-Image-2.1-Text-Encoder-Heretic, the same Qwen3-VL 8B with
+    # refusal directions ablated from o_proj and down_proj by Heretic.
+    #
+    # The swap is file-for-file. Both checkpoints carry the same 750 tensor
+    # names in four BF16 shards totalling 17,534,247,392 bytes; only the shard
+    # boundaries differ, which is why Heretic's own index comes with them.
+    # The stock text_encoder/config.json and generation_config.json are kept:
+    # Heretic's copies say the same thing in transformers 5.17's spelling
+    # (rope_parameters for rope_scaling), and the stock ones are what this
+    # image already loads for the stock recipe.
+    #
+    # Image: lmsysorg/sglang:nightly-cu134-20260920-efa7be2, pinned by digest --
+    # the same native aarch64 image as sglang-qwen-image-21, and for the same
+    # reason: Qwen-Image-2.1 support landed in sglang main on 2026-09-20
+    # (#39983), after v0.5.20 was cut, so no released tag can serve it yet.
+    # lmsys prunes nightly tags within days; the digest is what is pulled.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        #
+        # Downloaded to a plain directory, not the HF cache: SGLang resolves a
+        # repo id through snapshot_download, and offline that refuses a cached
+        # snapshot with any file missing. A local path is loaded as-is. The
+        # directory name carries "qwen-image-2.1", which is what SGLang's
+        # diffusion registry matches on; --model-id below states it anyway.
+        #
+        # The stock text encoder's shards and index are skipped rather than
+        # downloaded and overwritten, so the build fetches 17.5 GB less.
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen-Image-2.1', revision='b3179ad355be050328e483a9dfdd9e60cd62adfa', local_dir='/models/Qwen-Image-2.1-Heretic', ignore_patterns=['*.jpg', '*.png', '*.webp', 'assets/*', 'text_encoder/model-*.safetensors', 'text_encoder/model.safetensors.index.json'], max_workers=8)"
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('pottokao/Qwen-Image-2.1-Text-Encoder-Heretic', revision='3b14000988529eaa376380e1ed3056b945d098bc', local_dir='/models/Qwen-Image-2.1-Heretic/text_encoder', allow_patterns=['model-*.safetensors', 'model.safetensors.index.json'], max_workers=8)"
+        FROM lmsysorg/sglang@sha256:62162648f5bb518361cc346acc131c1c28515b79aa10e4c19c674665dc13b8cb
+        COPY --from=weights /models /models
+    image: spark-ai-hub/sglang-qwen-image-21-heretic:nightly-cu134-20260920
+    container_name: spark-ai-hub-sglang-qwen-image-21-heretic
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/sglang-qwen-image-21-heretic/, so it never collides
+    # with the stock Qwen-Image-2.1 or with any other model.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    shm_size: 16gb
+    command:
+      - sglang
+      - serve
+      - --model-path
+      - /models/Qwen-Image-2.1-Heretic
+      - --model-id
+      - Qwen-Image-2.1
+      - --served-model-name
+      - Qwen-Image-2.1-Heretic
+      - --num-gpus
+      - "1"
+      - --host
+      - 0.0.0.0
+      - --port
+      - "30000"
+      # "Resident": every component stays on the GPU. That is what the SGLang
+      # cookbook selects for any card with room for the whole pipeline (peak
+      # 38.4 GiB measured), and the Spark has 121 GB. On this box CPU and GPU
+      # share one pool, so an offload would only add copies back and forth.
+      - --performance-mode
+      - speed
+      - --pin-cpu-memory
+      - "false"
+      # This model always returns RGBA, even for an opaque prompt, so every
+      # request must ask for PNG -- SGLang's disk copy of the result is JPEG
+      # by default and dies with "cannot write mode RGBA as JPEG". The Hub's
+      # image tools always send output_format=png, so this only bites someone
+      # calling the served API by hand.
+      - --output-path
+      - /tmp/sglang-outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true
