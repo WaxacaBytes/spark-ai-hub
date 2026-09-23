@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+from pillow_heif import register_heif_opener
 
 from daemon.services import image_service, media_store, video_service
 
@@ -27,13 +28,27 @@ MAX_VIDEO_BYTES = video_service.MAX_VIDEO_INPUT_BYTES
 MAX_BYTES = max(MAX_IMAGE_BYTES, MAX_VIDEO_BYTES)
 
 
+# iPhone photos are HEIC; Pillow reads them once this is registered.
+register_heif_opener()
+
+# HEIF/HEIC and AVIF stills share MP4's container, so `ftyp` alone does not
+# make a video: these brands mark an image.
+IMAGE_BRANDS = {b"mif1", b"msf1", b"heic", b"heix", b"heim", b"heis",
+                b"hevc", b"hevx", b"avif", b"avis"}
+
+
 class UploadError(ValueError):
     pass
 
 
 def _is_mp4(raw: bytes) -> bool:
-    # ISO base media (MP4, MOV, M4V): the first box is `ftyp`.
-    return raw[4:8] == b"ftyp"
+    # ISO base media (MP4, MOV, M4V): the first box is `ftyp`, whose major
+    # brand and compatible brands say what the file holds.
+    if raw[4:8] != b"ftyp":
+        return False
+    size = int.from_bytes(raw[:4], "big")
+    brands = raw[8:12], *(raw[i:i + 4] for i in range(16, min(size, 256), 4))
+    return not IMAGE_BRANDS.intersection(brands)
 
 
 def save(raw: bytes) -> dict:

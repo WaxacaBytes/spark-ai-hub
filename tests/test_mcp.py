@@ -520,6 +520,16 @@ class UploadTests(_MediaDirsTest):
                                                       max_bytes=video_service.MAX_VIDEO_INPUT_BYTES))
         self.assertEqual(stored, _MP4)
 
+    def test_heic_and_avif_photos_are_images_not_videos(self):
+        """They share MP4's `ftyp` container; the brand says they are stills."""
+        for fmt in ("HEIF", "AVIF"):
+            buf = io.BytesIO()
+            Image.new("RGB", (40, 20), (1, 2, 3)).save(buf, format=fmt)
+            self.assertEqual(buf.getvalue()[4:8], b"ftyp")
+            info = self.client.post("/api/uploads", content=buf.getvalue()).json()
+            self.assertEqual((info["kind"], info["width"], info["height"]), ("image", 40, 20), fmt)
+            self.assertRegex(info["url"], r"/images/[0-9a-f]{32}\.png$")
+
     def test_unreadable_upload_is_refused(self):
         self.assertEqual(self.client.post("/api/uploads", content=b"not an image").status_code, 400)
         self.assertEqual(self.client.post("/api/uploads", content=b"").status_code, 400)
