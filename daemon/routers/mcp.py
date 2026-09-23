@@ -42,6 +42,12 @@ router = APIRouter(tags=["mcp"])
 PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26")
 SERVER_INFO = {"name": "spark-ai-hub", "title": "Spark AI Hub", "version": "1.0.0"}
 KEEPALIVE_SECONDS = 10
+# How long get_image / get_video / get_music / start_model hold a call open
+# before answering "not done yet". Short enough for any client's tool timeout,
+# long enough that polling needs no sleep and a render takes a handful of calls.
+# Fixed on purpose: renders have exactly one shape (start, then collect), with
+# no knob for a client to get wrong.
+CHECK_WAIT = 20
 
 INSTRUCTIONS = (
     "Searches the web privately with web_search (SearXNG on the user's DGX Spark: no "
@@ -64,34 +70,25 @@ INSTRUCTIONS = (
     "and short-lived: ask for a new one each time. Uploads last 7 days. A picture "
     "attached to the chat is not a file you can upload; ask the user to add it at "
     "<Hub address>/files and paste the link.\n\n"
-    "Renders are asynchronous jobs, because they take from seconds to many minutes. "
-    "generate_image and edit_image return the image if it is ready within about 45 s; "
-    "otherwise they return status \"rendering\" and a job_id. generate_video always "
-    "returns a job_id. A job_id is not a failure and not the final result: the render "
-    "is still running on the Spark. Collect it by calling get_image (images) or "
-    "get_video (videos) with that job_id, and keep calling it until the status is "
-    "completed or failed. Each call already waits up to wait_seconds, so no sleep is "
-    "needed between calls. Keep polling in the same turn instead of telling the user "
-    "to wait or check back, and never call generate_* again for the same request: that "
-    "queues a second render behind the first. If a tool call times out, the job is "
-    "not lost; call get_image / get_video again."
+    "Every render works the same way: generate_image, edit_image, generate_video and "
+    "generate_music start a job and return its job_id at once. Then call get_image, "
+    "get_video or get_music with that job_id. Each get call waits up to "
+    f"{CHECK_WAIT} seconds and returns either the result or \"Not done yet\"; call it "
+    "again with the same job_id until it returns the result or an error. No sleep is "
+    "needed between calls. Keep calling in the same turn instead of telling the user "
+    "to wait, and never start the same render again: that queues a second one. "
+    "start_model works the same way: call it again until the model is ready."
 )
 
 _ASYNC_IMAGE = (
-    " Returns the image when it is ready within about 45 s; slower renders return "
-    "status \"rendering\" and a job_id instead, which you must collect with get_image "
-    "(call it until the image arrives; do not start the render again)."
+    " Returns a job_id at once, not the image: then call get_image with it until the "
+    "image arrives. Do not start the render again."
 )
 
 _STEPS_HINT = (
     "Sampling steps. Leave this out: each model then uses the steps its model "
     "card recommends (list_image_models shows them — a step-distilled model "
     "wants 4, a full diffusion model 50). Set it only when the user asks."
-)
-
-_WAIT_HINT = (
-    "How long this call waits for the job before reporting it still running. "
-    "Omit for 120. Stay under ~240: some clients cut a tool call off after about 5 minutes."
 )
 
 _MODEL_ARG = {"type": "string",
@@ -198,20 +195,14 @@ TOOLS = [
         "name": "get_image",
         "title": "Get image",
         "description": (
-            "Collect an image job that generate_image or edit_image returned as still "
-            "rendering. Waits up to wait_seconds; returns the image when done, or "
-            "status \"rendering\" if not yet, in which case call get_image again with "
-            "the same job_id, repeating until it completes or fails. The render "
-            "continues on the Spark whatever this client does, so a timed-out call "
-            "never loses the picture."
+            f"Collect the image job that generate_image or edit_image started. Waits up to "
+            f"{CHECK_WAIT} s; returns the image when done, or \"Not done yet\", in which "
+            "case call get_image again with the same job_id until it returns the image "
+            "or an error."
         ),
         "inputSchema": {
             "type": "object",
-            "properties": {
-                "job_id": {"type": "string"},
-                "wait_seconds": {"type": "integer", "minimum": 0, "maximum": image_service.MAX_WAIT,
-                                 "default": 120, "description": _WAIT_HINT},
-            },
+            "properties": {"job_id": {"type": "string"}},
             "required": ["job_id"],
             "additionalProperties": False,
         },
@@ -222,10 +213,10 @@ TOOLS = [
         "description": (
             "Start rendering a short video on the Spark from a text prompt, or from a "
             "starting image plus a prompt (image-to-video), or from an input video to "
-            "edit, extend or inpaint (video-to-video). Asynchronous: returns a job_id at "
-            "once, not the video. Rendering takes several minutes, so then call get_video "
-            "with the job_id, again and again until it returns the video or an error; do "
-            "not start the render again. Describe the motion and camera as well as the scene."
+            "edit, extend or inpaint (video-to-video). Returns a job_id at once, not the "
+            "video: then call get_video with it until the video arrives (rendering takes "
+            "minutes). Do not start the render again. Describe the motion and camera as "
+            "well as the scene."
         ),
         "inputSchema": {
             "type": "object",
@@ -256,18 +247,14 @@ TOOLS = [
         "name": "get_video",
         "title": "Get video",
         "description": (
-            "Collect a video job started by generate_video. Waits up to wait_seconds for it "
-            "to finish; returns the video URL and a still frame when done, or its "
-            "progress if still rendering, in which case call get_video again with the same "
-            "job_id, repeating until it completes or fails."
+            f"Collect the video job that generate_video started. Waits up to {CHECK_WAIT} s; "
+            "returns the video URL and a still frame when done, or \"Not done yet\" with "
+            "its progress, in which case call get_video again with the same job_id until "
+            "it returns the video or an error."
         ),
         "inputSchema": {
             "type": "object",
-            "properties": {
-                "job_id": {"type": "string"},
-                "wait_seconds": {"type": "integer", "minimum": 0, "maximum": video_service.MAX_WAIT,
-                                 "default": 120, "description": _WAIT_HINT},
-            },
+            "properties": {"job_id": {"type": "string"}},
             "required": ["job_id"],
             "additionalProperties": False,
         },
@@ -287,7 +274,8 @@ TOOLS = [
             "Compose a song on the Spark: lyrics plus a style caption in, a stereo WAV out. "
             "Put structure tags ([Verse], [Chorus], [Bridge], [Outro]) each on its own line "
             "in the lyrics. Describe genre, instruments, tempo (BPM), mood and production "
-            "in style. Can take several minutes."
+            "in style. Returns a job_id at once, not the song: then call get_music with it "
+            "until the song arrives (composing takes minutes). Do not start it again."
         ),
         "inputSchema": {
             "type": "object",
@@ -300,6 +288,21 @@ TOOLS = [
                 "model": {"type": "string", "description": "Omit to use whichever music model is running."},
             },
             "required": ["lyrics", "style"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "get_music",
+        "title": "Get music",
+        "description": (
+            f"Collect the song job that generate_music started. Waits up to {CHECK_WAIT} s; "
+            "returns the song URL when done, or \"Not done yet\", in which case call "
+            "get_music again with the same job_id until it returns the song or an error."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"job_id": {"type": "string"}},
+            "required": ["job_id"],
             "additionalProperties": False,
         },
     },
@@ -338,18 +341,14 @@ TOOLS = [
         "description": (
             "Start one of the Spark's stopped image, video or music models so the other "
             "tools can use it. Loading takes from under a minute to about 15 minutes for "
-            "the largest. Waits up to wait_seconds; returns once the model is ready, or "
-            "status \"starting\", in which case call start_model again with the same model "
+            f"the largest. Waits up to {CHECK_WAIT} s; returns once the model is ready, or "
+            "\"Not done yet\", in which case call start_model again with the same model "
             "until it is ready. Refused when the model needs more memory than is free: the "
             "error names what is running, and stop_model can free a media model among them."
         ),
         "inputSchema": {
             "type": "object",
-            "properties": {
-                "model": _MODEL_ARG,
-                "wait_seconds": {"type": "integer", "minimum": 0, "maximum": image_service.MAX_WAIT,
-                                 "default": 120, "description": _WAIT_HINT},
-            },
+            "properties": {"model": _MODEL_ARG},
             "required": ["model"],
             "additionalProperties": False,
         },
@@ -435,8 +434,7 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
         if name in ("create_upload", "create_download"):
             return await _link_tool(name, args, origin, user)
         if name == "start_model":
-            wait = _int(args, "wait_seconds")
-            return await _start_model(args, 120 if wait is None else wait, on_progress, user)
+            return await _start_model(args, on_progress, user)
         if name == "stop_model":
             return await _stop_model(args)
         if name == "generate_music":
@@ -444,31 +442,18 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             style = str(args.get("style") or "").strip()
             if not lyrics or not style:
                 raise image_service.ImageError("'lyrics' and 'style' are both required.")
-            info = await audio_service.generate(
+            slug = (await audio_service.pick_backend(str(args.get("model") or "").strip() or None)).slug
+            job_id = image_service.start_job("music", lambda: audio_service.generate(
                 lyrics=lyrics, style=style, seconds=_int(args, "seconds"), seed=_int(args, "seed"),
-                model=str(args.get("model") or "").strip() or None, on_progress=on_progress,
-            )
-            await media_store.record(f"{info['audio_id']}.wav", user and user["id"], info["model"])
-            url = f"{origin}{audio_service.PUBLIC_PREFIX}/{info['audio_id']}.wav"
-            lines = [f"Music: {url}", f"Model: {info['model']}",
-                     f"Length: {info['seconds']}s", f"Seed: {info['seed']}"]
-            return {"content": [{"type": "text", "text": "\n".join(lines)}],
-                    "structuredContent": {**info, "url": url}, "isError": False}
-        if name == "get_image":
-            job_id = str(args.get("job_id") or "").strip()
-            if not job_id:
-                raise image_service.ImageError("'job_id' is required.")
-            wait = _int(args, "wait_seconds")
-            info = await image_service.check_job(job_id, 120 if wait is None else wait, user)
-            return _image_result(info, origin)
+                model=slug, user=user), slug, user)
+            return _started("get_music", job_id, slug)
+        if name in ("get_image", "get_music"):
+            info = await image_service.check_job(_job_id(args), CHECK_WAIT, user)
+            return _music_result(info, origin) if info["kind"] == "music" else _image_result(info, origin)
         if name == "list_video_models":
             return _text(json.dumps(await video_service.list_models(), indent=2))
         if name == "get_video":
-            job_id = str(args.get("job_id") or "").strip()
-            if not job_id:
-                raise image_service.ImageError("'job_id' is required.")
-            wait = _int(args, "wait_seconds")
-            info = await video_service.check(job_id, 120 if wait is None else wait, on_progress, user)
+            info = await video_service.check(_job_id(args), CHECK_WAIT, on_progress, user)
             return _video_result(info, origin)
         if name == "generate_video":
             prompt = str(args.get("prompt") or "").strip()
@@ -481,16 +466,7 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
                 seed=_int(args, "seed"), steps=_int(args, "steps"),
                 model=str(args.get("model") or "").strip() or None, user=user,
             )
-            lines = [f"Video job started: {info['job_id']}", f"Model: {info['model']}"]
-            lines += [f"{k.capitalize()}: {info[k]}" for k in ("size", "seconds", "seed", "steps")
-                      if info.get(k) is not None]
-            lines.append("Not done yet: this is a job, not the video. Rendering takes several "
-                         f"minutes. Now call get_video with job_id {info['job_id']}, and keep "
-                         "calling it until it returns the video; each call waits up to "
-                         "wait_seconds. Do not call generate_video again for this request.")
-            return {"content": [{"type": "text", "text": "\n".join(lines)}],
-                    "structuredContent": {**info, **_next_call("get_video", info["job_id"])},
-                    "isError": False}
+            return _started("get_video", info["job_id"], info["model"], info)
 
         prompt = str(args.get("prompt") or "").strip()
         if not prompt:
@@ -502,30 +478,51 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             seed=_int(args, "seed"),
             steps=_int(args, "steps"),
         )
-        model = str(args.get("model") or "").strip() or None
-
-        if name == "generate_image":
-            job_id = await image_service.start_job("generate", params, [], model, user)
-        else:
-            images = args.get("images")
+        kind, images = "generate", []
+        if name == "edit_image":
+            kind, images = "edit", args.get("images")
             if isinstance(images, str):
                 images = [images]
             if not isinstance(images, list) or not 1 <= len(images) <= 3:
                 raise image_service.ImageError("'images' must list one to three images.")
-            job_id = await image_service.start_job("edit", params, [str(i) for i in images], model, user)
-        if on_progress:
-            on_progress("rendering on the Spark")
-        info = await image_service.check_job(job_id, image_service.JOB_GRACE, user)
-        return _image_result(info, origin)
+            images = [str(i) for i in images]
+        # Picked now, so "no model is running" comes back from this call, not the first get.
+        slug = (await image_service.pick_backend(kind, str(args.get("model") or "").strip() or None)).slug
+        job_id = image_service.start_job(
+            kind, lambda: image_service.run(kind, params, images, slug, user=user), slug, user)
+        return _started("get_image", job_id, slug)
     except (image_service.ImageError, web_service.WebError) as exc:
         return _text(str(exc), is_error=True)
     except Exception as exc:  # noqa: BLE001 - surface anything else to the agent
         return _text(f"{name} failed: {type(exc).__name__}: {exc}", is_error=True)
 
 
+def _job_id(args: dict) -> str:
+    job_id = str(args.get("job_id") or "").strip()
+    if not job_id:
+        raise image_service.ImageError("'job_id' is required.")
+    return job_id
+
+
 def _next_call(tool: str, job_id: str) -> dict:
     """What an unfinished job's result tells a client that reads structuredContent only."""
     return {"done": False, "next_call": {"tool": tool, "arguments": {"job_id": job_id}}}
+
+
+def _not_done(tool: str, job_id: str, status: str, info: dict) -> dict:
+    """The one "keep collecting" answer every job gives, started or still running."""
+    return {"content": [{"type": "text", "text": (
+                f"Not done yet: {status}. This is a job, not the result. Now call {tool} "
+                f"with job_id {job_id}, and keep calling it until it returns the result "
+                "or an error. Do not start the render again.")}],
+            "structuredContent": {"status": "rendering", **info, "job_id": job_id,
+                                  **_next_call(tool, job_id)},
+            "isError": False}
+
+
+def _started(tool: str, job_id: str, model: str, info: dict | None = None) -> dict:
+    return _not_done(tool, job_id, f"job {job_id} started on {model}",
+                     {**(info or {}), "model": model})
 
 
 # ------------------------------------------------------------ start / stop
@@ -573,7 +570,7 @@ async def _check_memory(slug: str) -> None:
     raise image_service.ImageError(" ".join(lines))
 
 
-async def _start_model(args: dict, wait: int, on_progress=None, user: dict | None = None) -> dict:
+async def _start_model(args: dict, on_progress=None, user: dict | None = None) -> dict:
     slug = await _media_model(args)
     async with _start_lock:
         if not await is_recipe_running(slug) and get_pending(slug) != "launching":
@@ -586,14 +583,14 @@ async def _start_model(args: dict, wait: int, on_progress=None, user: dict | Non
                 raise image_service.ImageError(
                     f"{slug} failed to launch: {str(exc.detail)[-500:]}") from None
 
-    deadline = asyncio.get_running_loop().time() + min(wait, image_service.MAX_WAIT)
+    deadline = asyncio.get_running_loop().time() + CHECK_WAIT
     while not is_ready(slug):
         if not await is_recipe_running(slug) and get_pending(slug) != "launching":
             raise image_service.ImageError(
                 f"{slug} stopped before it finished loading. Its log is on its page in the Hub.")
         if asyncio.get_running_loop().time() >= deadline:
             return {"content": [{"type": "text", "text": (
-                        f"Not done yet: {slug} is still loading its weights. Call start_model "
+                        f"Not done yet: {slug} is still loading its weights. Now call start_model "
                         f"with model {slug} again, and keep calling it until it is ready.")}],
                     "structuredContent": {"model": slug, "status": "starting", "done": False,
                                           "next_call": {"tool": "start_model",
@@ -630,14 +627,9 @@ def _image_result(info: dict, origin: str) -> dict:
     if info["status"] == "failed":
         return _text(info.get("error") or f"Image job {info['job_id']} failed.", is_error=True)
     if info["status"] != "completed":
-        return {"content": [{"type": "text", "text": (
-                    f"Not done yet: still rendering on the Spark ({info['elapsed']}s so far). "
-                    f"This is a job, not the image. Now call get_image with job_id "
-                    f"{info['job_id']}, and keep calling it until it returns the image; the "
-                    f"render finishes even if a call times out. Do not start the render again.")}],
-                "structuredContent": {**{k: v for k, v in info.items() if k != "result"},
-                                      **_next_call("get_image", info["job_id"])},
-                "isError": False}
+        return _not_done("get_image", info["job_id"],
+                         f"still rendering on {info['model']} ({info['elapsed']}s so far)",
+                         {k: v for k, v in info.items() if k != "result"})
     result = info["result"]
     url = f"{origin}{result.path}"
     lines = [
@@ -674,13 +666,10 @@ def _video_result(info: dict, origin: str) -> dict:
         return _text(f"Video job {info['job_id']} failed on {info['model']}: {info.get('error')}",
                      is_error=True)
     if info["status"] != "completed":
-        return {"content": [{"type": "text", "text": (
-                    f"Not done yet: still rendering on {info['model']} ({info['status']}, "
-                    f"{info.get('progress', 0)}% done). Call get_video again with job_id "
-                    f"{info['job_id']}, and keep calling it until it returns the video.")}],
-                "structuredContent": {**{k: v for k, v in info.items() if k != "poster"},
-                                      **_next_call("get_video", info["job_id"])},
-                "isError": False}
+        return _not_done("get_video", info["job_id"],
+                         f"still rendering on {info['model']} ({info['status']}, "
+                         f"{info.get('progress', 0)}% done)",
+                         {k: v for k, v in info.items() if k != "poster"})
     url = f"{origin}{video_service.PUBLIC_PREFIX}/{info['video_id']}.mp4"
     lines = [f"Video: {url}", f"Model: {info['model']}", *details]
     if info.get("inference_time_s"):
@@ -692,6 +681,21 @@ def _video_result(info: dict, origin: str) -> dict:
         content.append({"type": "image", "data": info["poster"], "mimeType": "image/jpeg"})
     structured = {k: v for k, v in info.items() if k != "poster"}
     return {"content": content, "structuredContent": {**structured, "url": url}, "isError": False}
+
+
+def _music_result(info: dict, origin: str) -> dict:
+    if info["status"] == "failed":
+        return _text(info.get("error") or f"Music job {info['job_id']} failed.", is_error=True)
+    if info["status"] != "completed":
+        return _not_done("get_music", info["job_id"],
+                         f"still composing on {info['model']} ({info['elapsed']}s so far)",
+                         {k: v for k, v in info.items() if k != "result"})
+    song = info["result"]
+    url = f"{origin}{audio_service.PUBLIC_PREFIX}/{song['audio_id']}.wav"
+    lines = [f"Music: {url}", f"Model: {song['model']}",
+             f"Length: {song['seconds']}s", f"Seed: {song['seed']}"]
+    return {"content": [{"type": "text", "text": "\n".join(lines)}],
+            "structuredContent": {**song, "url": url}, "isError": False}
 
 
 async def _link_tool(name: str, args: dict, origin: str, user: dict | None) -> dict:

@@ -4,6 +4,7 @@ import io
 import json
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from unittest import mock
 
@@ -110,7 +111,7 @@ class McpProtocolTests(unittest.TestCase):
         names = {t["name"] for t in r.json()["result"]["tools"]}
         self.assertEqual(names, {"generate_image", "edit_image", "get_image",
                                  "list_image_models", "generate_video", "get_video",
-                                 "list_video_models", "generate_music",
+                                 "list_video_models", "generate_music", "get_music",
                                  "create_upload", "create_download",
                                  "start_model", "stop_model", "web_search", "web_fetch"})
 
@@ -139,28 +140,36 @@ class McpToolCallTests(unittest.TestCase):
             seed=7, preview_jpeg_b64="AAAA",
         )
 
+    def _generate(self, run, headers=None):
+        """generate_image, then get_image on the job it returns."""
+        backend = mock.AsyncMock(return_value=SimpleNamespace(slug="qwen-image-2512"))
+        with mock.patch.object(image_service, "pick_backend", backend), \
+                mock.patch.object(image_service, "run", run):
+            r = self.client.post("/mcp", json=_rpc("tools/call", {
+                "name": "generate_image", "arguments": {"prompt": "a cat", "seed": "7"}}),
+                headers=headers)
+            sse = r.headers["content-type"].startswith("text/event-stream")
+            started = (json.loads(_sse_data(r.text)[-1]) if sse else r.json())["result"]
+            self.assertFalse(started["isError"])
+            self.assertIn("Not done yet", started["content"][0]["text"])
+            return self.client.post("/mcp", json=_rpc("tools/call", {
+                "name": "get_image", "arguments": started["structuredContent"]["next_call"]["arguments"]},
+                msg_id=9), headers=headers)
+
     def test_generate_as_json(self):
-        with mock.patch.object(image_service, "run", mock.AsyncMock(return_value=self.result)) as run:
-            r = self.client.post(
-                "/mcp", json=_rpc("tools/call", {"name": "generate_image",
-                                                 "arguments": {"prompt": "a cat", "seed": "7"}}),
-                headers={"accept": "application/json"},
-            )
+        run = mock.AsyncMock(return_value=self.result)
+        r = self._generate(run, {"accept": "application/json"})
         result = r.json()["result"]
         self.assertFalse(result["isError"])
         self.assertIn(f"/images/{'a' * 32}.png", result["content"][0]["text"])
         self.assertEqual(result["content"][1], {"type": "image", "data": "AAAA", "mimeType": "image/jpeg"})
         kind, params, images, model = run.call_args.args[:4]
         self.assertEqual((kind, params.prompt, params.seed, images, model),
-                         ("generate", "a cat", 7, [], None))
+                         ("generate", "a cat", 7, [], "qwen-image-2512"))
 
     def test_generate_as_sse_ends_with_the_response(self):
-        with mock.patch.object(image_service, "run", mock.AsyncMock(return_value=self.result)):
-            r = self.client.post(
-                "/mcp", json=_rpc("tools/call", {"name": "generate_image",
-                                                 "arguments": {"prompt": "a cat"}}, msg_id=9),
-                headers={"accept": "application/json, text/event-stream"},
-            )
+        r = self._generate(mock.AsyncMock(return_value=self.result),
+                           {"accept": "application/json, text/event-stream"})
         self.assertTrue(r.headers["content-type"].startswith("text/event-stream"))
         final = json.loads(_sse_data(r.text)[-1])
         self.assertEqual(final["id"], 9)
@@ -168,12 +177,17 @@ class McpToolCallTests(unittest.TestCase):
 
     def test_image_error_is_a_tool_error_not_a_protocol_error(self):
         err = image_service.ImageError("No image generate model is running")
-        with mock.patch.object(image_service, "run", mock.AsyncMock(side_effect=err)):
+        with mock.patch.object(image_service, "pick_backend", mock.AsyncMock(side_effect=err)):
             r = self.client.post("/mcp", json=_rpc("tools/call", {
                 "name": "generate_image", "arguments": {"prompt": "x"}}))
         result = r.json()["result"]
         self.assertTrue(result["isError"])
         self.assertIn("No image generate model", result["content"][0]["text"])
+
+    def test_render_failure_comes_back_from_get_image(self):
+        r = self._generate(mock.AsyncMock(side_effect=image_service.ImageError("boom")))
+        result = r.json()["result"]
+        self.assertEqual((result["isError"], result["content"][0]["text"]), (True, "boom"))
 
     def test_edit_requires_images(self):
         r = self.client.post("/mcp", json=_rpc("tools/call", {
@@ -438,13 +452,13 @@ class VideoToolTests(unittest.TestCase):
         result = r.json()["result"]
         self.assertIn(f"/videos/{'a' * 32}.mp4", result["content"][0]["text"])
         self.assertEqual(result["content"][1]["mimeType"], "image/jpeg")
-        self.assertEqual(check.call_args.args[:2], ("j", 120))
+        self.assertEqual(check.call_args.args[:2], ("j", mcp.CHECK_WAIT))
 
     def test_get_video_in_progress_is_not_an_error(self):
         info = {"job_id": "j", "model": "wan", "status": "in_progress", "progress": 40}
         with mock.patch.object(video_service, "check", mock.AsyncMock(return_value=info)):
             r = self.client.post("/mcp", json=_rpc("tools/call", {
-                "name": "get_video", "arguments": {"job_id": "j", "wait_seconds": 0}}))
+                "name": "get_video", "arguments": {"job_id": "j"}}))
         result = r.json()["result"]
         self.assertFalse(result["isError"])
         self.assertIn("40%", result["content"][0]["text"])
@@ -740,25 +754,23 @@ class UnifiedVideoEditAndMusicTests(unittest.TestCase):
         async def scenario():
             started = asyncio.Event()
 
-            async def slow_run(kind, params, images, model, on_progress=None, user=None):
+            async def slow_run():
                 started.set()
                 await asyncio.sleep(0.3)
                 return SimpleNamespace(path="/images/abc.png", model="m", width=8, height=8,
                                        seed=1, steps=None, preset=None, preview_jpeg_b64="x")
 
-            with mock.patch.object(image_service, "run", slow_run):
-                job_id = await image_service.start_job(
-                    "edit", image_service.Params(prompt="p"), ["u"], "m", OWNER)
-                # The caller gives up while the render is still going.
-                pending = await image_service.check_job(job_id, 0, OWNER)
-                self.assertEqual((pending["status"], pending["result"]), ("rendering", None))
-                await started.wait()
-                done = await image_service.check_job(job_id, 5, OWNER)
-                self.assertEqual((done["status"], done["result"].path), ("completed", "/images/abc.png"))
-                # Collectable again afterwards -- by the account that started it only.
-                self.assertEqual((await image_service.check_job(job_id, 0, OWNER))["status"], "completed")
-                with self.assertRaisesRegex(image_service.ImageError, "No image job"):
-                    await image_service.check_job(job_id, 0, OTHER)
+            job_id = image_service.start_job("edit", slow_run, "m", OWNER)
+            # The caller gives up while the render is still going.
+            pending = await image_service.check_job(job_id, 0, OWNER)
+            self.assertEqual((pending["status"], pending["result"]), ("rendering", None))
+            await started.wait()
+            done = await image_service.check_job(job_id, 5, OWNER)
+            self.assertEqual((done["status"], done["result"].path), ("completed", "/images/abc.png"))
+            # Collectable again afterwards -- by the account that started it only.
+            self.assertEqual((await image_service.check_job(job_id, 0, OWNER))["status"], "completed")
+            with self.assertRaisesRegex(image_service.ImageError, "No job"):
+                await image_service.check_job(job_id, 0, OTHER)
         from types import SimpleNamespace
         asyncio.run(scenario())
 
@@ -783,7 +795,7 @@ class UnifiedVideoEditAndMusicTests(unittest.TestCase):
         self.assertEqual((failed["isError"], failed["content"][0]["text"]), (True, "boom"))
 
     def test_unknown_image_job_is_a_clear_error(self):
-        with self.assertRaisesRegex(image_service.ImageError, "No image job"):
+        with self.assertRaisesRegex(image_service.ImageError, "No job"):
             asyncio.run(image_service.check_job("nope", 0))
 
     def test_hidream_backend_from_tag(self):
@@ -861,14 +873,38 @@ class UnifiedVideoEditAndMusicTests(unittest.TestCase):
             {"input": "[Verse]\nla", "instructions": "lofi", "seed": 3,
              "max_new_tokens": 750, "response_format": "wav"})
 
-    def test_generate_music_tool(self):
-        info = {"audio_id": "c" * 32, "model": "m", "seconds": 30.0, "seed": 3}
-        with mock.patch.object(audio_service, "generate", mock.AsyncMock(return_value=info)):
-            r = self.client.post("/mcp", json=_rpc("tools/call", {
-                "name": "generate_music", "arguments": {"lyrics": "[Verse]\nla", "style": "lofi"}}))
-        result = r.json()["result"]
-        self.assertFalse(result["isError"])
-        self.assertIn(f"/audio/{'c' * 32}.wav", result["content"][0]["text"])
+    def test_every_render_returns_a_job_then_get_collects_it(self):
+        """One shape for all media: start returns a job_id at once, get_* collects it."""
+        from types import SimpleNamespace
+        song = {"audio_id": "c" * 32, "model": "m", "seconds": 30.0, "seed": 3}
+        picture = SimpleNamespace(path="/images/abc.png", model="i", width=8, height=8,
+                                  seed=1, steps=None, preset=None, preview_jpeg_b64="x")
+        with mock.patch.object(audio_service, "pick_backend",
+                               mock.AsyncMock(return_value=SimpleNamespace(slug="m"))), \
+                mock.patch.object(audio_service, "generate", mock.AsyncMock(return_value=song)), \
+                mock.patch.object(image_service, "pick_backend",
+                                  mock.AsyncMock(return_value=SimpleNamespace(slug="i"))), \
+                mock.patch.object(image_service, "run", mock.AsyncMock(return_value=picture)):
+            for start, args, get, expect in (
+                    ("generate_music", {"lyrics": "[Verse]\nla", "style": "lofi"}, "get_music",
+                     f"/audio/{'c' * 32}.wav"),
+                    ("generate_image", {"prompt": "a cat"}, "get_image", "/images/abc.png"),
+                    ("edit_image", {"prompt": "red", "images": ["/images/x.png"]}, "get_image",
+                     "/images/abc.png")):
+                started = self.client.post("/mcp", json=_rpc("tools/call", {
+                    "name": start, "arguments": args})).json()["result"]
+                self.assertFalse(started["isError"])
+                self.assertIn("Not done yet", started["content"][0]["text"])
+                call = started["structuredContent"]["next_call"]
+                self.assertEqual(call["tool"], get)
+                done = self.client.post("/mcp", json=_rpc("tools/call", {
+                    "name": get, "arguments": call["arguments"]})).json()["result"]
+                self.assertFalse(done["isError"])
+                self.assertIn(expect, done["content"][0]["text"])
+
+    def test_no_tool_offers_a_wait_knob(self):
+        for tool in mcp.TOOLS:
+            self.assertNotIn("wait_seconds", tool["inputSchema"].get("properties", {}), tool["name"])
 
     def test_generate_music_needs_lyrics_and_style(self):
         r = self.client.post("/mcp", json=_rpc("tools/call", {
@@ -915,6 +951,7 @@ class StartStopModelTests(unittest.TestCase):
             mock.patch.object(mcp, "get_pending", return_value=None),
             mock.patch.object(mcp, "start_health_check", mock.AsyncMock()),
             mock.patch.object(mcp, "READY_POLL_SECONDS", 0.01),
+            mock.patch.object(mcp, "CHECK_WAIT", 0.05),
             mock.patch.object(mcp.containers, "launch", self.launch),
             mock.patch.object(mcp.containers, "stop", self.stop),
             # The memory check itself lives in docker_service.
@@ -946,7 +983,7 @@ class StartStopModelTests(unittest.TestCase):
         self.stop.assert_not_called()
 
     def test_start_refused_when_memory_is_short_names_what_is_running(self):
-        result = self.call("start_model", model="img-big", wait_seconds=0)
+        result = self.call("start_model", model="img-big")
         text = result["content"][0]["text"]
         self.assertTrue(result["isError"])
         self.assertIn("img-big needs about 60 GB and only 50 GB is free", text)
@@ -957,14 +994,14 @@ class StartStopModelTests(unittest.TestCase):
     def test_a_loading_app_counts_against_free_memory(self):
         self.running.discard("img-small")
         self.ready.discard("llm")
-        result = self.call("start_model", model="img-small", wait_seconds=0)
+        result = self.call("start_model", model="img-small")
         self.assertTrue(result["isError"])   # 50 GB free, but the LLM still loading takes 80
         self.launch.assert_not_called()
 
     def test_start_launches_then_reports_starting_then_ready(self):
         self.running.discard("img-small")
         self.ready.discard("img-small")
-        pending = self.call("start_model", model="img-small", wait_seconds=0)
+        pending = self.call("start_model", model="img-small")
         self.launch.assert_awaited_once_with("img-small", user=OWNER)
         self.assertFalse(pending["isError"])
         self.assertEqual(pending["structuredContent"]["next_call"],
@@ -978,7 +1015,7 @@ class StartStopModelTests(unittest.TestCase):
         self.running.discard("img-small")
         self.ready.discard("img-small")
         self.launch.side_effect = None        # compose up returned, container gone
-        result = self.call("start_model", model="img-small", wait_seconds=5)
+        result = self.call("start_model", model="img-small")
         self.assertTrue(result["isError"])
         self.assertIn("stopped before it finished loading", result["content"][0]["text"])
 

@@ -21,7 +21,7 @@ import aiohttp
 
 from daemon.config import settings
 from daemon.services.docker_service import get_installed_slugs, is_ready, is_recipe_running
-from daemon.services import proxy_service
+from daemon.services import media_store, proxy_service
 from daemon.services.image_service import ImageError, rendering
 from daemon.services.registry_service import get_recipes
 
@@ -102,12 +102,10 @@ def wav_seconds(raw: bytes) -> float | None:
 
 
 async def generate(*, lyrics: str, style: str, seconds: int | None, seed: int | None,
-                   model: str | None, on_progress=None) -> dict:
+                   model: str | None, user: dict | None = None) -> dict:
     backend = await pick_backend(model)
     seed = seed if seed is not None else secrets.randbelow(MAX_SEED)
     seconds = seconds or getattr(backend.defaults, "seconds", None) or DEFAULT_SECONDS
-    if on_progress:
-        on_progress(f"composing on {backend.slug}")
     timeout = aiohttp.ClientTimeout(total=JOB_TIMEOUT, sock_connect=10)
     with rendering(backend.slug):
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -120,6 +118,7 @@ async def generate(*, lyrics: str, style: str, seconds: int | None, seed: int | 
     AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     audio_id = secrets.token_hex(16)
     (AUDIO_DIR / f"{audio_id}.wav").write_bytes(raw)
+    await media_store.record(f"{audio_id}.wav", user and user["id"], backend.slug)
     length = wav_seconds(raw)
     return {"audio_id": audio_id, "model": backend.slug,
             "seconds": round(length, 1) if length else seconds, "seed": seed}

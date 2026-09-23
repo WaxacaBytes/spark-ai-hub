@@ -28,7 +28,7 @@ import re
 import secrets
 import urllib.parse
 from dataclasses import dataclass, replace
-from typing import Callable
+from typing import Awaitable, Callable
 
 import aiohttp
 from PIL import Image, ImageOps
@@ -546,8 +546,6 @@ async def run(kind: str, params: Params, images: list[str], model: str | None,
 # kept rendering, finished, and the picture was thrown away. Now the render runs
 # in its own task and the result waits here to be collected.
 
-JOB_GRACE = 45                # a fast model finishes inside the first call
-MAX_WAIT = 600
 MAX_JOBS = 200
 _jobs: dict[str, dict] = {}
 
@@ -557,9 +555,9 @@ def _prune_jobs() -> None:
         _jobs.pop(min(_jobs, key=lambda key: _jobs[key]["created"]))
 
 
-async def start_job(kind: str, params: Params, images: list[str], model: str | None,
-                    user: dict | None = None) -> str:
-    """Start a render for `user` and return its job id at once."""
+def start_job(kind: str, work: Callable[[], Awaitable], model: str | None,
+              user: dict | None = None) -> str:
+    """Run `work` (an image render, or a song) for `user`; return its job id at once."""
     _prune_jobs()
     job_id = secrets.token_hex(16)
     job: dict = {"job_id": job_id, "status": "rendering", "created": time.monotonic(),
@@ -569,7 +567,7 @@ async def start_job(kind: str, params: Params, images: list[str], model: str | N
 
     async def render() -> None:
         try:
-            job["result"] = await run(kind, params, images, model, user=user)
+            job["result"] = await work()
             job["status"] = "completed"
         except ImageError as exc:
             job["status"], job["error"] = "failed", str(exc)
@@ -592,10 +590,10 @@ async def check_job(job_id: str, wait: int, user: dict | None = None) -> dict:
     """The job's state, waiting up to `wait` seconds for it to finish."""
     job = _jobs.get(job_id)
     if job is None or not owns_job(job, user):
-        raise ImageError(f"No image job {job_id} — it may have expired; start a new one.")
+        raise ImageError(f"No job {job_id} — it may have expired; start a new one.")
     if not job["done"].is_set() and wait > 0:
         with contextlib.suppress(asyncio.TimeoutError):
-            await asyncio.wait_for(job["done"].wait(), min(wait, MAX_WAIT))
+            await asyncio.wait_for(job["done"].wait(), wait)
     info = {k: job[k] for k in ("job_id", "status", "model", "kind", "result", "error")}
     info["elapsed"] = round(job.get("elapsed", time.monotonic() - job["created"]))
     return info
