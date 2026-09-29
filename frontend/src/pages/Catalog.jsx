@@ -154,6 +154,7 @@ function isModel(recipe) {
     || recipe.slug.startsWith('llamacpp-')
     || recipe.slug.startsWith('exllamav3-')
     || recipe.slug.startsWith('atlas-')
+    || recipe.slug.startsWith('tensorfold-')
 }
 
 function getSectionId(recipe) {

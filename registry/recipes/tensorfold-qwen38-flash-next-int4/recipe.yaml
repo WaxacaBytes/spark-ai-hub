@@ -1,0 +1,63 @@
+name: "Qwen3.8-Flash-Next INT4"
+slug: tensorfold-qwen38-flash-next-int4
+version: "1.0.0"
+description: "Qwen3.8-Flash-Next — the first open-weight release of the architecture behind Qwen4, 177B total parameters over a hybrid linear/full attention stack — served by TensorFold, an inference engine written for this model family, following Mia's AI Lab single-Spark recipe. The checkpoint is Vontra's MLX 4-bit build (affine INT4, group size 32) with the MTP draft head. The 29.8 GiB PLE n-gram tables stay on the SSD and are read at each lookup, on a C++ thread pool that fetches a prompt chunk's rows while the GPU works on the previous one. That memory goes to the KV cache: five requests at the full native 262K context each, a 1.3M-token pool of int8 KV. Decoding drafts up to six MTP tokens a round, plus prompt-lookup drafts when the reply repeats the prompt; every draft is verified by the model, so output is unchanged. Images and videos work as OpenAI image_url / video_url parts (data URLs), as do tool calling with typed parameters and reasoning. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
+author: "Qwen"
+source: "community"
+website: "https://huggingface.co/Vontra/Qwen3.8-Flash-Next-MLX-4bit-MTP"
+upstream: "https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold"
+category: llm
+logo: "/logos/qwen.png"
+tags:
+  - llm
+  - moe
+  - tensorfold
+  - int4
+  - qwen
+  - multimodal
+  - vision
+  - video
+  - reasoning
+  - tool-use
+  - speculative-decoding
+  - mtp
+  - long-context
+requirements:
+  min_memory_gb: 115
+  recommended_memory_gb: 128
+  disk_gb: 125
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8888
+  proxy: true
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 60
+  gpu: true
+status: experimental
+engine: "TensorFold"
+params_b: 177
+active_params_b: 6
+arch: moe
+quantization: "INT4"
+speculative_method: "mtp"
+artificial_analysis_index: 46
+weights_gb: 105.5
+release_date: "2026-08-26"
+requires_hf_token: false
+tokens_per_second: 60.8
+tokens_per_second_editing: 111.4
+editing_workload: "code-edit"
+benchmarks:
+  prose: 51.98
+  explainer: 60.86
+  code: 73.2
+  code-edit: 111.4
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "Qwen/Qwen3.8-Flash-Next"
+  api_key: "<API_KEY>"
+  max_context: "262144"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"Qwen/Qwen3.8-Flash-Next\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512}'"

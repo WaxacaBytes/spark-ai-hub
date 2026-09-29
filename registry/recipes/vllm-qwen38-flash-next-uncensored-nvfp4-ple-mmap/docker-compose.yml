@@ -10,8 +10,8 @@ services:
     # none differ in length: the checkpoint is 98.7 GiB, the same as stock to
     # the byte.
     #
-    # That is why every serving flag below is the stock sibling's
-    # (vllm-qwen38-flash-next-nvfp4-ple-mmap) unchanged — same architecture,
+    # That is why every serving flag below is upstream's stock recipe's
+    # unchanged — same architecture,
     # same tensor shapes, same memory arithmetic. It exists as its own recipe
     # rather than a flag because these are genuinely different weights: the
     # refusal behaviour is baked in, not projected out at runtime.

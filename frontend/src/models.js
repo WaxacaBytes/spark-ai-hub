@@ -40,13 +40,9 @@ const BUILD_TOKENS = new Set([
   // memory-mapped rather than resident. Same checkpoint lineage, same decode
   // path — a build of the model, not another model.
   'mmap',
-  // `hibrid48` is myllmbox's Qwen3.8-Flash-Next quantization: the same Qwen
-  // weights with the output head stored as NVFP4. A build of the model, not
-  // another model.
-  'hibrid48',
 ])
 
-const ENGINE_PREFIX = /^(vllm|vllmomni|sglang|llamacpp|exllamav3|atlas)-/
+const ENGINE_PREFIX = /^(vllm|vllmomni|sglang|llamacpp|exllamav3|atlas|tensorfold)-/
 
 function modelKey(recipe) {
   const parts = (recipe.slug || '').replace(ENGINE_PREFIX, '').split('-')
