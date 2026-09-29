@@ -79,6 +79,9 @@ async def update(slug: str, request: Request, user: dict = Depends(current_user)
     if slug in _builds and not _builds[slug]["done"]:
         return {"status": "building", "slug": slug}
 
+    # Server-side state, as for install: every open Hub tab (and a reload)
+    # sees the rebuild and its log, not only the tab that clicked Update.
+    set_pending(slug, "installing")
     _builds[slug] = {"lines": [], "done": False}
 
     async def _run_update():
@@ -90,6 +93,7 @@ async def update(slug: str, request: Request, user: dict = Depends(current_user)
             _builds[slug]["lines"].append(f"[error] {e}")
         finally:
             _builds[slug]["done"] = True
+            clear_pending(slug)
 
     asyncio.create_task(_run_update())
     return {"status": "building", "slug": slug}

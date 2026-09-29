@@ -64,10 +64,10 @@ services:
         # 0.1.dev20073+g8e685d198, arm64). Nothing is compiled here.
         FROM vllm/vllm-openai:qwen38-flash-next
         # Pinned to the commit every measurement below was taken on.
-        ADD https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark/archive/ef1af5fa2e1e93d4bd96136568460cda843ccc29.tar.gz /tmp/mia.tar.gz
+        ADD https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark/archive/7d0712dcb83cc58b467235e24d3a4429ed14518b.tar.gz /tmp/mia.tar.gz
         RUN mkdir -p /opt/mia && tar -xzf /tmp/mia.tar.gz -C /opt/mia --strip-components=1 && rm /tmp/mia.tar.gz
 
-        # Four source patches, applied at BUILD time so that launch runs a
+        # Source patches, applied at BUILD time so that launch runs a
         # plain `vllm serve` with no wrapper and no bind mounts. Each patch
         # script rewrites the file it was extracted from and refuses to write
         # anything if one of its anchors is missing, so a future base image
@@ -83,6 +83,13 @@ services:
         #                 when --kv-cache-dtype is BF16.
         #   mtp_draft_vocab  reduced-vocabulary drafting (FR-Spec); reads
         #                 VLLM_MTP_DRAFT_VOCAB, set below.
+        #   block_drop    backport of vllm#53388, so the speculative config
+        #                 below can carry disable_eagle_block_drop.
+        # Since 2026-09-24 ple_offload also sizes the worker's staging buffer
+        # to the packed row width (upstream PR #67). Before that fix every
+        # forward of more than one token -- each prefill chunk, each MTP
+        # verify step -- shipped stale PLE rows to the GPU. Upstream measured
+        # NLL 1.397 -> 1.344, decode speed unchanged.
         RUN set -eux; \
             V=/usr/local/lib/python3.12/dist-packages/vllm; F=/opt/mia/files; \
             cp $$V/models/qwen3_8_flash_next/nvidia/ple_layer.py       $$F/ple_layer_patched.py.orig; \
@@ -98,6 +105,8 @@ services:
             python3 $$F/patch_qsa_fp8_kv.py; \
             python3 $$F/patch_mtp_draft_vocab.py; \
             python3 $$F/patch_ple_offload.py; \
+            for f in $$(python3 $$F/patch_block_drop.py --list); do mkdir -p $$(dirname $$F/block_drop/orig/$$f); cp $$V/$$f $$F/block_drop/orig/$$f; done; \
+            python3 $$F/patch_block_drop.py; \
             cp $$F/ple_layer_patched.py    $$V/models/qwen3_8_flash_next/nvidia/ple_layer.py; \
             cp $$F/modelopt_patched.py     $$V/model_executor/layers/quantization/modelopt.py; \
             cp $$F/qsa_ops_patched.py      $$V/models/qwen3_8_flash_next/nvidia/ops/qsa.py; \
@@ -105,6 +114,7 @@ services:
             cp $$F/mtp_patched.py          $$V/models/qwen3_8_flash_next/nvidia/mtp.py; \
             cp $$F/ple_offload/ple_offload_layer.py $$V/model_executor/layers/ple_offload_layer.py; \
             for f in connector worker protocol; do cp $$F/ple_offload/$$f.py $$V/v1/ple_offload/$$f.py; done; \
+            for f in $$(python3 $$F/patch_block_drop.py --list); do test -f $$F/block_drop/$$f && cp $$F/block_drop/$$f $$V/$$f; done; \
             python3 -c "import vllm; print('vllm', vllm.__version__)"
 
         COPY --from=weights /weights /models/Qwen3.8-Flash-Next-ablit-NVFP4
@@ -159,7 +169,7 @@ services:
         # Serving another language heavily means rebuilding the vocabulary with
         # it in the corpus (tools/draft_vocab/).
         COPY draft_vocab.txt /models/draft_vocab.txt
-    image: spark-ai-hub/vllm-qwen38-flash-next-uncensored-nvfp4-ple-mmap:mia-ef1af5fa-frspec
+    image: spark-ai-hub/vllm-qwen38-flash-next-uncensored-nvfp4-ple-mmap:mia-7d0712dc-frspec
     container_name: spark-ai-hub-vllm-qwen38-flash-next-uncensored-nvfp4-ple-mmap
     networks:
       - spark-ai-hub-net
@@ -195,6 +205,10 @@ services:
       # and mutates the compilation_config it shares with the target — which
       # silently turns the FULL decode graphs below into PIECEWISE.
       - VLLM_USE_V2_MODEL_RUNNER=1
+      # Upstream's bounds on JIT compile fan-out, so a FlashInfer rebuild
+      # (after a driver upgrade) cannot run the box out of memory.
+      - MAX_JOBS=2
+      - FLASHINFER_NVCC_THREADS=1
       - VLLM_NO_USAGE_STATS=1
       - DO_NOT_TRACK=1
     # Entrypoint is `vllm serve`.
@@ -247,13 +261,19 @@ services:
       - --tool-call-parser
       - qwen3_coder
       - --enable-auto-tool-choice
+      # usage.prompt_tokens_details.cached_tokens in every response.
+      - --enable-prompt-tokens-details
       # MTP off the checkpoint's own draft head. K=3 measured best at every
       # concurrency (K=2 ties, K=1 loses 8-14%, K=0 loses 32-46%).
       - --speculative-config
       # use_local_argmax_reduction routes the speculator through
       # get_top_tokens(), the only path that reads the sliced head; without it
       # the vocabulary file above is loaded and never used.
-      - '{"method":"mtp","num_speculative_tokens":3,"use_local_argmax_reduction":true}'
+      # disable_eagle_block_drop keeps the last matched prefix-cache block
+      # instead of recomputing it every turn (one 1,664-token block at MTP 3).
+      # Upstream, 2026-09-24: warm second turn TTFT 1.66 -> 0.81 s, turn after
+      # a 4k tool output 3.61 -> 2.72 s, decode unchanged.
+      - '{"method":"mtp","num_speculative_tokens":3,"use_local_argmax_reduction":true,"disable_eagle_block_drop":true}'
       # FULL decode graphs at every verify width the scheduler can build,
       # (1+3)*S for S in 1..4. vLLM's own list is [1,2,4] plus multiples of 8,
       # so a 3-sequence batch (12 tokens) would pad up to 16 and a width with

@@ -39,7 +39,7 @@ async def list_recipes(category: str | None = None, search: str | None = None):
         pending = get_pending(r.slug)
         r.error = get_startup_error(r.slug)
         if r.installed:
-            r.installing = False
+            r.installing = pending == "installing"
             container_running = await is_recipe_running(r.slug)
             r.ready = is_ready(r.slug) if container_running else False
             # If an action is in-flight, keep showing the right transition state
@@ -83,7 +83,7 @@ async def get_recipe_detail(slug: str):
     pending = get_pending(slug)
     recipe.error = get_startup_error(slug)
     if recipe.installed:
-        recipe.installing = False
+        recipe.installing = pending == "installing"
         container_running = await is_recipe_running(slug)
         recipe.ready = is_ready(slug) if container_running else False
         if pending == "launching":
