@@ -401,7 +401,7 @@ async def _render(session: aiohttp.ClientSession, backend: Backend, kind: str,
 
 async def load_input(ref: str, session: aiohttp.ClientSession, user: dict | None = None,
                      *, suffix: str = ".png", max_bytes: int = MAX_INPUT_BYTES) -> bytes:
-    """Raw bytes for an input image (or, with suffix='.mp4', video) given by URL.
+    """Raw bytes for an input image (or, with suffix='.mp4' / '.wav', video / sound) given by URL.
 
     A Hub URL is read off disk and only for its owner: anyone else's file reads
     as missing, exactly like the media routes answer them. A public http(s) URL
@@ -409,7 +409,7 @@ async def load_input(ref: str, session: aiohttp.ClientSession, user: dict | None
     types a file out as base64 burns its context and usually garbles the file,
     so the error points it at create_upload instead.
     """
-    noun = "video" if suffix == ".mp4" else "image"
+    noun = {".mp4": "video", ".wav": "sound"}.get(suffix, "image")
     ref = ref.strip()
     if (name := media_store.name_in_url(ref)) and name.endswith(suffix):
         if (path := media_store.find(name)) and await media_store.can_read(name, user):

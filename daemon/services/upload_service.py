@@ -2,8 +2,8 @@
 
 An MCP tool call carries JSON, not files, so a picture on someone's laptop has
 no way into edit_image except as a URL. An upload gives it one: the file lands
-next to the Hub's own results and gets the same kind of URL, /images/<id>.png
-or /videos/<id>.mp4, which every tool already accepts. The daemon reads those
+next to the Hub's own results and gets the same kind of URL, /images/<id>.png,
+/videos/<id>.mp4 or /audio/<id>.wav, which every tool already accepts. The daemon reads those
 straight off its disk, so they work over plain http on the LAN — the
 public-https rule only applies to URLs it has to fetch from elsewhere. Like
 results, an upload is private to the account that sent it.
@@ -15,17 +15,20 @@ from __future__ import annotations
 
 import io
 import secrets
+import subprocess
+import tempfile
 import time
 from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pillow_heif import register_heif_opener
 
-from daemon.services import image_service, media_store, video_service
+from daemon.services import audio_service, image_service, media_store, video_service
 
 MAX_IMAGE_BYTES = image_service.MAX_INPUT_BYTES
 MAX_VIDEO_BYTES = video_service.MAX_VIDEO_INPUT_BYTES
-MAX_BYTES = max(MAX_IMAGE_BYTES, MAX_VIDEO_BYTES)
+MAX_AUDIO_BYTES = video_service.MAX_AUDIO_INPUT_BYTES
+MAX_BYTES = max(MAX_IMAGE_BYTES, MAX_VIDEO_BYTES, MAX_AUDIO_BYTES)
 
 
 # iPhone photos are HEIC; Pillow reads them once this is registered.
@@ -51,11 +54,40 @@ def _is_mp4(raw: bytes) -> bool:
     return not IMAGE_BRANDS.intersection(brands)
 
 
+def _is_audio(raw: bytes) -> bool:
+    # WAV, FLAC, Ogg, and MP3 with or without its ID3 tag.
+    return ((raw[:4] == b"RIFF" and raw[8:12] == b"WAVE") or raw[:4] in (b"fLaC", b"OggS")
+            or raw[:3] == b"ID3" or (len(raw) > 1 and raw[0] == 0xFF and raw[1] & 0xE0 == 0xE0))
+
+
+def _to_wav(raw: bytes) -> bytes:
+    """Any sound ffmpeg reads, as the WAV the models are sent."""
+    if raw[:4] == b"RIFF":
+        return raw
+    with tempfile.TemporaryDirectory() as tmp:
+        src, out = Path(tmp) / "in", Path(tmp) / "out.wav"
+        src.write_bytes(raw)
+        try:
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-i", str(src), "-vn", str(out)],
+                           check=True, timeout=120)
+        except (subprocess.SubprocessError, OSError):
+            raise UploadError("Not a sound file the Hub can read.") from None
+        return out.read_bytes()
+
+
 def save(raw: bytes) -> dict:
-    """Store an uploaded image or video; returns its kind, public path and expiry."""
+    """Store an uploaded image, video or sound; returns its kind, public path and expiry."""
     if not raw:
         raise UploadError("The upload is empty.")
     expires = int(time.time()) + media_store.UPLOAD_TTL
+    if _is_audio(raw):
+        if len(raw) > MAX_AUDIO_BYTES:
+            raise UploadError(f"Sounds can be at most {MAX_AUDIO_BYTES // 2**20} MB.")
+        audio_id = secrets.token_hex(16)
+        audio_service.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        (audio_service.UPLOAD_DIR / f"{audio_id}.wav").write_bytes(_to_wav(raw))
+        return {"kind": "audio", "id": audio_id, "expires_at": expires,
+                "path": f"{audio_service.PUBLIC_PREFIX}/{audio_id}.wav"}
     if _is_mp4(raw):
         if len(raw) > MAX_VIDEO_BYTES:
             raise UploadError(f"Videos can be at most {MAX_VIDEO_BYTES // 2**20} MB.")
@@ -77,12 +109,13 @@ def save(raw: bytes) -> dict:
             img.save(image_service.UPLOAD_DIR / f"{image_id}.png", format="PNG")
             width, height = img.size
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
-        raise UploadError("Not an image or MP4/MOV video the Hub can read.") from None
+        raise UploadError("Not an image, MP4/MOV video or sound file the Hub can read.") from None
     return {"kind": "image", "id": image_id, "expires_at": expires,
             "width": width, "height": height,
             "path": f"{image_service.PUBLIC_PREFIX}/{image_id}.png"}
 
 
 def is_upload(path: Path) -> bool:
-    return path.parent in (image_service.UPLOAD_DIR, video_service.UPLOAD_DIR)
+    return path.parent in (image_service.UPLOAD_DIR, video_service.UPLOAD_DIR,
+                           audio_service.UPLOAD_DIR)
 

@@ -915,7 +915,12 @@ const MEDIA_LABELS = {
   'multi-image-input': 'Multiple images + text',
   'text-to-video': 'Text-to-video',
   'image-to-video': 'Image-to-video',
+  'first-last-frame': 'First/last frame',
+  'multi-reference': 'Multiple references',
+  'audio-reference': 'Audio reference',
   'video-editing': 'Video editing',
+  'face-swap': 'Face swap',
+  'video-with-audio': 'Video with sound',
   'music-generation': 'Music generation',
 }
 

@@ -1,4 +1,4 @@
-"""Upload an image or video, get a Hub URL the MCP tools accept.
+"""Upload an image, video or sound, get a Hub URL the MCP tools accept.
 
 POST /api/uploads takes the file as the raw request body, from a signed-in Hub
 session like the rest of /api. An agent never gets that far: it calls the MCP
@@ -28,7 +28,7 @@ async def upload(request: Request):
 
 
 async def receive(request: Request, user: dict | None) -> dict | JSONResponse:
-    """Read the body as one image or video and store it as `user`'s upload.
+    """Read the body as one image, video or sound and store it as `user`'s upload.
 
     Shared with the one-time upload links (routers/links.py). Returns the
     upload's info with its Hub URL, or the error response to send.

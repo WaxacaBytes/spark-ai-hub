@@ -117,7 +117,7 @@ export default function Files() {
           ref={picker}
           type="file"
           multiple
-          accept="image/*,video/mp4,video/quicktime"
+          accept="image/*,video/mp4,video/quicktime,audio/*"
           className="hidden"
           onChange={(e) => { upload([...e.target.files]); e.target.value = '' }}
         />

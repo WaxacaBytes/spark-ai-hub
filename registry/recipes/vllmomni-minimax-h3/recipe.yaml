@@ -1,7 +1,7 @@
 name: "MiniMax-H3"
 slug: vllmomni-minimax-h3
 version: "1.0.0"
-description: "Generate video with a matching soundtrack from a text prompt using MiniMax-H3, the top open-weights text-to-video and image-to-video model on the Artificial Analysis arenas. Served by vLLM-Omni with online FP8; your coding agents reach it through the Hub's video tools (generate_video / get_video). Uses the whole Spark while running; a full 8-second clip takes over half an hour. MiniMax-H3 Community License."
+description: "Generate video with a matching soundtrack from a text prompt, or from a first frame, a last frame or both, using MiniMax-H3, the top open-weights text-to-video and image-to-video model on the Artificial Analysis arenas. Served by vLLM-Omni with online FP8; your coding agents reach it through the Hub's video tools (generate_video / get_video). Uses the whole Spark while running; a full 8-second clip takes over half an hour. MiniMax-H3 Community License."
 author: "MiniMax"
 source: "community"
 website: "https://huggingface.co/MiniMaxAI/MiniMax-H3"
@@ -12,6 +12,8 @@ categories:
 tags:
   - openai-videos
   - text-to-video
+  - image-to-video
+  - last-frame
   - video-audio
   - minimax
   - vllm-omni
@@ -41,10 +43,16 @@ quantization: "FP8"
 weights_gb: 144.1
 requires_hf_token: false
 # Canvas 960x576 is the size vLLM-Omni's GB10 recipe measured (97.7 GiB peak
-# for 8 s); 768p is untested on this build. MiniMax publishes no step count, so
-# no steps default is sent.
+# for 8 s); 768p is untested on this build. It must be an explicit size:
+# vLLM-Omni refuses any short_edge but 768. So this build renders 16:9 and 9:16
+# only, and a first/last-frame clip is fitted to that canvas rather than
+# following its picture. MiniMax publishes no step count, so no steps default
+# is sent.
 # flow_shift 12 is the checkpoint's scheduler_config.json shift. t2va needs an
 # explicit aspect_ratio.
+# The FL2VA weights serve two tasks: t2va (text alone) and fl2va (a picture
+# pinned as the first frame, last frame or both); the Hub switches to fl2va
+# when generate_video is given `image` or `last_image`.
 video_defaults:
   fps: 24
   seconds: 8
@@ -55,5 +63,5 @@ video_defaults:
     duration: 8.0
     audio_flow_shift: 3.0
   send_aspect_ratio: true
-  notes: "MiniMax publishes no step count. 960x576 at 24 fps fits this build on a Spark; clips run 4-15 s, per the model card; shift 12 from the checkpoint's scheduler config. Measured: 4 s at 10 steps rendered in 232 s."
+  notes: "Text-to-video, or pin a first frame (image), a last frame (last_image) or both; the clip is 960x576 (or 576x960 for 9:16). MiniMax publishes no step count. 960x576 at 24 fps fits this build on a Spark; clips run 4-15 s, per the model card; shift 12 from the checkpoint's scheduler config. Measured: 4 s at 10 steps rendered in 232 s."
   source: "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/scheduler/scheduler_config.json"

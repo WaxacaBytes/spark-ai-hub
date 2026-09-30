@@ -1,7 +1,7 @@
 name: "MiniMax-H3 FP8"
 slug: sglang-minimax-h3-fp8
 version: "1.0.0"
-description: "Generate video with a matching soundtrack from a text prompt using MiniMax-H3, the top open-weights text-to-video and image-to-video model on the Artificial Analysis arenas. Compact build from Comfy-Org: the AdaLN-pruned FP8 video model and NVFP4 text encoder bring the weights from 144 GB to about 44 GB. Served by SGLang Diffusion; your coding agents reach it through the Hub's video tools (generate_video / get_video). MiniMax-H3 Community License."
+description: "Generate video with a matching soundtrack from a text prompt, or from a first frame, a last frame or both, using MiniMax-H3, the top open-weights text-to-video and image-to-video model on the Artificial Analysis arenas. Compact build from Comfy-Org: the AdaLN-pruned FP8 video model and NVFP4 text encoder bring the weights from 144 GB to about 44 GB. Served by SGLang Diffusion; your coding agents reach it through the Hub's video tools (generate_video / get_video). MiniMax-H3 Community License."
 author: "MiniMax"
 source: "community"
 website: "https://huggingface.co/MiniMaxAI/MiniMax-H3"
@@ -12,6 +12,8 @@ categories:
 tags:
   - openai-videos
   - text-to-video
+  - image-to-video
+  - last-frame
   - video-audio
   - minimax
   - sglang
@@ -46,6 +48,10 @@ requires_hf_token: false
 # (scripts/readme/reproducible-768p-t2va-request.sh) sets no step count and
 # MiniMax publishes none, so no steps default is sent. flow_shift 12 is the
 # checkpoint's own scheduler_config.json shift.
+#
+# The FL2VA weights serve two tasks: t2va (text alone) and fl2va (a picture
+# pinned as the clip's first frame, last frame or both). The Hub switches
+# t2va to fl2va itself when generate_video is given `image` or `last_image`.
 video_defaults:
   seconds: 5
   flow_shift: 12.0
@@ -57,5 +63,7 @@ video_defaults:
       aspect_ratio: "16:9"
       duration_seconds: 5.0
     audio_flow_shift: 3.0
-  notes: "MiniMax publishes no step count (its example request leaves it unset). 768p short edge at 24 fps; clips run 4-15 s, per the model card; shift 12 from the checkpoint's scheduler config."
+  aspect_ratios: ["16:9", "9:16", "21:9", "4:3", "1:1", "3:4"]
+  max_seconds: 15
+  notes: "Text-to-video, or pin a first frame (image), a last frame (last_image) or both; a pinned clip follows the picture's shape unless aspect_ratio is given. MiniMax publishes no step count (its example request leaves it unset). 768p short edge at 24 fps; clips run 4-15 s in 21:9, 16:9, 4:3, 1:1, 3:4 or 9:16, per the model card; shift 12 from the checkpoint's scheduler config."
   source: "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/scripts/readme/reproducible-768p-t2va-request.sh"

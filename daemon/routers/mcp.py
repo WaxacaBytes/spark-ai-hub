@@ -211,28 +211,46 @@ TOOLS = [
         "name": "generate_video",
         "title": "Generate video",
         "description": (
-            "Start rendering a short video on the Spark from a text prompt, or from a "
-            "starting image plus a prompt (image-to-video), or from an input video to "
-            "edit, extend or inpaint (video-to-video). Returns a job_id at once, not the "
-            "video: then call get_video with it until the video arrives (rendering takes "
-            "minutes). Do not start the render again. Describe the motion and camera as "
-            "well as the scene."
+            "Start rendering a short video on the Spark from a text prompt; from a first "
+            "frame, a last frame or both (image-to-video); from reference pictures, clips "
+            "and sounds that set who and what appears (multi-reference, audio-reference); "
+            "or from an input video to edit, extend or inpaint (video-to-video). "
+            "list_video_models says which inputs, shapes and lengths each model takes. "
+            "Returns a job_id at once, not the video: then call get_video with it until the "
+            "video arrives (rendering takes minutes). Do not start the render again. "
+            "Describe the motion and camera as well as the scene."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "prompt": {"type": "string", "description": "What happens in the video."},
                 "image": {"type": "string",
-                          "description": "Optional first frame for image-to-video. " + _IMAGE_REFS},
+                          "description": ("Optional picture: the first frame for image-to-video, "
+                                          "or <Picture 1> for a multi-reference model. " + _IMAGE_REFS)},
+                "last_image": {"type": "string",
+                               "description": ("Optional last frame the clip ends on (models "
+                                               "that list last-frame); with `image` too, the "
+                                               "clip goes from one to the other. " + _IMAGE_REFS)},
+                "images": {"type": "array", "items": {"type": "string"}, "maxItems": 8,
+                           "description": ("More reference pictures, <Picture 2>, <Picture 3> "
+                                           "and so on, for multi-reference models. " + _IMAGE_REFS)},
+                "audio": {"type": "string",
+                          "description": ("Optional reference sound, <Audio 1>: a voice or "
+                                          "soundtrack for audio-reference models. A URL returned by "
+                                          "generate_music, an upload's URL (create_upload, or My "
+                                          "files), or a public http(s) WAV URL.")},
                 "video": {"type": "string",
                           "description": ("Optional input video to edit (models that list "
                                           "video-to-video). A URL returned by get_video, an upload's "
                                           "URL (create_upload, or My files), or a public "
                                           "http(s) video URL.")},
-                "seconds": {"type": "integer", "minimum": 1, "maximum": 10,
-                            "description": "Length. Omit for the model's default."},
+                "seconds": {"type": "integer", "minimum": 1, "maximum": video_service.MAX_SECONDS,
+                            "description": ("Length. Omit for the model's default; each model's "
+                                            "max_seconds is in list_video_models.")},
                 "aspect_ratio": {"type": "string", "enum": video_service.ASPECT_RATIOS,
-                                 "default": "16:9"},
+                                 "description": ("Shape; each model's aspect_ratios are in "
+                                                 "list_video_models. Omit for 16:9, or for a "
+                                                 "first/last-frame clip to follow the picture.")},
                 "seed": {"type": "integer", "minimum": 0},
                 "steps": {"type": "integer", "minimum": 1, "maximum": 100,
                           "description": "Leave this out: the model card's setting is used."},
@@ -310,10 +328,10 @@ TOOLS = [
         "name": "create_upload",
         "title": "Create upload link",
         "description": (
-            "Get a one-time link to upload one image or MP4/MOV video from your workspace "
-            "to the Hub, without any key. Run the returned curl command with your file; it "
-            "prints JSON whose `url` you then pass to edit_image (images) or "
-            "generate_video (image or video). The link works once and expires in "
+            "Get a one-time link to upload one image, MP4/MOV video or sound file (WAV, MP3, "
+            "FLAC, Ogg) from your workspace to the Hub, without any key. Run the returned curl "
+            "command with your file; it prints JSON whose `url` you then pass to edit_image "
+            "(images) or generate_video (image, video or audio). The link works once and expires in "
             f"{link_service.LINK_TTL // 60} minutes; call this again for each file."
         ),
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
@@ -434,7 +452,7 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
         if name in ("create_upload", "create_download"):
             return await _link_tool(name, args, origin, user)
         if name == "start_model":
-            return await _start_model(args, on_progress, user)
+            return await _start_model(args, origin, on_progress, user)
         if name == "stop_model":
             return await _stop_model(args)
         if name == "generate_music":
@@ -462,7 +480,10 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             info = await video_service.start(
                 prompt=prompt, image=str(args.get("image") or "").strip() or None,
                 video=str(args.get("video") or "").strip() or None,
-                seconds=_int(args, "seconds"), aspect_ratio=str(args.get("aspect_ratio") or "16:9"),
+                last_image=str(args.get("last_image") or "").strip() or None,
+                images=[str(i).strip() for i in (args.get("images") or []) if str(i).strip()],
+                audio=str(args.get("audio") or "").strip() or None,
+                seconds=_int(args, "seconds"), aspect_ratio=str(args.get("aspect_ratio") or "") or None,
                 seed=_int(args, "seed"), steps=_int(args, "steps"),
                 model=str(args.get("model") or "").strip() or None, user=user,
             )
@@ -570,7 +591,7 @@ async def _check_memory(slug: str) -> None:
     raise image_service.ImageError(" ".join(lines))
 
 
-async def _start_model(args: dict, on_progress=None, user: dict | None = None) -> dict:
+async def _start_model(args: dict, origin: str, on_progress=None, user: dict | None = None) -> dict:
     slug = await _media_model(args)
     async with _start_lock:
         if not await is_recipe_running(slug) and get_pending(slug) != "launching":
@@ -578,7 +599,7 @@ async def _start_model(args: dict, on_progress=None, user: dict | None = None) -
             if on_progress:
                 on_progress(f"starting {slug}")
             try:
-                await containers.launch(slug, user=user or {})
+                await containers.launch_app(slug, user or {}, origin)
             except HTTPException as exc:
                 raise image_service.ImageError(
                     f"{slug} failed to launch: {str(exc.detail)[-500:]}") from None
@@ -711,7 +732,8 @@ async def _link_tool(name: str, args: dict, origin: str, user: dict | None) -> d
                 f"Run: {curl}\n"
                 "It prints JSON; pass its `url` to edit_image or generate_video. Images up to "
                 f"{upload_service.MAX_IMAGE_BYTES // 2**20} MB, MP4/MOV videos up to "
-                f"{upload_service.MAX_VIDEO_BYTES // 2**20} MB. A refused file leaves the link usable.")
+                f"{upload_service.MAX_VIDEO_BYTES // 2**20} MB, sounds up to "
+                f"{upload_service.MAX_AUDIO_BYTES // 2**20} MB. A refused file leaves the link usable.")
         return {"content": [{"type": "text", "text": text}], "isError": False,
                 "structuredContent": {"upload_url": link, "method": "POST", "curl": curl,
                                       "expires_at": expires}}

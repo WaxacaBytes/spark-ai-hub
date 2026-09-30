@@ -140,6 +140,12 @@ async def launch_plan(slug: str):
 
 @router.post("/api/recipes/{slug}/launch")
 async def launch(slug: str, request: Request, user: dict = Depends(current_user)):
+    return await launch_app(slug, user, request_origin(request))
+
+
+async def launch_app(slug: str, user: dict, hub_url: str | None) -> dict:
+    """Launch `slug` for `user`; the Hub page and MCP start_model both come here.
+    `hub_url` is the address the caller reached the Hub on."""
     recipe = get_recipe(slug)
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
@@ -159,7 +165,7 @@ async def launch(slug: str, request: Request, user: dict = Depends(current_user)
         on_line = _builds[slug]["lines"].append
     try:
         result = await launch_recipe(slug, on_line=on_line, api_key=user.get("api_key"),
-                                     hub_url=request_origin(request))
+                                     hub_url=hub_url)
     finally:
         if on_line is not None:
             _builds[slug]["done"] = True

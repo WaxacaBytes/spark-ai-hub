@@ -223,9 +223,9 @@ class McpToolCallTests(unittest.TestCase):
                                                                     "accept": "text/html"})
                 self.assertEqual(page.status_code, 401)
                 self.assertIn("Sign in", page.text)
-                # A file with no recorded owner is nobody's, admins included.
+                # A file with no recorded owner is the admins'.
                 self.assertEqual(get(f"{'f' * 32}.png", "owner").status_code, 404)
-                self.assertEqual(get(f"{'f' * 32}.png", "admin").status_code, 404)
+                self.assertEqual(get(f"{'f' * 32}.png", "admin").status_code, 200)
 
     def test_edit_refuses_someone_elses_image(self):
         name = f"{'9' * 32}.png"
@@ -469,6 +469,119 @@ class VideoToolTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"/videos/{'b' * 32}.mp4").status_code, 404)
 
 
+class _FakeVideoServer:
+    """Stands in for aiohttp.ClientSession: records the one POST /v1/videos."""
+    sent: dict = {}
+
+    def __init__(self, *a, **kw):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def post(self, url, data=None, headers=None, json=None):
+        _FakeVideoServer.sent = {"url": url, "data": data, "json": json}
+
+        class _Resp:
+            status = 200
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def json(self):
+                return {"id": "remote-1", "status": "queued"}
+        return _Resp()
+
+
+class VideoInputTests(unittest.TestCase):
+    """Every input H3 takes reaches it, in the shape its server reads."""
+
+    FL2VA = dict(seconds=5, flow_shift=12.0, extra_params={
+        "task": "t2va", "conditions": [], "audio_flow_shift": 3.0,
+        "target": {"short_edge": 768, "aspect_ratio": "16:9", "duration_seconds": 5.0}},
+        aspect_ratios=["16:9", "9:16", "21:9", "4:3", "1:1", "3:4"], max_seconds=15)
+
+    def _start(self, defaults, kinds, **kw):
+        from daemon.models.recipe import RecipeVideoDefaults
+        backend = video_service.Backend(slug="h3", kinds=frozenset(kinds), summary="H3",
+                                        defaults=RecipeVideoDefaults(**defaults))
+        png = io.BytesIO()
+        Image.new("RGB", (8, 8)).save(png, format="PNG")
+        with mock.patch.object(video_service, "pick_backend", mock.AsyncMock(return_value=backend)) as pick, \
+                mock.patch.object(video_service, "load_input",
+                                  mock.AsyncMock(side_effect=lambda ref, *a, **k: png.getvalue() if ref.endswith("png")
+                                                 else b"RIFF....WAVE" if ref.endswith("wav") else _MP4)), \
+                mock.patch.object(video_service.aiohttp, "ClientSession", _FakeVideoServer), \
+                mock.patch.object(video_service.proxy_service, "internal_url", return_value="http://h3"):
+            kw = {"prompt": "p", "image": None, "seconds": None, "aspect_ratio": None,
+                  "seed": 1, "steps": None, "model": None, **kw}
+            asyncio.run(video_service.start(**kw))
+        return pick.call_args.args[0], _FakeVideoServer.sent
+
+    def test_text_alone_stays_t2va(self):
+        needs, sent = self._start(self.FL2VA, {"text", "image", "last_image"})
+        self.assertEqual(needs, {"text"})
+        extra = sent["json"]["extra_params"]
+        self.assertEqual((extra["task"], extra["conditions"], extra["target"]["aspect_ratio"]),
+                         ("t2va", [], "16:9"))
+
+    def test_first_and_last_frame_turn_t2va_into_fl2va_keyframes(self):
+        needs, sent = self._start(self.FL2VA, {"text", "image", "last_image"},
+                                  image="https://x/a.png", last_image="https://x/b.png")
+        self.assertEqual(needs, {"image", "last_image"})
+        extra = sent["json"]["extra_params"]
+        self.assertEqual(extra["task"], "fl2va")
+        self.assertEqual([(c["role"], c["frame_index"]) for c in extra["conditions"]],
+                         [("keyframe", 0), ("keyframe", -1)])
+        self.assertEqual(extra["target"]["aspect_ratio"], "auto")   # follows the picture
+
+    def test_last_frame_alone_is_a_last_keyframe(self):
+        _, sent = self._start(self.FL2VA, {"text", "image", "last_image"},
+                              last_image="https://x/b.png", aspect_ratio="1:1")
+        extra = sent["json"]["extra_params"]
+        self.assertEqual([c["frame_index"] for c in extra["conditions"]], [-1])
+        self.assertEqual(extra["target"]["aspect_ratio"], "1:1")
+
+    def test_ref2va_takes_clip_pictures_sound_and_a_last_frame(self):
+        d = {**self.FL2VA, "extra_params": {**self.FL2VA["extra_params"], "task": "ref2va"}}
+        needs, sent = self._start(d, {"image", "video", "images", "audio", "last_image"},
+                                  video="https://x/v.mp4", images=["https://x/a.png", "https://x/b.png"],
+                                  audio="https://x/s.wav", last_image="https://x/c.png")
+        self.assertEqual(needs, {"image", "images", "video", "audio", "last_image"})
+        extra = sent["json"]["extra_params"]
+        self.assertEqual(extra["task"], "ref2va")
+        self.assertEqual([(c["type"], c["role"], c.get("frame_index")) for c in extra["conditions"]],
+                         [("video", "reference", None), ("image", "reference", None),
+                          ("image", "reference", None), ("image", "keyframe", -1),
+                          ("audio", "reference", None)])
+        self.assertTrue(extra["conditions"][-1]["uri"].startswith("data:audio/wav;base64,"))
+
+    def test_multipart_fl2va_sends_ordered_references_and_frame_indices(self):
+        d = dict(fps=24, seconds=8, flow_shift=12.0, send_aspect_ratio=True,
+                 extra_params={"task": "t2va", "duration": 8.0, "short_edge": 576})
+        _, sent = self._start(d, {"text", "image", "last_image"},
+                              image="https://x/a.png", last_image="https://x/b.png")
+        parts = {f[0]["name"]: f for f in sent["data"]._fields}
+        names = [f[0]["name"] for f in sent["data"]._fields]
+        self.assertEqual(names.count("input_references"), 2)
+        self.assertNotIn("aspect_ratio", names)
+        extra = json.loads(parts["extra_params"][2])
+        self.assertEqual((extra["task"], extra["frame_indices"]), ("fl2va", [0, -1]))
+
+    def test_shape_and_length_are_checked_against_the_model(self):
+        with self.assertRaisesRegex(image_service.ImageError, "renders 16:9, 9:16"):
+            self._start(dict(seconds=5, size="1280x704"), {"text"}, aspect_ratio="1:1")
+        with self.assertRaisesRegex(image_service.ImageError, "up to 10 s"):
+            self._start(dict(seconds=5, size="1280x704"), {"text"}, seconds=12)
+        self._start(self.FL2VA, {"text"}, seconds=15, aspect_ratio="21:9")
+
+
 _MP4 = b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00isomiso2" + b"\x00" * 64
 
 
@@ -485,6 +598,7 @@ class _MediaDirsTest(unittest.TestCase):
             mock.patch.object(video_service, "VIDEO_DIR", root / "videos"),
             mock.patch.object(video_service, "UPLOAD_DIR", root / "videos" / "uploads"),
             mock.patch.object(audio_service, "AUDIO_DIR", root / "audio"),
+            mock.patch.object(audio_service, "UPLOAD_DIR", root / "audio" / "uploads"),
         ]
         for patch in self.patches:
             patch.start()
@@ -496,6 +610,14 @@ class _MediaDirsTest(unittest.TestCase):
 
 
 class UploadTests(_MediaDirsTest):
+    def test_sound_upload_is_stored_as_wav(self):
+        wav = b"RIFF\x24\x00\x00\x00WAVEfmt " + b"\x00" * 32
+        info = upload_service.save(wav)
+        self.assertEqual(info["kind"], "audio")
+        self.assertTrue(info["path"].startswith("/audio/") and info["path"].endswith(".wav"))
+        self.assertIsNotNone(media_store.find(info["path"].rsplit("/", 1)[1]))
+        self.assertTrue(upload_service.is_upload(media_store.find(info["path"].rsplit("/", 1)[1])))
+
     def test_image_upload_gives_a_private_hub_url_the_tools_accept(self):
         buf = io.BytesIO()
         Image.new("RGB", (40, 20), (1, 2, 3)).save(buf, format="JPEG")
@@ -578,7 +700,7 @@ class MyFilesTests(_MediaDirsTest):
                              self.client.get("/api/media", headers={"x-test-user": who}).json()["files"]]
         self.assertEqual(names("owner"), [(mine, True)])
         self.assertEqual(names("other"), [(theirs, True)])
-        self.assertEqual(names("admin"), [])        # only ever your own files
+        self.assertEqual(names("admin"), [("8" * 32 + ".png", False)])   # plus the ownerless
         self.assertEqual(self.client.get("/api/media", headers={"x-test-user": "anon"}).status_code, 401)
         info = self.client.get("/api/media").json()
         self.assertEqual((info["results_days"], info["uploads_days"]), (30, 7))
@@ -592,14 +714,17 @@ class MyFilesTests(_MediaDirsTest):
         self.assertEqual(self.client.get("/api/media").json()["files"], [])
         self.assertEqual(self.client.delete("/api/media/..%2F..%2Fspark-ai-hub.db").status_code, 404)
 
-    def test_nobody_deletes_an_ownerless_file(self):
+    def test_only_admins_see_and_delete_an_ownerless_file(self):
         image_service.IMAGE_DIR.mkdir(parents=True, exist_ok=True)
         old = image_service.IMAGE_DIR / f"{'8' * 32}.png"
         old.write_bytes(_png())
-        for who in ("owner", "admin"):
-            self.assertEqual(self.client.delete(f"/api/media/{old.name}",
-                                                headers={"x-test-user": who}).status_code, 404)
-        self.assertTrue(old.exists())
+        self.assertEqual(self.client.delete(f"/api/media/{old.name}",
+                                            headers={"x-test-user": "owner"}).status_code, 404)
+        self.assertEqual(self.client.get(f"/images/{old.name}",
+                                         headers={"x-test-user": "admin"}).status_code, 200)
+        self.assertEqual(self.client.delete(f"/api/media/{old.name}",
+                                            headers={"x-test-user": "admin"}).status_code, 200)
+        self.assertFalse(old.exists())
 
     def test_thumbnails_are_small_and_owner_only(self):
         mine = self._upload("owner")
@@ -947,7 +1072,7 @@ class StartStopModelTests(unittest.TestCase):
         }
         self.running = {"img-small", "llm"}
         self.ready = {"img-small", "llm"}
-        self.launch = mock.AsyncMock(side_effect=lambda slug, user=None: self.running.add(slug))
+        self.launch = mock.AsyncMock(side_effect=lambda slug, user, hub_url: self.running.add(slug))
         self.stop = mock.AsyncMock(side_effect=lambda slug: (self.running.discard(slug),
                                                              {"status": "stopped"})[1])
         get_recipes = mock.Mock(return_value=self.recipes)
@@ -962,7 +1087,7 @@ class StartStopModelTests(unittest.TestCase):
             mock.patch.object(mcp, "start_health_check", mock.AsyncMock()),
             mock.patch.object(mcp, "READY_POLL_SECONDS", 0.01),
             mock.patch.object(mcp, "CHECK_WAIT", 0.05),
-            mock.patch.object(mcp.containers, "launch", self.launch),
+            mock.patch.object(mcp.containers, "launch_app", self.launch),
             mock.patch.object(mcp.containers, "stop", self.stop),
             # The memory check itself lives in docker_service.
             mock.patch("daemon.services.registry_service.get_recipes", get_recipes),
@@ -1012,7 +1137,7 @@ class StartStopModelTests(unittest.TestCase):
         self.running.discard("img-small")
         self.ready.discard("img-small")
         pending = self.call("start_model", model="img-small")
-        self.launch.assert_awaited_once_with("img-small", user=OWNER)
+        self.launch.assert_awaited_once_with("img-small", OWNER, "http://h")
         self.assertFalse(pending["isError"])
         self.assertEqual(pending["structuredContent"]["next_call"],
                          {"tool": "start_model", "arguments": {"model": "img-small"}})

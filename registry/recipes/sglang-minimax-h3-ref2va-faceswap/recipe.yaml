@@ -1,7 +1,7 @@
 name: "MiniMax-H3 Ref2VA Face Swap"
 slug: sglang-minimax-h3-ref2va-faceswap
 version: "1.0.0"
-description: "Generate video with a matching soundtrack from a reference, using MiniMax-H3's reference-conditioning weights. Give it a picture and the subject carries into a new scene; give it a clip and it follows the motion and appearance of what it saw, soundtrack included. Unlike the first/last-frame build, the reference guides identity, style and composition rather than being pinned as an endpoint frame, so H3 may recompose or recrop it. Runs the step-distilled build: lightx2v's Turbo distillation is merged into the Ref2VA weights themselves rather than applied as an adapter, so it denoises in 8 passes instead of 50 and nothing is computed on top of the weights at run time. Pruned INT8 ConvRot video model with Comfy-Org's NVFP4 text encoder, about 44 GB of weights. Adds UntMods' FaceSwap adapter on top: give it a clip plus one picture of a face, and it regenerates the clip with that face on the person in it, soundtrack included. Put the word Faceswap in the prompt to trigger it, and refer to the inputs as <Video 1> and <Picture 1>. Served by SGLang Diffusion; your coding agents reach it through the Hub's video tools (generate_video / get_video). MiniMax-H3 Community License."
+description: "Generate video with a matching soundtrack from a reference, using MiniMax-H3's reference-conditioning weights. Give it pictures and their subjects carry into a new scene; give it a clip and it follows the motion and appearance of what it saw, soundtrack included; give it a sound and it carries into the soundtrack. It can also pin a last frame on top of the references. Unlike the first/last-frame build, the reference guides identity, style and composition rather than being pinned as an endpoint frame, so H3 may recompose or recrop it. Runs the step-distilled build: lightx2v's Turbo distillation is merged into the Ref2VA weights themselves rather than applied as an adapter, so it denoises in 8 passes instead of 50 and nothing is computed on top of the weights at run time. Pruned INT8 ConvRot video model with Comfy-Org's NVFP4 text encoder, about 44 GB of weights. Adds UntMods' FaceSwap adapter on top: give it a clip plus one picture of a face, and it regenerates the clip with that face on the person in it, soundtrack included. Put the word Faceswap in the prompt to trigger it, and refer to the inputs as <Video 1> and <Picture 1>. Served by SGLang Diffusion; your coding agents reach it through the Hub's video tools (generate_video / get_video). MiniMax-H3 Community License."
 author: "MiniMax · Turbo by lightx2v/PulpCut · FaceSwap LoRA by UntMods"
 source: "community"
 website: "https://huggingface.co/UntMods/FaceSwap_MiniMaxH3_REF2VA"
@@ -12,6 +12,9 @@ categories:
 tags:
   - openai-videos
   - image-to-video
+  - multi-reference
+  - audio-reference
+  - last-frame
   - video-edit
   - video-audio
   - minimax
@@ -70,5 +73,7 @@ video_defaults:
       aspect_ratio: "16:9"
       duration_seconds: 5.0
     audio_flow_shift: 3.0
-  notes: "Face swap: pass the clip as `video` AND the new face as `image` in the same call, and include the word Faceswap in the prompt. Without both it is just reference-to-video. 768p short edge at 24 fps; clips run 4-15 s, per the model card; 8 denoising passes (steps 9 on this server), video shift 6, audio shift 3. Refer to the reference in the prompt as <Picture 1> for an image or <Video 1> for a clip."
+  aspect_ratios: ["16:9", "9:16", "21:9", "4:3", "1:1", "3:4"]
+  max_seconds: 15
+  notes: "Face swap: pass the clip as `video` AND the new face as `image` in the same call, and include the word Faceswap in the prompt. Without both it is just reference-to-video. 768p short edge at 24 fps; clips run 4-15 s, per the model card; 8 denoising passes (steps 9 on this server), video shift 6, audio shift 3. References: a clip (video), pictures (image, then images), a sound (audio); name them in the prompt as <Video 1>, <Picture 1>, <Picture 2>, <Audio 1>. A last_image is pinned as the final frame on top of the references. Shapes 21:9, 16:9, 4:3, 1:1, 3:4 or 9:16."
   source: "https://huggingface.co/PulpCut/MiniMax-H3-Ref2VA-Turbo-INT8-ConvRot"

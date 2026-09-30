@@ -5,8 +5,8 @@ Results (/images/, /videos/, /audio/) and uploads are private to the account
 that made them: the file routes and the tools that take a Hub URL as input
 check the caller's Hub session or API key against the owner recorded here, and
 answer 404 to anyone else, so another user's link reveals nothing. A file with
-no owner row is nobody's to see (admins included) and just waits out its
-lifetime; the files from before owners were recorded were given to the admin.
+no owner row (its account was deleted, or it predates owners being recorded)
+is the admins'.
 
 Nothing is kept for good. Results stay RESULT_TTL, long enough to come back to
 a chat and refine one (clients working on local files save them next to their
@@ -65,6 +65,7 @@ def _locations() -> list[tuple[Path, re.Pattern, str, str, bool]]:
         (video_service.VIDEO_DIR, video_service.VIDEO_NAME_RE, "video", video_service.PUBLIC_PREFIX, False),
         (video_service.UPLOAD_DIR, video_service.VIDEO_NAME_RE, "video", video_service.PUBLIC_PREFIX, True),
         (audio_service.AUDIO_DIR, audio_service.AUDIO_NAME_RE, "audio", audio_service.PUBLIC_PREFIX, False),
+        (audio_service.UPLOAD_DIR, audio_service.AUDIO_NAME_RE, "audio", audio_service.PUBLIC_PREFIX, True),
     ]
 
 
@@ -140,7 +141,7 @@ def _visible(owner: int | None, user: dict | None) -> bool:
         return True
     if not user:
         return False
-    return owner is not None and owner == user["id"]
+    return owner == user["id"] if owner is not None else user.get("role") == "admin"
 
 
 async def list_files(user: dict | None) -> list[dict]:

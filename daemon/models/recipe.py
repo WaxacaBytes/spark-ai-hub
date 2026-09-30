@@ -25,7 +25,15 @@ MEDIA_CAPABILITIES = {
     "multi-image": "multi-image-input",
     "text-to-video": "text-to-video",
     "image-to-video": "image-to-video",
+    # A first frame, a last frame or both pinned as the clip's endpoints.
+    "last-frame": "first-last-frame",
+    # Several pictures, clips and sounds that set who and what appears.
+    "multi-reference": "multi-reference",
+    "audio-reference": "audio-reference",
     "video-edit": "video-editing",
+    "faceswap": "face-swap",
+    # The clip comes with a soundtrack generated alongside it.
+    "video-audio": "video-with-audio",
     "text-to-music": "music-generation",
 }
 
@@ -108,6 +116,11 @@ class RecipeVideoDefaults(BaseModel):
     # Also send the chosen aspect_ratio ("16:9"/"9:16") as its own field, for
     # servers that require it alongside width/height (MiniMax-H3 t2va).
     send_aspect_ratio: bool = False
+    # The shapes and lengths the model renders; the Hub offers every one and
+    # refuses the rest before they reach the server. Unset means 16:9 and 9:16,
+    # up to 10 s.
+    aspect_ratios: list[str] | None = None
+    max_seconds: int | None = None
     notes: str = ""
     source: str = ""
 
