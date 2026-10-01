@@ -1,0 +1,71 @@
+name: "Qwen3.8-27B Uncensored INT4 DFlash2"
+slug: tensorfold-qwen38-27b-uncensored-int4
+version: "1.0.0"
+description: "OrcaRouter's abliterated (refusal-removed) Qwen3.8-27B from OrcaRouter's own MLX 4-bit build (affine INT4, groups of 64), served by TensorFold, an inference engine written for this model family, drafting with z-lab's DFlash2. The vision tower is left unquantized, so images work as OpenAI image_url parts (data URLs). The drafter was trained on the stock model; every drafted token is verified by the target, so output is the abliterated model's own. 50.3 tok/s writing, 125.3 code-edit — the fastest uncensored Qwen3.8-27B that sees images. Native 262K context, thinking on by default, tool calling and reasoning live. Removes safety refusals the upstream model was trained to have; supply your own guardrails. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
+author: "Alibaba Cloud + OrcaRouter + z-lab"
+source: "community"
+website: "https://huggingface.co/orcarouter/Qwen3.8-27B-Uncensored-MLX/tree/main/4-bit"
+upstream: "https://github.com/ashhart/TensorFold/blob/v0.3.6.3/docs/recipes/qwen3.8-27b.md"
+category: llm
+logo: "/logos/qwen.png"
+tags:
+  - llm
+  - tensorfold
+  - multimodal
+  - vision
+  - int4
+  - abliterated
+  - uncensored
+  - qwen
+  - reasoning
+  - tool-use
+  - speculative-decoding
+  - dflash2
+  - long-context
+requirements:
+  min_memory_gb: 56
+  recommended_memory_gb: 72
+  disk_gb: 40
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8888
+  proxy: true
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 20
+  gpu: true
+status: experimental
+engine: "TensorFold"
+params_b: 27
+arch: dense
+quantization: "INT4"
+speculative_method: "dflash2"
+artificial_analysis_index: 41
+weights_gb: 16.1
+release_date: "2026-08-26"
+context_length: 262144
+requires_hf_token: false
+tokens_per_second: 50.3
+tokens_per_second_editing: 125.3
+editing_workload: "code-edit"
+benchmarks:
+  prose: 37.23
+  explainer: 53.21
+  code: 71.7
+  code-edit: 125.31
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "orcarouter/Qwen3.8-27B-Uncensored"
+  api_key: "<API_KEY>"
+  max_context: "262144"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"orcarouter/Qwen3.8-27B-Uncensored\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 2048}'"
+
+cover:
+  image: qwen-27b.jpg
+  caption: "The Qwen capybara writing SQL. Shared by Qwen models of 27B parameters."
+  fit: contain
+  grade: false
+  credit: "cfahlgren1/flux-qwen-capybara — a FLUX.1-dev LoRA recreating the Qwen capybara · FLUX.1-dev non-commercial licence"
+  source: "https://huggingface.co/cfahlgren1/flux-qwen-capybara"

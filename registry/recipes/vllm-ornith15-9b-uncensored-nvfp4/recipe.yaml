@@ -1,7 +1,7 @@
 name: "Ornith-1.5-9B Uncensored NVFP4"
 slug: vllm-ornith15-9b-uncensored-nvfp4
 version: "1.0.0"
-description: "ressl's abliterated Ornith-1.5-9B — the dense 9B member of the Ornith family — exported to NVFP4 with ModelOpt and served on vLLM. 8.9 GB of weights, the vision tower intact, 262K context, reasoning and tool calling live, 32.8 tok/s. The author reports hard refusals down from 767/1120 to 20/1120 across five red-team datasets, with GPQA-Diamond at 60.1% against the base model's 49.5%. No speculative decoding: the NVFP4 export drops the checkpoint's MTP head. Removes safety refusals the upstream model was trained to have; supply your own guardrails."
+description: "ressl's abliterated Ornith-1.5-9B — the dense 9B member of the Ornith family — exported to NVFP4 with ModelOpt and served on vLLM. 8.9 GB of weights, the vision tower intact, 262K context, reasoning and tool calling live. Drafting with ornith-ai's own DFlash drafter: 55.5 tok/s writing, 149.8 code-edit (32.8 without it). The author reports hard refusals down from 767/1120 to 20/1120 across five red-team datasets, with GPQA-Diamond at 60.1% against the base model's 49.5%. Removes safety refusals the upstream model was trained to have; supply your own guardrails."
 author: "Ornith AI (DeepReinforce)"
 source: "community"
 website: "https://huggingface.co/ornith-ai/Ornith-1.5-9B"
@@ -18,6 +18,8 @@ tags:
   - nvfp4
   - abliterated
   - uncensored
+  - speculative-decoding
+  - dflash
 logo: "/logos/ornith.png"
 requirements:
   min_memory_gb: 37
@@ -38,21 +40,22 @@ engine: "vLLM"
 params_b: 9
 arch: dense
 quantization: "NVFP4"
+speculative_method: "dflash"
 artificial_analysis_index: null
 weights_gb: 8.9
 release_date: "2026-08"
 requires_hf_token: false
-tokens_per_second: 32.8
-tokens_per_second_editing: 32.8
+tokens_per_second: 55.5
+tokens_per_second_editing: 149.8
 editing_workload: "code-edit"
 benchmarks:
-  prose: 32.69
-  explainer: 32.7
-  code: 32.91
-  code-edit: 32.8
+  prose: 43.06
+  explainer: 57.78
+  code: 74.02
+  code-edit: 149.78
 tested_on:
   dgx_os: "7.2"
-  date: "2026-09-21"
+  date: "2026-09-30"
 integration:
   api_url: "<HUB>/v1"
   model_id: "ressl/Ornith-1.5-9B-uncensored-NVFP4"

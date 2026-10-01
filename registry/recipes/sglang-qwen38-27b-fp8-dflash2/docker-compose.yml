@@ -11,9 +11,6 @@ services:
     # bit of the reference weights, NVFP4 is the fast one, and FP8 is Qwen's
     # own first-party quantization sitting between them.
     #
-    # Same weights as sglang-qwen38-27b-fp8-dspark; only the speculator
-    # changes, and that change is output-preserving.
-    #
     # Why this needs a nightly and the EAGLE / DSpark recipes do not: DFlash2
     # landed in sgl-project/sglang#35371 (2026-08-19), newer than the pinned
     # `lmsysorg/sglang:qwen38-27b` cookbook tag and newer than v0.5.17. The

@@ -10,8 +10,11 @@ services:
     # on anything older, and SGLang crashes loading a dense qwen3_5 NVFP4 linear
     # attention layer, so this checkpoint has one engine and one floor version.
     #
-    # No speculative decoding: the ModelOpt export drops the checkpoint's mtp.*
-    # tensors, so the MTP head the stock Qwen3.5-9B recipe uses is not there.
+    # Speculative decoding with ornith-ai's own DFlash drafter for the 9B
+    # (block diffusion, 6 layers, BF16). The ModelOpt export drops the
+    # checkpoint's mtp.* tensors, so MTP is not available; DFlash needs no
+    # head from the target. The drafter was trained against the stock 9B,
+    # not this abliterated one: its acceptance is the number to watch.
     #
     # KV cache stays at the checkpoint's own dtype (BF16). The quant config
     # declares no kv_cache_scheme and ships no k/v scales, and with only 8 of 32
@@ -30,8 +33,12 @@ services:
         RUN --mount=type=secret,id=hf_token \
             HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
             python3 -c "from huggingface_hub import snapshot_download; snapshot_download('ressl/Ornith-1.5-9B-uncensored-NVFP4', revision='befe9b6666750c01ed5b76a0d590ce27c3111499')"
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('ornith-ai/Ornith-1.5-9B-DFlash', revision='21be3446a606afa67e20c33e68ca37396499248f', allow_patterns=['config.json', '*.safetensors'], local_dir='/drafter')"
         FROM vllm/vllm-openai:v0.28.0-aarch64
         COPY --from=weights /weights /root/.cache/huggingface
+        COPY --from=weights /drafter /models/Ornith-1.5-9B-DFlash
     image: spark-ai-hub/vllm-ornith15-9b-uncensored-nvfp4:v0.28.0-aarch64
     container_name: spark-ai-hub-vllm-ornith15-9b-uncensored-nvfp4
     networks:
@@ -56,6 +63,15 @@ services:
       - --gpu-memory-utilization
       - "0.30"
       - --enable-prefix-caching
+      # With the default sequence cap, the DFlash drafter's warmup dummy run
+      # trips a device-side assert in flash-attn and the engine never starts.
+      - --max-num-seqs
+      - "32"
+      # DFlash drafting, 8 tokens a block as on the drafter's card; every
+      # draft is verified by the target. 8 beat 4 here (36.3/56.1 against
+      # 33.5/44.3 tok/s prose/code), even at a mean acceptance length of ~2.
+      - --speculative-config
+      - '{"method":"dflash","model":"/models/Ornith-1.5-9B-DFlash","num_speculative_tokens":8}'
       - --reasoning-parser
       - qwen3
       - --enable-auto-tool-choice

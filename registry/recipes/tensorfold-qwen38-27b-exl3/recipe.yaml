@@ -1,0 +1,69 @@
+name: "Qwen3.8-27B EXL3 3.0bpw DFlash2"
+slug: tensorfold-qwen38-27b-exl3
+version: "1.0.0"
+description: "Qwen3.8-27B as turboderp's EXL3 3.00 bpw pack (6-bit head) served by TensorFold, an inference engine written for this model family, drafting with z-lab's DFlash2. The smallest weights TensorFold's upstream measured on a Spark, so each decode round reads the least memory; the drafter reads the pack's own head, and every drafted reply equals the serial decode. EXL3 support in TensorFold is marked experimental upstream. 55.9 tok/s writing, 128.2 code-edit — the fastest Qwen3.8-27B on the Hub. Images work as OpenAI image_url parts (data URLs). Native 262K context, thinking on by default, tool calling and reasoning live. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
+author: "Alibaba Cloud + turboderp + z-lab"
+source: "community"
+website: "https://huggingface.co/turboderp/Qwen3.8-27B-exl3/tree/3.00bpw"
+upstream: "https://github.com/ashhart/TensorFold/blob/v0.3.6.3/docs/recipes/qwen3.8-27b.md"
+category: llm
+logo: "/logos/qwen.png"
+tags:
+  - llm
+  - tensorfold
+  - multimodal
+  - vision
+  - exl3
+  - qwen
+  - reasoning
+  - tool-use
+  - speculative-decoding
+  - dflash2
+  - long-context
+requirements:
+  min_memory_gb: 56
+  recommended_memory_gb: 72
+  disk_gb: 40
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8888
+  proxy: true
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 20
+  gpu: true
+status: experimental
+engine: "TensorFold"
+params_b: 27
+arch: dense
+quantization: "EXL3"
+speculative_method: "dflash2"
+artificial_analysis_index: 41
+weights_gb: 13.8
+release_date: "2026-08-26"
+context_length: 262144
+requires_hf_token: false
+tokens_per_second: 55.9
+tokens_per_second_editing: 128.2
+editing_workload: "code-edit"
+benchmarks:
+  prose: 42.5
+  explainer: 58.85
+  code: 82.39
+  code-edit: 128.23
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "turboderp/Qwen3.8-27B-exl3"
+  api_key: "<API_KEY>"
+  max_context: "262144"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"turboderp/Qwen3.8-27B-exl3\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 2048}'"
+
+cover:
+  image: qwen-27b.jpg
+  caption: "The Qwen capybara writing SQL. Shared by Qwen models of 27B parameters."
+  fit: contain
+  grade: false
+  credit: "cfahlgren1/flux-qwen-capybara — a FLUX.1-dev LoRA recreating the Qwen capybara · FLUX.1-dev non-commercial licence"
+  source: "https://huggingface.co/cfahlgren1/flux-qwen-capybara"

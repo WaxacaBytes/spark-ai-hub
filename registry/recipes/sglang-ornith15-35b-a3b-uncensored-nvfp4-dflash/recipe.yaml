@@ -1,11 +1,11 @@
-name: "Ornith-1.5-35B-A3B Uncensored NVFP4 DFlash2"
-slug: sglang-ornith15-35b-a3b-uncensored-nvfp4-dflash2
+name: "Ornith-1.5-35B-A3B Uncensored NVFP4 DFlash"
+slug: sglang-ornith15-35b-a3b-uncensored-nvfp4-dflash
 version: "1.0.0"
-description: "The uncensored Ornith-1.5-35B-A3B — ressl's abliterated NVFP4 master — on SGLang with jzinno's DFlash2 block-diffusion drafter: 64.3 tok/s writing, 179.4 on code edits. Measured back to back on the same weights, that beats vLLM with ornith-ai's own DFlash drafter (61.3/169.6); the DFlash block-16 sibling trades writing speed for code edits (56.9/244.1). Refusal behaviour is inherited from the same abliterated master: hard refusals 586/1120 down to 20/1120 across five red-team datasets, GPQA-Diamond 58.6% against the base model's 61.1%. 262K context, reasoning and tool calling live. Removes safety refusals the upstream model was trained to have; supply your own guardrails."
+description: "The uncensored Ornith-1.5-35B-A3B — ressl's abliterated NVFP4 master — on SGLang with ornith-ai's own DFlash drafter at its native block size of 16: the fastest Ornith uncensored build for code edits, 244.1 tok/s, at the cost of writing speed, 56.9. The DFlash2 sibling is the balanced choice (64.3/179.4). Refusal behaviour is inherited from the same abliterated master: hard refusals 586/1120 down to 20/1120 across five red-team datasets, GPQA-Diamond 58.6% against the base model's 61.1%. 262K context, reasoning and tool calling live. Removes safety refusals the upstream model was trained to have; supply your own guardrails."
 author: "Ornith AI (DeepReinforce)"
 source: "community"
 website: "https://huggingface.co/ornith-ai/Ornith-1.5-35B-A3B"
-upstream: "https://huggingface.co/jzinno/Ornith-1.5-35B-A3B-DFlash2"
+upstream: "https://huggingface.co/ornith-ai/Ornith-1.5-35B-A3B-DFlash"
 category: llm
 tags:
   - llm
@@ -18,7 +18,7 @@ tags:
   - abliterated
   - uncensored
   - speculative-decoding
-  - dflash2
+  - dflash
 logo: "/logos/ornith.png"
 requirements:
   min_memory_gb: 40
@@ -40,19 +40,19 @@ params_b: 35
 active_params_b: 3
 arch: moe
 quantization: "NVFP4"
-speculative_method: "dflash2"
+speculative_method: "dflash"
 artificial_analysis_index: null
 weights_gb: 23.3
 release_date: "2026-08"
 requires_hf_token: false
-tokens_per_second: 64.3
-tokens_per_second_editing: 179.4
+tokens_per_second: 56.9
+tokens_per_second_editing: 244.1
 editing_workload: "code-edit"
 benchmarks:
-  prose: 47.15
-  explainer: 63.35
-  code: 103.35
-  code-edit: 179.37
+  prose: 44.21
+  explainer: 54.71
+  code: 84.57
+  code-edit: 244.12
 tested_on:
   dgx_os: "7.2"
   date: "2026-10-01"

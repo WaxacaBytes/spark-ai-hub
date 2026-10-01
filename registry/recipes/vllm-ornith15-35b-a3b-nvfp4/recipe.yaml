@@ -1,7 +1,7 @@
 name: "Ornith-1.5-35B-A3B NVFP4"
 slug: vllm-ornith15-35b-a3b-nvfp4
 version: "1.0.0"
-description: "ornith-ai's Ornith-1.5-35B-A3B NVFP4 (4-bit) MoE checkpoint served on vLLM — same Qwen3.5-family hybrid Gated DeltaNet MoE architecture as the Qwen3.6-35B-A3B NVFP4 recipe, modelopt quantization, FlashInfer attention, Marlin MoE, FP8 KV cache, and the checkpoint's own built-in MTP speculative decoding. Reasoning on by default, 262K context, tool calling live."
+description: "ornith-ai's Ornith-1.5-35B-A3B NVFP4 (4-bit) MoE checkpoint served on vLLM — same Qwen3.5-family hybrid Gated DeltaNet MoE architecture as the Qwen3.6-35B-A3B NVFP4 recipe, modelopt quantization, FlashInfer attention, Marlin MoE, FP8 KV cache, drafting with ornith-ai's own DFlash drafter: 81.3 tok/s writing, 225.7 code-edit (62.3 with the checkpoint's MTP head). Reasoning on by default, 262K context, tool calling live."
 author: "Ornith AI (DeepReinforce)"
 source: "community"
 website: "https://huggingface.co/ornith-ai/Ornith-1.5-35B-A3B"
@@ -15,7 +15,8 @@ tags:
   - tool-use
   - vllm
   - nvfp4
-  - mtp
+  - speculative-decoding
+  - dflash
 logo: "/logos/ornith.png"
 requirements:
   min_memory_gb: 40
@@ -37,22 +38,22 @@ params_b: 35
 active_params_b: 3
 arch: moe
 quantization: "NVFP4"
-speculative_method: "mtp"
+speculative_method: "dflash"
 artificial_analysis_index: null
 weights_gb: 23.4
 release_date: "2026-08"
 requires_hf_token: false
 tested_on:
   dgx_os: "7.2"
-  date: "2026-08-20"
-tokens_per_second: 62.3
-tokens_per_second_editing: 62.3
+  date: "2026-09-30"
+tokens_per_second: 81.3
+tokens_per_second_editing: 225.7
 editing_workload: "code-edit"
 benchmarks:
-  prose: 56.37
-  explainer: 62.63
-  code: 69.08
-  code-edit: 62.3
+  prose: 64.08
+  explainer: 83.49
+  code: 107.09
+  code-edit: 225.67
 integration:
   api_url: "<HUB>/v1"
   model_id: "ornith-ai/Ornith-1.5-35B-A3B-NVFP4"

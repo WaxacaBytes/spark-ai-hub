@@ -1,12 +1,10 @@
 services:
   sglang:
-    # The uncensored Ornith-1.5-35B-A3B (ressl's abliterated NVFP4 master, the
-    # same checkpoint the vLLM sibling serves) on SGLang with jzinno's DFlash2
-    # block-diffusion drafter. This exists because the vLLM sibling has no
-    # speculative decoding available to it at all: the ModelOpt export drops
-    # the checkpoint's MTP head, and vLLM's weight-free n-gram proposer — the
-    # only other option there — silently returns empty tool-call arguments.
-    # DFlash2 is a real drafter with real weights, and it lives in SGLang.
+    # The uncensored Ornith-1.5-35B-A3B (ressl's abliterated NVFP4 master) on
+    # SGLang with jzinno's DFlash2 block-diffusion drafter. The ModelOpt export
+    # drops the checkpoint's MTP head. vLLM v0.28 with ornith-ai's DFlash
+    # drafter serves the same weights, but measured back to back it is slower
+    # (61.3/169.6 against 64.3/179.4 tok/s), so this is the uncensored build.
     #
     # Two things had to be true for this pairing to work, and both were
     # checked before building rather than assumed:

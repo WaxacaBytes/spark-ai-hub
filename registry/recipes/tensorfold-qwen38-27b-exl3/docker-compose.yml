@@ -1,0 +1,124 @@
+services:
+  tensorfold:
+    # Qwen3.8-27B served by TensorFold from turboderp's EXL3 3.00 bpw pack
+    # (mul1 codebook, 6-bit head), drafting with z-lab's DFlash2. Upstream's
+    # EXL3 recipe, as `tensorfold serve` flags; it is the pack upstream
+    # measured fastest on a Spark (10.1 GB of weights read a token):
+    #   https://github.com/ashhart/TensorFold/blob/v0.3.6.3/docs/recipes/qwen3.8-27b.md#exl3-checkpoints-experimental
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        # --- weights stage ---------------------------------------------------
+        # Model and drafter weights are part of the app artifact: baked into
+        # the final image below, so `docker rmi` reclaims every byte this
+        # recipe added. Both pinned to the revisions measured.
+        FROM python:3.12-slim AS weights
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('turboderp/Qwen3.8-27B-exl3', revision='6fe61ad620abfe97c5b49f9722c2bceeea4ccc28', local_dir='/weights/model', ignore_patterns=['.gitattributes'], max_workers=8)"
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('z-lab/Qwen3.8-27B-DFlash2', revision='50307d4c4cde6860d4eee73e2547cd786fe8e8a4', local_dir='/weights/drafter', ignore_patterns=['.gitattributes'])"
+
+        # --- runtime stage ---------------------------------------------------
+        # TensorFold v0.3.6.3 on NVIDIA's nvcr.io/nvidia/pytorch:26.07-py3
+        # (arm64, CUDA 13), as published by Mia's AI Lab for their single-Spark
+        # recipes and pinned by digest (tag v0.3.6.3-5f313914582d). TensorFold
+        # itself publishes no image.
+        FROM ghcr.io/miaai-lab/qwen3.8-flash-next-single-dgx-spark-tensorfold@sha256:05620ace4085baa58e1e4049cd6e9512c5c54959d32744019766672a5d2c824a
+        # TensorFold compiles its CUDA extensions on first use into
+        # TORCH_EXTENSIONS_DIR. Compiled here instead, for GB10 (sm_121) only,
+        # so they ship inside the image and launch compiles nothing. No GPU is
+        # needed to compile: the capability TensorFold asks the driver for is
+        # stated instead.
+        ENV TORCH_EXTENSIONS_DIR=/opt/tensorfold/torch_extensions \
+            TRITON_CACHE_DIR=/tmp/triton \
+            TORCH_CUDA_ARCH_LIST=12.1
+        RUN <<'PY' python3
+        import importlib, pkgutil, torch, tensorfold
+        torch.cuda.get_device_capability = lambda *a: (12, 1)
+        for m in pkgutil.walk_packages(tensorfold.__path__, "tensorfold."):
+            if any(k in m.name for k in ("mlx", "metal", "__main__")):
+                continue
+            try:
+                mod = importlib.import_module(m.name)
+            except BaseException:
+                continue
+            ext = getattr(mod, "_ext", None)
+            if callable(ext) and getattr(ext, "__module__", "") == m.name:
+                ext()
+                print("built", m.name, flush=True)
+        PY
+        COPY --from=weights /weights/model /models/Qwen3.8-27B-exl3-3.00bpw
+        COPY --from=weights /weights/drafter /models/Qwen3.8-27B-DFlash2
+    image: spark-ai-hub/tensorfold-qwen38-27b-exl3:tf-v0.3.6.3-6fe61ad
+    container_name: spark-ai-hub-tensorfold-qwen38-27b-exl3
+    networks:
+      - spark-ai-hub-net
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    environment:
+      # Offline-first: model and drafter are in the image and are served from
+      # directory paths, so nothing is resolved against the Hub.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # No "is there a newer TensorFold" call to GitHub at each start.
+      - TENSORFOLD_NO_UPDATE_CHECK=1
+      # The vision tower's scratch comes from the host reserve while an image
+      # encodes; startup reserves none for it.
+      - TENSORFOLD_VISION_WORKSPACE_MIB=0
+      - PYTHONUNBUFFERED=1
+    # The image's entrypoint (NVIDIA's banner) runs this command.
+    command:
+      - tensorfold
+      - serve
+      - /models/Qwen3.8-27B-exl3-3.00bpw
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8888"
+      - --name
+      - turboderp/Qwen3.8-27B-exl3
+      # DFlash2 drafts, the target verifies every token: output equals the
+      # serial decode.
+      - --drafter
+      - /models/Qwen3.8-27B-DFlash2
+      # The model's native 262,144-token window.
+      - --context
+      - "262144"
+      # Qwen's thinking-mode sampling; a request's own values win.
+      - --temperature
+      - "1.0"
+      - --top-p
+      - "0.95"
+      - --top-k
+      - "20"
+      - --thinking
+      # Image input (data URLs; add --vision-urls to fetch https:// URLs),
+      # through the pack's own vision tower.
+      - --vision
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # NOT unless-stopped: a boot that fails must stop instead of looping.
+    restart: on-failure:1
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true
