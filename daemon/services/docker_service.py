@@ -250,10 +250,12 @@ def is_ready(slug: str) -> bool:
 
 def set_pending(slug: str, action: str):
     _pending_actions[slug] = action
+    invalidate_docker_lists()
 
 
 def clear_pending(slug: str):
     _pending_actions.pop(slug, None)
+    invalidate_docker_lists()
 
 
 def get_pending(slug: str) -> str | None:
@@ -368,29 +370,54 @@ async def _report_startup_failure(slug: str, why: str):
 # open tab. The queries are global lists (all volumes, all images, images in
 # use); only the membership test is per recipe. So run each list at most once
 # every few seconds and match in Python.
+#
+# Concurrent callers share one in-flight run: every spawn blocks the event loop
+# while Python forks the daemon and waits for the exec, so a burst of callers
+# that all missed the cache used to stall the whole Hub.
 _DOCKER_LIST_TTL = 3.0
 _docker_lists: dict[str, tuple[float, list[str]]] = {}
+_docker_inflight: dict[str, asyncio.Task] = {}
+_docker_lists_gen = 0
+
+
+async def _run_docker_lines(key: str, args: list[str], gen: int) -> list[str]:
+    now = time.monotonic()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        lines = stdout.decode(errors="replace").strip().splitlines()
+    finally:
+        if _docker_inflight.get(key) is asyncio.current_task():
+            del _docker_inflight[key]
+    # A run that started before an invalidation may predate the change.
+    if gen == _docker_lists_gen:
+        _docker_lists[key] = (now, lines)
+    return lines
 
 
 async def _docker_lines(key: str, args: list[str]) -> list[str]:
     cached = _docker_lists.get(key)
-    now = time.monotonic()
-    if cached and now - cached[0] < _DOCKER_LIST_TTL:
+    if cached and time.monotonic() - cached[0] < _DOCKER_LIST_TTL:
         return cached[1]
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, _ = await proc.communicate()
-    lines = stdout.decode(errors="replace").strip().splitlines()
-    _docker_lists[key] = (now, lines)
-    return lines
+    task = _docker_inflight.get(key)
+    if task is None:
+        task = asyncio.create_task(_run_docker_lines(key, args, _docker_lists_gen))
+        _docker_inflight[key] = task
+    # Shielded: one caller going away must not cancel the others' answer.
+    return await asyncio.shield(task)
 
 
 def invalidate_docker_lists():
-    """Drop the cache after anything that adds or removes images/volumes."""
+    """Drop the cache after anything that adds or removes images, volumes or
+    running containers."""
+    global _docker_lists_gen
+    _docker_lists_gen += 1
     _docker_lists.clear()
+    _docker_inflight.clear()
 
 
 def _compose_project(slug: str) -> str:
@@ -828,6 +855,7 @@ async def launch_recipe(slug: str, on_line=None, api_key: str | None = None,
                     pass
     output = b"".join(chunks)
     await proc.wait()
+    invalidate_docker_lists()
 
     if proc.returncode == 0:
         db = await get_db()
@@ -864,6 +892,7 @@ async def stop_recipe(slug: str) -> str:
         cwd=str(recipe_dir),
     )
     await proc.wait()
+    invalidate_docker_lists()
     return "stopped" if proc.returncode == 0 else "failed"
 
 
@@ -894,6 +923,7 @@ async def remove_recipe(slug: str) -> str:
         cwd=str(recipe_dir),
     )
     await proc.wait()
+    invalidate_docker_lists()
 
     if proc.returncode == 0:
         for image in removable_images:
@@ -985,18 +1015,15 @@ async def get_project_for_slug(slug: str) -> str | None:
 
 
 async def is_recipe_running(slug: str) -> bool:
-    project = _compose_project(slug)
+    # One `docker ps` answers this for every recipe; /api/recipes asks it once
+    # per installed recipe on every poll.
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "docker", "ps", "-q",
-            "--filter", f"label=com.docker.compose.project={project}",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, _ = await proc.communicate()
-        return len(stdout.decode().strip()) > 0
+        running = await _docker_lines("running_projects", [
+            "docker", "ps", "--format", '{{.Label "com.docker.compose.project"}}',
+        ])
     except Exception:
         return False
+    return _compose_project(slug) in running
 
 
 async def get_container_name(slug: str) -> str | None:
