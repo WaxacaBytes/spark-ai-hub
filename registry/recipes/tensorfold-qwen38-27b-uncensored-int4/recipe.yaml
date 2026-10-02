@@ -1,11 +1,11 @@
 name: "Qwen3.8-27B Uncensored INT4 DFlash2"
 slug: tensorfold-qwen38-27b-uncensored-int4
 version: "1.0.0"
-description: "OrcaRouter's abliterated (refusal-removed) Qwen3.8-27B from OrcaRouter's own MLX 4-bit build (affine INT4, groups of 64), served by TensorFold, an inference engine written for this model family, drafting with z-lab's DFlash2. The vision tower is left unquantized, so images work as OpenAI image_url parts (data URLs). The drafter was trained on the stock model; every drafted token is verified by the target, so output is the abliterated model's own. 50.3 tok/s writing, 125.3 code-edit — the fastest uncensored Qwen3.8-27B that sees images. Native 262K context, thinking on by default, tool calling and reasoning live. Removes safety refusals the upstream model was trained to have; supply your own guardrails. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
+description: "OrcaRouter's abliterated (refusal-removed) Qwen3.8-27B from OrcaRouter's own MLX 4-bit build (affine INT4, groups of 64), served by TensorFold v0.6.0 with Mia's AI Lab single-Spark patches, drafting with z-lab's DFlash2. Eight requests decode together (a lone request runs as fast as alone), each with the native 262K window, over an FP8 KV cache that fits twice the tokens; prompts fill in FP8. The vision tower is left unquantized, so up to 50 images and video per request work as OpenAI image_url / video parts (data URLs). The drafter was trained on the stock model; every drafted token is verified by the target, so output is the abliterated model's own. 47.8 tok/s writing, 161.3 code-edit — the fastest uncensored Qwen3.8-27B that sees images. Native 262K context, thinking on by default, tool calling and reasoning live. Removes safety refusals the upstream model was trained to have; supply your own guardrails. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
 author: "Alibaba Cloud + OrcaRouter + z-lab"
 source: "community"
 website: "https://huggingface.co/orcarouter/Qwen3.8-27B-Uncensored-MLX/tree/main/4-bit"
-upstream: "https://github.com/ashhart/TensorFold/blob/v0.3.6.3/docs/recipes/qwen3.8-27b.md"
+upstream: "https://github.com/ashhart/TensorFold/blob/v0.6.0/docs/recipes/qwen3.8-27b.md"
 category: llm
 logo: "/logos/qwen.png"
 tags:
@@ -23,8 +23,8 @@ tags:
   - dflash2
   - long-context
 requirements:
-  min_memory_gb: 56
-  recommended_memory_gb: 72
+  min_memory_gb: 97
+  recommended_memory_gb: 110
   disk_gb: 40
   cuda_compute: "12.1"
 ui:
@@ -47,14 +47,14 @@ weights_gb: 16.1
 release_date: "2026-08-26"
 context_length: 262144
 requires_hf_token: false
-tokens_per_second: 50.3
-tokens_per_second_editing: 125.3
+tokens_per_second: 47.8
+tokens_per_second_editing: 161.3
 editing_workload: "code-edit"
 benchmarks:
-  prose: 37.23
-  explainer: 53.21
-  code: 71.7
-  code-edit: 125.31
+  prose: 34.1
+  explainer: 55.1
+  code: 65.3
+  code-edit: 161.3
 integration:
   api_url: "<HUB>/v1"
   model_id: "orcarouter/Qwen3.8-27B-Uncensored"

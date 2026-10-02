@@ -1,0 +1,70 @@
+name: "Qwen3.8-27B INT4 DFlash2"
+slug: tensorfold-qwen38-27b-int4
+version: "1.0.0"
+description: "Qwen3.8-27B from TensorFold's own MLX 4-bit checkpoint (affine INT4, groups of 64, vision tower unquantized), served by TensorFold v0.6.0 with Mia's AI Lab single-Spark patches, drafting with z-lab's DFlash2. Every drafted reply equals the serial decode. Eight requests decode together (a lone request runs as fast as alone), each with the native 262K window, over an FP8 KV cache that fits twice the tokens; prompts fill in FP8. Up to 50 images and video per request as OpenAI image_url / video parts (data URLs). Thinking on by default, tool calling and reasoning live. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
+author: "Alibaba Cloud + TensorFold + z-lab + Mia's AI Lab"
+source: "community"
+website: "https://mia-ai.net/models/Qwen3.8-27B-DGX-Spark-TensorFold"
+upstream: "https://github.com/MiaAI-Lab/Qwen3.8-27B-DGX-Spark-TensorFold"
+category: llm
+logo: "/logos/qwen.png"
+tags:
+  - llm
+  - tensorfold
+  - multimodal
+  - vision
+  - int4
+  - mlx
+  - qwen
+  - reasoning
+  - tool-use
+  - speculative-decoding
+  - dflash2
+  - long-context
+requirements:
+  min_memory_gb: 97
+  recommended_memory_gb: 110
+  disk_gb: 45
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8888
+  proxy: true
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 20
+  gpu: true
+status: experimental
+engine: "TensorFold"
+params_b: 27
+arch: dense
+quantization: "INT4"
+speculative_method: "dflash2"
+artificial_analysis_index: 41
+weights_gb: 16.1
+release_date: "2026-08-26"
+context_length: 262144
+requires_hf_token: false
+tokens_per_second: 53.5
+tokens_per_second_editing: 162.4
+editing_workload: "code-edit"
+benchmarks:
+  prose: 39.84
+  explainer: 54.87
+  code: 78.56
+  code-edit: 162.4
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "TensorFold/Qwen3.8-27B-MLX-4bit"
+  api_key: "<API_KEY>"
+  max_context: "262144"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"TensorFold/Qwen3.8-27B-MLX-4bit\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 2048}'"
+
+cover:
+  image: qwen-27b.jpg
+  caption: "The Qwen capybara writing SQL. Shared by Qwen models of 27B parameters."
+  fit: contain
+  grade: false
+  credit: "cfahlgren1/flux-qwen-capybara — a FLUX.1-dev LoRA recreating the Qwen capybara · FLUX.1-dev non-commercial licence"
+  source: "https://huggingface.co/cfahlgren1/flux-qwen-capybara"

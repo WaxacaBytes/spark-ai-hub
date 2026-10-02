@@ -5,7 +5,7 @@ services:
     # (affine INT4, group size 32, with the MTP draft head).
     #
     # Recipe shape and every serving flag follow Mia's AI Lab's single-Spark
-    # TensorFold recipe, pinned to commit 856bb6be:
+    # TensorFold recipe, pinned to commit c506d4c1:
     #   https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold
     #   https://x.com/MiaAI_lab/status/2104934763975131239
     # Their start.sh/scripts/config.sh defaults are written out below as plain
@@ -29,15 +29,17 @@ services:
             python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Vontra/Qwen3.8-Flash-Next-MLX-4bit-MTP', revision='dadefa8066e3be900a0d148d0f5a2f4eb1cf6534', local_dir='/weights', ignore_patterns=['.gitattributes'], max_workers=8)"
 
         # --- runtime stage ---------------------------------------------------
-        # The publisher's image, pinned by digest (tag v0.3.6.3-5f313914582d):
-        # NVIDIA's nvcr.io/nvidia/pytorch:26.07-py3 (arm64, CUDA 13) with
-        # TensorFold v0.3.6.3 and Mia's eight patches applied, plus
-        # transformers 5.17.0 (vision tower) and PyAV (video decoding).
-        #   0001 /health live token totals     0005 draft stats per stream
-        #   0002 SSD read-ahead of PLE rows    0006 configurable prefill rows
-        #   0003 PLE reads off the GIL (C++)   0007 prompt-lookup drafts
-        #   0004 QSA tiled block select        0008 image + video input
-        FROM ghcr.io/miaai-lab/qwen3.8-flash-next-single-dgx-spark-tensorfold@sha256:05620ace4085baa58e1e4049cd6e9512c5c54959d32744019766672a5d2c824a
+        # The publisher's image, pinned by digest (tag v0.3.6.3-c1f5d72f8d16,
+        # also :latest): NVIDIA's nvcr.io/nvidia/pytorch:26.07-py3 (arm64,
+        # CUDA 13) with TensorFold v0.3.6.3 and Mia's nine patches applied,
+        # plus transformers 5.17.0 (vision tower) and PyAV (video decoding).
+        # Mia's Flash Next recipe has no TensorFold 0.6 build yet.
+        #   0001 /health live token totals     0006 configurable prefill rows
+        #   0002 SSD read-ahead of PLE rows    0007 prompt-lookup drafts
+        #   0003 PLE reads off the GIL (C++)   0008 image + video input
+        #   0004 QSA tiled block select        0009 up to 50 images a request
+        #   0005 draft stats per stream
+        FROM ghcr.io/miaai-lab/qwen3.8-flash-next-single-dgx-spark-tensorfold@sha256:fd30b84dce7a43daaa2be3443e1bd0e7c826923e9cb77a995c4720e76c752c64
         # TensorFold compiles its CUDA extensions on first use into
         # TORCH_EXTENSIONS_DIR (upstream: a host cache mounted at /cache).
         # Compiled here instead, for GB10 (sm_121) only, so they ship inside
@@ -62,7 +64,7 @@ services:
                 print("built", m.name, flush=True)
         PY
         COPY --from=weights /weights /models/Qwen3.8-Flash-Next-MLX-4bit-MTP
-    image: spark-ai-hub/tensorfold-qwen38-flash-next-int4:tf-v0.3.6.3-5f313914582d
+    image: spark-ai-hub/tensorfold-qwen38-flash-next-int4:tf-v0.3.6.3-c1f5d72f8d16
     container_name: spark-ai-hub-tensorfold-qwen38-flash-next-int4
     networks:
       - spark-ai-hub-net
@@ -86,6 +88,10 @@ services:
       # The vision tower's ~0.8 GiB scratch comes from the host reserve while
       # an image or video encodes; startup reserves none for it.
       - TENSORFOLD_VISION_WORKSPACE_MIB=0
+      # Up to 50 images a request (patch 0009; a chat's turns all count)
+      # sharing 16,384 visual tokens, each image at most 4,096.
+      - TENSORFOLD_MAX_IMAGES=50
+      - TENSORFOLD_IMAGE_TOKENS=16384
       # A request's video token budget (2 frames/s, at most 256 frames).
       - TENSORFOLD_VIDEO_TOKENS=16384
       # Prompt-lookup drafts ahead of MTP (patch 0007): +6% on replies that

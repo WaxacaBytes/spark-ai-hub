@@ -1,10 +1,10 @@
 services:
   tensorfold:
-    # Qwen3.8-27B served by TensorFold from turboderp's EXL3 3.00 bpw pack
-    # (mul1 codebook, 6-bit head), drafting with z-lab's DFlash2. Upstream's
-    # EXL3 recipe, as `tensorfold serve` flags; it is the pack upstream
-    # measured fastest on a Spark (10.1 GB of weights read a token):
-    #   https://github.com/ashhart/TensorFold/blob/v0.3.6.3/docs/recipes/qwen3.8-27b.md#exl3-checkpoints-experimental
+    # Qwen3.8-27B served by TensorFold from TensorFold's own MLX 4-bit
+    # checkpoint (affine, groups of 64, vision tower unquantized), drafting
+    # with z-lab's DFlash2. Mia's AI Lab single-Spark recipe, as
+    # `tensorfold serve` flags and TENSORFOLD_* variables:
+    #   https://github.com/MiaAI-Lab/Qwen3.8-27B-DGX-Spark-TensorFold
     build:
       context: .
       secrets:
@@ -19,17 +19,18 @@ services:
         RUN pip install --no-cache-dir huggingface_hub
         RUN --mount=type=secret,id=hf_token \
             HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
-            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('turboderp/Qwen3.8-27B-exl3', revision='6fe61ad620abfe97c5b49f9722c2bceeea4ccc28', local_dir='/weights/model', ignore_patterns=['.gitattributes'], max_workers=8)"
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('TensorFold/Qwen3.8-27B-MLX-4bit', revision='22d8d538154e0e5b6f8dcb1fcc74a60a0798104c', local_dir='/weights/model', ignore_patterns=['.gitattributes', '*.png'], max_workers=8)"
         RUN --mount=type=secret,id=hf_token \
             HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
             python3 -c "from huggingface_hub import snapshot_download; snapshot_download('z-lab/Qwen3.8-27B-DFlash2', revision='50307d4c4cde6860d4eee73e2547cd786fe8e8a4', local_dir='/weights/drafter', ignore_patterns=['.gitattributes'])"
 
         # --- runtime stage ---------------------------------------------------
-        # TensorFold v0.3.6.3 on NVIDIA's nvcr.io/nvidia/pytorch:26.07-py3
-        # (arm64, CUDA 13), as published by Mia's AI Lab for their single-Spark
-        # recipes and pinned by digest (tag v0.3.6.3-5f313914582d). TensorFold
-        # itself publishes no image.
-        FROM ghcr.io/miaai-lab/qwen3.8-flash-next-single-dgx-spark-tensorfold@sha256:05620ace4085baa58e1e4049cd6e9512c5c54959d32744019766672a5d2c824a
+        # TensorFold v0.6.0 with Mia's five 27B patches (many images and
+        # video, YaRN, FP8 KV cache, memory reserve, pinned KV pool) on
+        # NVIDIA's nvcr.io/nvidia/pytorch:26.07-py3 (arm64, CUDA 13), as
+        # published by Mia's AI Lab and pinned by digest (tag
+        # v0.6.0-fb91a0019fdc). TensorFold itself publishes no image.
+        FROM ghcr.io/miaai-lab/qwen3.8-27b-dgx-spark-tensorfold@sha256:043d192b9e1725f55c5439fc9672055de891433e5b31448ed8963918e3c460e9
         # TensorFold compiles its CUDA extensions on first use into
         # TORCH_EXTENSIONS_DIR. Compiled here instead, for GB10 (sm_121) only,
         # so they ship inside the image and launch compiles nothing. No GPU is
@@ -53,10 +54,10 @@ services:
                 ext()
                 print("built", m.name, flush=True)
         PY
-        COPY --from=weights /weights/model /models/Qwen3.8-27B-exl3-3.00bpw
+        COPY --from=weights /weights/model /models/Qwen3.8-27B-MLX-4bit
         COPY --from=weights /weights/drafter /models/Qwen3.8-27B-DFlash2
-    image: spark-ai-hub/tensorfold-qwen38-27b-exl3:tf-v0.3.6.3-6fe61ad
-    container_name: spark-ai-hub-tensorfold-qwen38-27b-exl3
+    image: spark-ai-hub/tensorfold-qwen38-27b-int4:tf-v0.6.0-22d8d53
+    container_name: spark-ai-hub-tensorfold-qwen38-27b-int4
     networks:
       - spark-ai-hub-net
     ipc: host
@@ -70,28 +71,47 @@ services:
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
       # No "is there a newer TensorFold" call to GitHub at each start.
       - TENSORFOLD_NO_UPDATE_CHECK=1
-      # The vision tower's scratch comes from the host reserve while an image
-      # encodes; startup reserves none for it.
-      - TENSORFOLD_VISION_WORKSPACE_MIB=0
+      # FP8 (e4m3) attention cache (patch 0003): 32 KiB a token instead of
+      # 64, so twice the tokens fit; drafted replies still equal serial ones.
+      - TENSORFOLD_KV_DTYPE=fp8
+      # Pinned KV pool (patch 0005): 78 GiB of attention cache reserved at
+      # startup (~2.5M FP8 tokens, eight full 262K windows), shared by every
+      # stream and never given back; the server holds ~97 GiB from the first
+      # second. Mia's KV_POOL_GB=auto gives 78 on a Spark with ~109 GiB free.
+      - TENSORFOLD_KV_POOL_GIB=78
+      # Startup reserve left out of MemAvailable (patch 0004): 0, the whole of
+      # MemAvailable is the budget.
+      - TENSORFOLD_MEMORY_RESERVE_GIB=0
+      # Up to 50 images a request sharing 16,384 visual tokens, and a
+      # 16,384-token video budget (patch 0001).
+      - TENSORFOLD_MAX_IMAGES=50
+      - TENSORFOLD_IMAGE_TOKENS=16384
+      - TENSORFOLD_VIDEO_TOKENS=16384
       - PYTHONUNBUFFERED=1
     # The image's entrypoint (NVIDIA's banner) runs this command.
     command:
       - tensorfold
       - serve
-      - /models/Qwen3.8-27B-exl3-3.00bpw
+      - /models/Qwen3.8-27B-MLX-4bit
       - --host
       - "0.0.0.0"
       - --port
       - "8888"
       - --name
-      - turboderp/Qwen3.8-27B-exl3
+      - TensorFold/Qwen3.8-27B-MLX-4bit
       # DFlash2 drafts, the target verifies every token: output equals the
       # serial decode.
       - --drafter
       - /models/Qwen3.8-27B-DFlash2
-      # The model's native 262,144-token window.
+      # Eight requests decoded together, each with the model's native
+      # 262,144-token window. A single request decodes as fast as alone.
+      - --parallel
+      - "8"
       - --context
       - "262144"
+      # FP8 prompt activations: ~35-40% faster prefill (TensorFold's own
+      # default since 0.6.0 is bf16); decode is unaffected.
+      - --prefill-fp8
       # Qwen's thinking-mode sampling; a request's own values win.
       - --temperature
       - "1.0"
@@ -100,8 +120,8 @@ services:
       - --top-k
       - "20"
       - --thinking
-      # Image input (data URLs; add --vision-urls to fetch https:// URLs),
-      # through the pack's own vision tower.
+      # Image and video input (data URLs; add --vision-urls to fetch
+      # https:// URLs), through the checkpoint's own vision tower.
       - --vision
     deploy:
       resources:

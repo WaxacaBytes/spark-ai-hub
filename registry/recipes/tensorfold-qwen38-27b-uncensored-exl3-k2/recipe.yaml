@@ -1,11 +1,11 @@
 name: "Qwen3.8-27B Uncensored EXL3 2.0bpw DFlash2"
 slug: tensorfold-qwen38-27b-uncensored-exl3-k2
 version: "1.0.0"
-description: "trohrbaugh's Heretic ARA uncensored Qwen3.8-27B as an EXL3 2.00 bpw pack (6-bit head, vision tower unquantized) served by TensorFold with z-lab's DFlash2 drafter: the small uncensored build, to run beside image and video models and still see their results: 72.1 tok/s writing, 159.6 code-edit in ~15 GB, measured with Qwen-Image-2.1 running beside it. Images work as OpenAI image_url parts (data URLs). Launch it before the image or video model to get the full native 262K context: TensorFold sizes its window to the memory free at start, so beside an already-running Qwen-Image-2.1 it starts at 131K. A 103K-token prompt peaked at 26 GB beside Qwen-Image. The drafter was trained on the stock model; every drafted token is verified by the target, so output is the uncensored model's own. Community quant (bombdefuser-124) made with exllamav3's official convert.py. Thinking on by default, tool calling and reasoning live. Removes safety refusals the upstream model was trained to have; supply your own guardrails. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
+description: "trohrbaugh's Heretic ARA uncensored Qwen3.8-27B as an EXL3 2.00 bpw pack (6-bit head, vision tower unquantized) served by TensorFold v0.6.0 with z-lab's DFlash2 drafter: the small uncensored build, to run beside image and video models and still see their results: 67.7 tok/s writing, 193.6 code-edit in ~15 GB. Images work as OpenAI image_url parts (data URLs). Launch it before the image or video model to get the full native 262K context: TensorFold sizes its window to the memory free at start, so beside an already-running Qwen-Image-2.1 it starts at 131K. A 103K-token prompt peaked at 26 GB beside Qwen-Image. The drafter was trained on the stock model; every drafted token is verified by the target, so output is the uncensored model's own. Community quant (bombdefuser-124) made with exllamav3's official convert.py. Thinking on by default, tool calling and reasoning live. Removes safety refusals the upstream model was trained to have; supply your own guardrails. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
 author: "Alibaba Cloud + trohrbaugh + z-lab"
 source: "community"
 website: "https://huggingface.co/bombdefuser-124/Qwen3.8-27B-heretic-ara-exl3-2.00bpw"
-upstream: "https://github.com/ashhart/TensorFold/blob/v0.3.6.3/docs/recipes/qwen3.8-27b.md"
+upstream: "https://github.com/ashhart/TensorFold/blob/v0.6.0/docs/recipes/qwen3.8-27b.md"
 category: llm
 logo: "/logos/qwen.png"
 tags:
@@ -47,14 +47,14 @@ weights_gb: 10.8
 release_date: "2026-08-26"
 context_length: 262144
 requires_hf_token: false
-tokens_per_second: 72.1
-tokens_per_second_editing: 159.6
+tokens_per_second: 67.7
+tokens_per_second_editing: 193.6
 editing_workload: "code-edit"
 benchmarks:
-  prose: 58.37
-  explainer: 75.03
-  code: 98.56
-  code-edit: 159.65
+  prose: 51.68
+  explainer: 71.33
+  code: 104.41
+  code-edit: 193.6
 integration:
   api_url: "<HUB>/v1"
   model_id: "trohrbaugh/Qwen3.8-27B-heretic-ara"

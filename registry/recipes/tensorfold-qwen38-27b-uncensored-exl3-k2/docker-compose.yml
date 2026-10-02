@@ -7,7 +7,7 @@ services:
     # z-lab's DFlash2: the small build, to run beside image and video models
     # and still see their results. Upstream's EXL3 recipe, as `tensorfold
     # serve` flags:
-    #   https://github.com/ashhart/TensorFold/blob/v0.3.6.3/docs/recipes/qwen3.8-27b.md#exl3-checkpoints-experimental
+    #   https://github.com/ashhart/TensorFold/blob/v0.6.0/docs/recipes/qwen3.8-27b.md#exl3-checkpoints-experimental
     build:
       context: .
       secrets:
@@ -28,11 +28,12 @@ services:
             python3 -c "from huggingface_hub import snapshot_download; snapshot_download('z-lab/Qwen3.8-27B-DFlash2', revision='50307d4c4cde6860d4eee73e2547cd786fe8e8a4', local_dir='/weights/drafter', ignore_patterns=['.gitattributes'])"
 
         # --- runtime stage ---------------------------------------------------
-        # TensorFold v0.3.6.3 on NVIDIA's nvcr.io/nvidia/pytorch:26.07-py3
-        # (arm64, CUDA 13), as published by Mia's AI Lab for their single-Spark
-        # recipes and pinned by digest (tag v0.3.6.3-5f313914582d). TensorFold
-        # itself publishes no image.
-        FROM ghcr.io/miaai-lab/qwen3.8-flash-next-single-dgx-spark-tensorfold@sha256:05620ace4085baa58e1e4049cd6e9512c5c54959d32744019766672a5d2c824a
+        # TensorFold v0.6.0 with Mia's five 27B patches (many images and
+        # video, YaRN, FP8 KV cache, memory reserve, pinned KV pool) on
+        # NVIDIA's nvcr.io/nvidia/pytorch:26.07-py3 (arm64, CUDA 13), as
+        # published by Mia's AI Lab and pinned by digest (tag
+        # v0.6.0-fb91a0019fdc). TensorFold itself publishes no image.
+        FROM ghcr.io/miaai-lab/qwen3.8-27b-dgx-spark-tensorfold@sha256:043d192b9e1725f55c5439fc9672055de891433e5b31448ed8963918e3c460e9
         # TensorFold compiles its CUDA extensions on first use into
         # TORCH_EXTENSIONS_DIR. Compiled here instead, for GB10 (sm_121) only,
         # so they ship inside the image and launch compiles nothing. No GPU is
@@ -63,7 +64,7 @@ services:
         # and tensors). Only that label changes.
         RUN python3 -c "import json; p='/models/Qwen3.8-27B-heretic-ara-exl3-2.00bpw/config.json'; c=json.load(open(p)); c['vision_config']['model_type']='qwen3_5'; json.dump(c, open(p, 'w'), indent=2)"
         COPY --from=weights /weights/drafter /models/Qwen3.8-27B-DFlash2
-    image: spark-ai-hub/tensorfold-qwen38-27b-uncensored-exl3-k2:tf-v0.3.6.3-2fb9008
+    image: spark-ai-hub/tensorfold-qwen38-27b-uncensored-exl3-k2:tf-v0.6.0-2fb9008
     container_name: spark-ai-hub-tensorfold-qwen38-27b-uncensored-exl3-k2
     networks:
       - spark-ai-hub-net
@@ -78,9 +79,9 @@ services:
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
       # No "is there a newer TensorFold" call to GitHub at each start.
       - TENSORFOLD_NO_UPDATE_CHECK=1
-      # The vision tower's scratch comes from the host reserve while an image
-      # encodes; startup reserves none for it.
-      - TENSORFOLD_VISION_WORKSPACE_MIB=0
+      # FP8 (e4m3) attention cache (Mia's patch 0003): 32 KiB a token instead
+      # of 64, so twice the tokens fit; drafted replies still equal serial ones.
+      - TENSORFOLD_KV_DTYPE=fp8
       - PYTHONUNBUFFERED=1
     # The image's entrypoint (NVIDIA's banner) runs this command.
     command:
