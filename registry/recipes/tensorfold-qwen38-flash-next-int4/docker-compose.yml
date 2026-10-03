@@ -5,7 +5,7 @@ services:
     # (affine INT4, group size 32, with the MTP draft head).
     #
     # Recipe shape and every serving flag follow Mia's AI Lab's single-Spark
-    # TensorFold recipe, pinned to commit c506d4c1:
+    # TensorFold recipe, pinned to commit 4c0dea8:
     #   https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold
     #   https://x.com/MiaAI_lab/status/2104934763975131239
     # Their start.sh/scripts/config.sh defaults are written out below as plain
@@ -29,17 +29,15 @@ services:
             python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Vontra/Qwen3.8-Flash-Next-MLX-4bit-MTP', revision='dadefa8066e3be900a0d148d0f5a2f4eb1cf6534', local_dir='/weights', ignore_patterns=['.gitattributes'], max_workers=8)"
 
         # --- runtime stage ---------------------------------------------------
-        # The publisher's image, pinned by digest (tag v0.3.6.3-c1f5d72f8d16,
+        # The publisher's image, pinned by digest (tag v0.6.1-797af1d9df4d,
         # also :latest): NVIDIA's nvcr.io/nvidia/pytorch:26.07-py3 (arm64,
-        # CUDA 13) with TensorFold v0.3.6.3 and Mia's nine patches applied,
-        # plus transformers 5.17.0 (vision tower) and PyAV (video decoding).
-        # Mia's Flash Next recipe has no TensorFold 0.6 build yet.
-        #   0001 /health live token totals     0006 configurable prefill rows
-        #   0002 SSD read-ahead of PLE rows    0007 prompt-lookup drafts
-        #   0003 PLE reads off the GIL (C++)   0008 image + video input
-        #   0004 QSA tiled block select        0009 up to 50 images a request
-        #   0005 draft stats per stream
-        FROM ghcr.io/miaai-lab/qwen3.8-flash-next-single-dgx-spark-tensorfold@sha256:fd30b84dce7a43daaa2be3443e1bd0e7c826923e9cb77a995c4720e76c752c64
+        # CUDA 13) with TensorFold v0.6.1 and Mia's one remaining patch,
+        # 0002-flash-next-v061: video input and up to 50 images on TensorFold's
+        # own Flash Next vision, copy drafts, the prompt-chunk rows override,
+        # SSD read-ahead around the n-gram table, first token before the next
+        # draft. Live /health totals, draft stats, tiled QSA selection and image
+        # input are TensorFold's own since v0.5.0 / v0.6.0.
+        FROM ghcr.io/miaai-lab/qwen3.8-flash-next-single-dgx-spark-tensorfold@sha256:667693ccd7eea95d365ee5a17eed97067e13deb131a6e61fbbbbe6f69d0ebc69
         # TensorFold compiles its CUDA extensions on first use into
         # TORCH_EXTENSIONS_DIR (upstream: a host cache mounted at /cache).
         # Compiled here instead, for GB10 (sm_121) only, so they ship inside
@@ -64,7 +62,7 @@ services:
                 print("built", m.name, flush=True)
         PY
         COPY --from=weights /weights /models/Qwen3.8-Flash-Next-MLX-4bit-MTP
-    image: spark-ai-hub/tensorfold-qwen38-flash-next-int4:tf-v0.3.6.3-c1f5d72f8d16
+    image: spark-ai-hub/tensorfold-qwen38-flash-next-int4:tf-v0.6.1-797af1d9df4d
     container_name: spark-ai-hub-tensorfold-qwen38-flash-next-int4
     networks:
       - spark-ai-hub-net
@@ -82,21 +80,24 @@ services:
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
       # No "is there a newer TensorFold" call to GitHub at each start.
       - TENSORFOLD_NO_UPDATE_CHECK=1
-      # Prompt chunk rows (patch 0006). 2,048 leaves room for the vision
+      # Prompt chunk rows (Mia's patch). 2,048 leaves room for the vision
       # tower; 4,096 is 2-5% faster prefill but only fits with --vision off.
       - TENSORFOLD_PREFILL_ROWS=2048
       # The vision tower's ~0.8 GiB scratch comes from the host reserve while
       # an image or video encodes; startup reserves none for it.
       - TENSORFOLD_VISION_WORKSPACE_MIB=0
-      # Up to 50 images a request (patch 0009; a chat's turns all count)
-      # sharing 16,384 visual tokens, each image at most 4,096.
-      - TENSORFOLD_MAX_IMAGES=50
+      # A request's images share 16,384 visual tokens, each at most 4,096
+      # (the image count is --vision-max-images below).
       - TENSORFOLD_IMAGE_TOKENS=16384
       # A request's video token budget (2 frames/s, at most 256 frames).
       - TENSORFOLD_VIDEO_TOKENS=16384
-      # Prompt-lookup drafts ahead of MTP (patch 0007): +6% on replies that
+      # Copy drafts ahead of MTP (Mia's patch): faster on replies that
       # repeat the prompt (edits, quotes), prose and code unchanged.
       - TENSORFOLD_MTP_COPY=1
+      # TensorFold's budget is MemAvailable minus this reserve. Mia sets the
+      # 2 GiB floor; unset, it holds back a tenth of RAM (12.2 GiB) and
+      # refuses 5 x 262,144.
+      - TENSORFOLD_MEMORY_RESERVE_GIB=2
       - PYTHONUNBUFFERED=1
     # The image's entrypoint (NVIDIA's banner) runs this command.
     command:
@@ -111,10 +112,10 @@ services:
       - Qwen/Qwen3.8-Flash-Next
       # Five requests decoded together, each with the native 262,144-token
       # window: a 1,310,720-token pool of int8 KV (one fp16 scale per 32
-      # values), ~23.4 GiB. TensorFold's budget is MemAvailable minus a tenth
-      # of RAM; this setting estimates 102.5 GiB and needs ~115 GiB free at
-      # start. A setting that does not fit is refused before weights load,
-      # naming a window that does.
+      # values), ~22.4 GiB. TensorFold estimates 85.4 GiB for the weights and
+      # fixed buffers on v0.6.1; streams grow their caches as their context
+      # grows, while memory lasts. A setting that does not fit is refused
+      # before weights load, naming a window that does.
       - --parallel
       - "5"
       - --context
@@ -136,13 +137,20 @@ services:
       - --top-k
       - "20"
       - --thinking
+      # Reply length for a request without max_tokens (TensorFold's own 4,096
+      # can end a thinking reply before it answers).
+      - --max-tokens
+      - "32768"
       # Read the 29.8 GiB PLE n-gram tables from the checkpoint on SSD at
       # each lookup instead of holding them resident: that memory goes to
       # the KV pool.
       - --ple-on-ssd
-      # Image and video input (patch 0008), the model's own 0.84 GiB tower.
-      # Data URLs only; add --vision-urls to let it fetch https:// URLs.
+      # Image and video input, the model's own 0.84 GiB tower. Data URLs
+      # only; add --vision-urls to let it fetch https:// URLs.
       - --vision
+      # Up to 50 images a request (a chat's turns all count).
+      - --vision-max-images
+      - "50"
     deploy:
       resources:
         reservations:

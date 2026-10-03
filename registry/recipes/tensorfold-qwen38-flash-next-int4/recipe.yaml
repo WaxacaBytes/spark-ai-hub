@@ -47,14 +47,14 @@ artificial_analysis_index: 46
 weights_gb: 105.5
 release_date: "2026-08-26"
 requires_hf_token: false
-tokens_per_second: 61.6
-tokens_per_second_editing: 111.3
+tokens_per_second: 63.9
+tokens_per_second_editing: 119.3
 editing_workload: "code-edit"
 benchmarks:
-  prose: 52.04
-  explainer: 61.54
-  code: 75.56
-  code-edit: 111.3
+  prose: 56.92
+  explainer: 64.88
+  code: 71.59
+  code-edit: 119.3
 integration:
   api_url: "<HUB>/v1"
   model_id: "Qwen/Qwen3.8-Flash-Next"
