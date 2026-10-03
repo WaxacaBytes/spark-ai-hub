@@ -1,0 +1,72 @@
+name: "Qwen3.6-35B-A3B MoE Uncensored INT4 MTP"
+slug: tensorfold-qwen36-35b-a3b-uncensored-int4-mtp
+version: "1.0.0"
+description: "llmfan46's uncensored Qwen3.6-35B-A3B — 35B total parameters, 3B active, Gated DeltaNet and gated full attention with 256 routed experts — made with Heretic, which removes the refusal direction with separate settings for the linear and full attention layers: refusals fell from 83/100 to 10/100 at a KL divergence of 0.0015 from the original (the publisher's measurements). Served by TensorFold with every flag of the stock Qwen3.6-35B-A3B recipe, from froggeric's MLX 4-bit conversion — the same format and tensors as TensorFold's own checkpoint, with Qwen's stock chat template and the stock MTP layer. Decoding drafts up to three MTP tokens a round, plus copied continuations when the reply repeats the context; every draft is verified by the uncensored model, so output is its own. Eight requests decode together, each with up to the native 262K window. Prompts fill in FP8. Tool calling and reasoning work as usual; text only. Removes safety refusals the upstream model was trained to have; supply your own guardrails. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
+author: "Alibaba Cloud + llmfan46 + froggeric"
+source: "community"
+website: "https://huggingface.co/froggeric/Qwen3.6-35B-A3B-Uncensored-Heretic-MLX-4bit"
+upstream: "https://github.com/ashhart/TensorFold/blob/v0.6.1/docs/recipes/qwen3.6-moe.md"
+category: llm
+logo: "/logos/qwen.png"
+tags:
+  - llm
+  - moe
+  - tensorfold
+  - int4
+  - abliterated
+  - uncensored
+  - qwen
+  - reasoning
+  - coding
+  - tool-use
+  - speculative-decoding
+  - mtp
+  - long-context
+requirements:
+  min_memory_gb: 40
+  recommended_memory_gb: 56
+  disk_gb: 40
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8888
+  proxy: true
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 15
+  gpu: true
+status: experimental
+engine: "TensorFold"
+params_b: 35
+active_params_b: 3
+arch: moe
+quantization: "INT4"
+speculative_method: "mtp"
+artificial_analysis_index: 26
+weights_gb: 19.5
+release_date: "2026-06-01"
+context_length: 262144
+requires_hf_token: false
+tokens_per_second: 161.0
+tokens_per_second_editing: 411.2
+editing_workload: "code-edit"
+benchmarks:
+  prose: 149.56
+  explainer: 158.79
+  code: 177.17
+  code-edit: 411.2
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "llmfan46/Qwen3.6-35B-A3B-uncensored-heretic"
+  api_key: "<API_KEY>"
+  max_context: "262144"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"llmfan46/Qwen3.6-35B-A3B-uncensored-heretic\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 2048}'"
+
+cover:
+  image: qwen-35b.jpg
+  caption: "The Qwen capybara bench-pressing. Shared by Qwen models of 35B parameters."
+  fit: contain
+  grade: false
+  credit: "cfahlgren1/flux-qwen-capybara — a FLUX.1-dev LoRA recreating the Qwen capybara · FLUX.1-dev non-commercial licence"
+  source: "https://huggingface.co/cfahlgren1/flux-qwen-capybara"

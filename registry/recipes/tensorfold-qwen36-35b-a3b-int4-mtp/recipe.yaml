@@ -1,0 +1,70 @@
+name: "Qwen3.6-35B-A3B MoE INT4 MTP"
+slug: tensorfold-qwen36-35b-a3b-int4-mtp
+version: "1.0.0"
+description: "Qwen3.6-35B-A3B — 35B total parameters, 3B active, Gated DeltaNet and gated full attention with 256 routed experts — served by TensorFold, an inference engine whose CUDA kernels were written for this model family, following upstream's recipe. The checkpoint is TensorFold's own MLX 4-bit build (affine INT4, groups of 64, routers at 8 bits) with the model's native MTP layer kept, which mlx-community's conversion drops. Decoding drafts up to three MTP tokens a round, plus copied continuations when the reply repeats the context; every draft is verified by the model, so output equals serial decoding. Eight requests decode together and a lone request runs as fast as alone, each with up to the native 262K window. Prompts fill in FP8. Tool calling and reasoning work as usual. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
+author: "Alibaba Cloud + TensorFold"
+source: "community"
+website: "https://huggingface.co/TensorFold/Qwen3.6-35B-A3B-MLX-4bit-MTP"
+upstream: "https://github.com/ashhart/TensorFold/blob/v0.6.1/docs/recipes/qwen3.6-moe.md"
+category: llm
+logo: "/logos/qwen.png"
+tags:
+  - llm
+  - moe
+  - tensorfold
+  - int4
+  - qwen
+  - reasoning
+  - coding
+  - tool-use
+  - speculative-decoding
+  - mtp
+  - long-context
+requirements:
+  min_memory_gb: 40
+  recommended_memory_gb: 56
+  disk_gb: 40
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8888
+  proxy: true
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 15
+  gpu: true
+status: experimental
+engine: "TensorFold"
+params_b: 35
+active_params_b: 3
+arch: moe
+quantization: "INT4"
+speculative_method: "mtp"
+artificial_analysis_index: 26
+weights_gb: 19.5
+release_date: "2026-06-01"
+context_length: 262144
+requires_hf_token: false
+tokens_per_second: 159.8
+tokens_per_second_editing: 412.6
+editing_workload: "code-edit"
+benchmarks:
+  prose: 159.63
+  explainer: 150.88
+  code: 169.97
+  code-edit: 412.6
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "Qwen/Qwen3.6-35B-A3B"
+  api_key: "<API_KEY>"
+  max_context: "262144"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"Qwen/Qwen3.6-35B-A3B\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 2048}'"
+
+cover:
+  image: qwen-35b.jpg
+  caption: "The Qwen capybara bench-pressing. Shared by Qwen models of 35B parameters."
+  fit: contain
+  grade: false
+  credit: "cfahlgren1/flux-qwen-capybara — a FLUX.1-dev LoRA recreating the Qwen capybara · FLUX.1-dev non-commercial licence"
+  source: "https://huggingface.co/cfahlgren1/flux-qwen-capybara"

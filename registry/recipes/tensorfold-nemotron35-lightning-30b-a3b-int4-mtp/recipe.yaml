@@ -1,0 +1,69 @@
+name: "Nemotron-3.5 Lightning 30B-A3B INT4 MTP"
+slug: tensorfold-nemotron35-lightning-30b-a3b-int4-mtp
+version: "1.0.0"
+description: "NVIDIA Nemotron 3.5 Lightning 30B-A3B — a hybrid of Mamba-2, attention and MoE blocks built for agentic and reasoning work — served by TensorFold, an inference engine with CUDA kernels written for this model family, following upstream's recipe. The checkpoint is TensorFold's own MLX 4-bit build (affine INT4, groups of 64) with an MTP head converted from NVIDIA's BF16 release. Decoding drafts up to three MTP tokens a round; every draft is verified by the model, so output equals serial decoding. The window is the checkpoint's configured 262K tokens; requests take turns rather than decoding together. Reasoning is on by default, as in NVIDIA's chat template — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
+author: "NVIDIA + TensorFold"
+source: "community"
+website: "https://huggingface.co/TensorFold/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-MLX-4bit"
+upstream: "https://github.com/ashhart/TensorFold/blob/v0.6.1/docs/recipes/nemotron-3.5.md"
+category: llm
+logo: "/logos/nvidia.png"
+tags:
+  - llm
+  - moe
+  - mamba
+  - tensorfold
+  - int4
+  - reasoning
+  - coding
+  - agentic
+  - tool-use
+  - speculative-decoding
+  - mtp
+  - long-context
+requirements:
+  min_memory_gb: 40
+  recommended_memory_gb: 56
+  disk_gb: 40
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8888
+  proxy: true
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 15
+  gpu: true
+status: experimental
+engine: "TensorFold"
+params_b: 30
+active_params_b: 3
+arch: moe
+quantization: "INT4"
+speculative_method: "mtp"
+artificial_analysis_index: 16
+weights_gb: 17.3
+release_date: "2026-08-11"
+context_length: 262144
+requires_hf_token: false
+tokens_per_second: 146.0
+tokens_per_second_editing: 385.2
+editing_workload: "code-edit"
+benchmarks:
+  prose: 133.36
+  explainer: 153.19
+  code: 153.3
+  code-edit: 385.2
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B"
+  api_key: "<API_KEY>"
+  max_context: "262144"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 2048, \"temperature\": 1.0, \"top_p\": 0.95}'"
+
+cover:
+  image: nvidia-dgx-spark.jpg
+  caption: "The NVIDIA DGX Spark itself — the machine this build is tuned for."
+  credit: "Nvidia DGX Spark oblique view dllu.jpg · Daniel Lu (User:dllu) · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ANvidia%20DGX%20Spark%20oblique%20view%20dllu.jpg"

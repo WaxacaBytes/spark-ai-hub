@@ -1,0 +1,124 @@
+services:
+  tensorfold:
+    # NVIDIA Nemotron 3.5 Lightning 30B-A3B (Mamba-2 + attention + MoE)
+    # served by TensorFold's nemotron_h CUDA engine from TensorFold's own MLX
+    # 4-bit checkpoint (affine, groups of 64) with the MTP head converted from
+    # NVIDIA's BF16 release in mtp-4bit.safetensors, the only format that
+    # engine reads on CUDA. Upstream's recipe, as `tensorfold serve` flags:
+    #   https://github.com/ashhart/TensorFold/blob/v0.6.1/docs/recipes/nemotron-3.5.md
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        # --- weights stage ---------------------------------------------------
+        # Model weights are part of the app artifact: baked into the final
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        # 13 files, 17.3 GiB, pinned to the checkpoint revision measured.
+        FROM python:3.12-slim AS weights
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('TensorFold/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-MLX-4bit', revision='d9d758fb83953437f7263256b0d96157e2a348b8', local_dir='/weights', ignore_patterns=['.gitattributes'], max_workers=8)"
+
+        # --- runtime stage ---------------------------------------------------
+        # TensorFold publishes no image. This is the one the Flash-Next recipe
+        # runs, pinned by the same digest (tag v0.6.1-797af1d9df4d) so the two
+        # share every layer: NVIDIA's nvcr.io/nvidia/pytorch:26.07-py3 (arm64,
+        # CUDA 13), i.e. upstream's CUDA container, with TensorFold v0.6.1 and
+        # Mia's AI Lab's one patch, written for Flash-Next:
+        # 0002-flash-next-v061: video input and up to 50 images on TensorFold's
+        # own Flash Next vision, copy drafts, the prompt-chunk rows override,
+        # SSD read-ahead around the n-gram table, first token before the next
+        # draft. Live /health totals, draft stats, tiled QSA selection and image
+        # input are TensorFold's own since v0.5.0 / v0.6.0.
+        FROM ghcr.io/miaai-lab/qwen3.8-flash-next-single-dgx-spark-tensorfold@sha256:667693ccd7eea95d365ee5a17eed97067e13deb131a6e61fbbbbe6f69d0ebc69
+        # TensorFold compiles its CUDA extensions on first use into
+        # TORCH_EXTENSIONS_DIR (upstream: a host cache mounted at /cache).
+        # Compiled here instead, for GB10 (sm_121) only, so they ship inside
+        # the image and launch compiles nothing. No GPU is needed to compile:
+        # the capability TensorFold asks the driver for is stated instead.
+        ENV TORCH_EXTENSIONS_DIR=/opt/tensorfold/torch_extensions \
+            TRITON_CACHE_DIR=/tmp/triton \
+            TORCH_CUDA_ARCH_LIST=12.1
+        RUN <<'PY' python3
+        import importlib, pkgutil, torch, tensorfold
+        torch.cuda.get_device_capability = lambda *a: (12, 1)
+        for m in pkgutil.walk_packages(tensorfold.__path__, "tensorfold."):
+            if any(k in m.name for k in ("mlx", "metal", "__main__")):
+                continue
+            try:
+                mod = importlib.import_module(m.name)
+            except BaseException:
+                continue
+            ext = getattr(mod, "_ext", None)
+            if callable(ext) and getattr(ext, "__module__", "") == m.name:
+                ext()
+                print("built", m.name, flush=True)
+        PY
+        COPY --from=weights /weights /models/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-MLX-4bit
+    image: spark-ai-hub/tensorfold-nemotron35-lightning-30b-a3b-int4-mtp:tf-v0.6.1-d9d758f
+    container_name: spark-ai-hub-tensorfold-nemotron35-lightning-30b-a3b-int4-mtp
+    networks:
+      - spark-ai-hub-net
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    environment:
+      # Offline-first: the checkpoint is in the image and is served from a
+      # directory path, so nothing is resolved against the Hub.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # No "is there a newer TensorFold" call to GitHub at each start.
+      - TENSORFOLD_NO_UPDATE_CHECK=1
+      - PYTHONUNBUFFERED=1
+    # The image's entrypoint (NVIDIA's banner) runs this command.
+    command:
+      - tensorfold
+      - serve
+      - /models/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-MLX-4bit
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8888"
+      - --name
+      - nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B
+      # The checkpoint's configured 262,144-token window. TensorFold's CUDA
+      # default for this family is 16,384; an explicit window that does not
+      # fit is refused at startup with the one that does. Requests take turns
+      # (this engine has no --parallel), and --prefill-fp8 is refused: its
+      # prompt matmuls have no FP8 kernel.
+      - --context
+      - "262144"
+      # NVIDIA's sampling (the checkpoint's generation_config); a request's
+      # own values win. Reasoning is on by default, as in the chat template.
+      - --temperature
+      - "1.0"
+      - --top-p
+      - "0.95"
+      - --thinking
+      # Reply length for a request without max_tokens (TensorFold's own 4,096
+      # can end a reasoning reply before it answers).
+      - --max-tokens
+      - "32768"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # NOT unless-stopped: a boot that fails must stop instead of looping.
+    restart: on-failure:1
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

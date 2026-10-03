@@ -1,0 +1,65 @@
+name: "Qwen3.8-Flash-Next Uncensored EXL3 4.05bpw"
+slug: tensorfold-qwen38-flash-next-uncensored-exl3
+version: "1.0.0"
+description: "OrcaRouter's abliterated (refusal-removed) Qwen3.8-Flash-Next — the first open-weight release of the architecture behind Qwen4, 177B total parameters over a hybrid linear/full attention stack — served by TensorFold from Lygodactylus's EXL3 pack: 4.05 bits a weight, the head at 6, the MTP layer at 8, the n-gram tables at 6 and the vision tower left at 16 bits, the most accurate uncensored Flash-Next TensorFold reads. The 36.4 GiB PLE n-gram table is memory-mapped and only the rows a prompt needs are read. Five requests decode together at the full native 262K context each, over a 1.3M-token int8 KV pool. Decoding drafts up to six MTP tokens a round, plus prompt-lookup drafts when the reply repeats the prompt; every draft is verified by the model, so output is the abliterated model's own. Images and videos work as OpenAI image_url / video_url parts (data URLs), as do tool calling with typed parameters and reasoning. Removes safety refusals the upstream model was trained to have; supply your own guardrails. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
+author: "Alibaba Cloud + OrcaRouter + Lygodactylus"
+source: "community"
+website: "https://huggingface.co/Lygodactylus/Qwen3.8-Flash-Next-Uncensored-exl3-4bpw"
+upstream: "https://github.com/ashhart/TensorFold/blob/v0.6.1/docs/recipes/qwen3.8-flash-next.md"
+category: llm
+logo: "/logos/qwen.png"
+tags:
+  - llm
+  - moe
+  - tensorfold
+  - exl3
+  - abliterated
+  - uncensored
+  - qwen
+  - multimodal
+  - vision
+  - video
+  - reasoning
+  - tool-use
+  - speculative-decoding
+  - mtp
+  - long-context
+requirements:
+  min_memory_gb: 115
+  recommended_memory_gb: 128
+  disk_gb: 120
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8888
+  proxy: true
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 60
+  gpu: true
+status: experimental
+engine: "TensorFold"
+params_b: 177
+active_params_b: 6
+arch: moe
+quantization: "EXL3"
+speculative_method: "mtp"
+artificial_analysis_index: 46
+weights_gb: 101.6
+release_date: "2026-08-26"
+requires_hf_token: false
+tokens_per_second: 48.7
+tokens_per_second_editing: 90.4
+editing_workload: "code-edit"
+benchmarks:
+  prose: 45.27
+  explainer: 49.81
+  code: 52.97
+  code-edit: 90.4
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "orcarouter/Qwen3.8-Flash-Next-Uncensored"
+  api_key: "<API_KEY>"
+  max_context: "262144"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"orcarouter/Qwen3.8-Flash-Next-Uncensored\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512}'"
