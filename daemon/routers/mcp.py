@@ -1,4 +1,4 @@
-"""MCP server: private web search, and image, video and music generation on the Spark, for any agent.
+"""MCP server: web search, image, video and music generation, and typed decisions, for any agent.
 
 Speaks MCP's Streamable HTTP transport in its stateless form, at POST /mcp:
 one JSON-RPC request per POST, no session id, no server-initiated stream (GET
@@ -27,8 +27,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 
 from daemon.routers import containers
 from daemon.services import (
-    audio_service, image_service, link_service, media_store, upload_service, video_service,
-    web_service,
+    audio_service, decision_service, image_service, link_service, media_store, upload_service,
+    video_service, web_service,
 )
 from daemon.config import settings
 from daemon.services.connect_service import request_origin
@@ -77,7 +77,12 @@ INSTRUCTIONS = (
     "again with the same job_id until it returns the result or an error. No sleep is "
     "needed between calls. Keep calling in the same turn instead of telling the user "
     "to wait, and never start the same render again: that queues a second one. "
-    "start_model works the same way: call it again until the model is ready."
+    "start_model works the same way: call it again until the model is ready.\n\n"
+    "Makes decisions with decide: a decision model on the Spark answers typed questions "
+    "(a choice among named options, a score, a yes/no) about text, JSON, images and videos "
+    "with a probability for every answer, e.g. to sort images and videos into the user's "
+    "categories. You gather the inputs and act on the answers; let the model make the call, "
+    "and ask the user when its confidence is low."
 )
 
 _ASYNC_IMAGE = (
@@ -354,10 +359,64 @@ TOOLS = [
         },
     },
     {
+        "name": "decide",
+        "title": "Decide",
+        "description": (
+            "Ask the Spark's decision model typed questions about a state: text or JSON, "
+            "plus up to 4 images and 2 videos. It does not write text; for each question it "
+            "returns a probability for every allowed answer, the same every time for the "
+            "same input. Use it to categorize, triage, score or check things, e.g. sort "
+            "images and videos into the user's categories with one choice question whose "
+            "criteria name each category and describe it. Act on confident answers and ask "
+            "the user about uncertain ones instead of overriding the model. Answers come "
+            "back in the call."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "state": {
+                    "description": ("What to decide about: text, or a JSON object/array. "
+                                    "With media, say what it is and add any context."),
+                },
+                "questions": {
+                    "type": "object",
+                    "description": (
+                        "Question id -> question. Each has `type`: \"choice\" (criteria maps "
+                        "each option id to a one-line description), \"score\" (criteria lists "
+                        "ordered levels, lowest first) or \"noul\" (yes/no, no criteria); and "
+                        "`instructions`: the question in plain words. Up to 64 questions, "
+                        "answered together."),
+                    "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                            "type": {"type": "string", "enum": ["choice", "score", "noul"]},
+                            "instructions": {"type": "string"},
+                            "criteria": {"type": ["object", "array"]},
+                        },
+                        "required": ["type"],
+                    },
+                },
+                "images": {"type": "array", "items": {"type": "string"}, "maxItems": 4,
+                           "description": "Images to look at. " + _IMAGE_REFS},
+                "videos": {"type": "array", "items": {"type": "string"}, "maxItems": 2,
+                           "description": (
+                               "MP4 videos to watch, sampled at 2 frames a second, up to 64 "
+                               "frames. Each item is a URL returned by generate_video, an "
+                               "upload's URL (create_upload, or the Hub's My files page), or a "
+                               "public http(s) video URL; never a file path.")},
+                "model": {"type": "string",
+                          "description": "A decision model to use; leave out for the running one."},
+            },
+            "required": ["state", "questions"],
+            "additionalProperties": False,
+        },
+        "annotations": {"readOnlyHint": True},
+    },
+    {
         "name": "start_model",
         "title": "Start model",
         "description": (
-            "Start one of the Spark's stopped image, video or music models so the other "
+            "Start one of the Spark's stopped image, video, music or decision models so the other "
             "tools can use it. Loading takes from under a minute to about 15 minutes for "
             f"the largest. Waits up to {CHECK_WAIT} s; returns once the model is ready, or "
             "\"Not done yet\", in which case call start_model again with the same model "
@@ -376,9 +435,9 @@ TOOLS = [
         "name": "stop_model",
         "title": "Stop model",
         "description": (
-            "Stop a running image, video or music model to free its memory, e.g. to start "
-            "another with start_model. Refused while the model is rendering a job. Only "
-            "media models can be stopped here; LLMs and other apps are managed in the Hub."
+            "Stop a running image, video, music or decision model to free its memory, e.g. to "
+            "start another with start_model. Refused while the model is rendering a job. Only "
+            "these models can be stopped here; LLMs and other apps are managed in the Hub."
         ),
         "inputSchema": {
             "type": "object",
@@ -451,6 +510,17 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             return _text(json.dumps(await image_service.list_models(), indent=2))
         if name in ("create_upload", "create_download"):
             return await _link_tool(name, args, origin, user)
+        if name == "decide":
+            images, videos = args.get("images") or [], args.get("videos") or []
+            if isinstance(images, str):
+                images = [images]
+            if isinstance(videos, str):
+                videos = [videos]
+            answer = await decision_service.decide(
+                args.get("state"), args.get("questions"), [str(i) for i in images],
+                [str(v) for v in videos], str(args.get("model") or "").strip() or None, user)
+            return {"content": [{"type": "text", "text": json.dumps(answer, indent=2)}],
+                    "structuredContent": answer, "isError": False}
         if name == "start_model":
             return await _start_model(args, origin, on_progress, user)
         if name == "stop_model":
@@ -558,16 +628,17 @@ _start_lock = asyncio.Lock()
 
 
 def _media_slugs() -> set[str]:
-    return set(image_service.backends()) | set(video_service.backends()) | set(audio_service.backends())
+    return (set(image_service.backends()) | set(video_service.backends())
+            | set(audio_service.backends()) | decision_service.backends())
 
 
 async def _media_model(args: dict) -> str:
-    """The installed image, video or music model `args` names."""
+    """The installed image, video, music or decision model `args` names."""
     slug = str(args.get("model") or "").strip()
     installed = _media_slugs() & await get_installed_slugs()
     if slug not in installed:
         raise image_service.ImageError(
-            f"'{slug}' is not an installed image, video or music model. "
+            f"'{slug}' is not an installed image, video, music or decision model. "
             f"Installed: {', '.join(sorted(installed)) or 'none'}.")
     return slug
 

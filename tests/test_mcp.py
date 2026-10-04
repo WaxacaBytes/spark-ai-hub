@@ -15,9 +15,8 @@ from PIL import Image
 from daemon import db as db_module
 from daemon.routers import files, links, mcp, uploads
 from daemon.services import (
-    audio_service, docker_service, image_service, link_service, media_store, upload_service,
-    video_service,
-    web_service,
+    audio_service, decision_service, docker_service, image_service, link_service, media_store,
+    upload_service, video_service, web_service,
 )
 
 # Stand-ins for AuthMiddleware's request.state.user. Rows 1-3 exist in the
@@ -113,7 +112,8 @@ class McpProtocolTests(unittest.TestCase):
                                  "list_image_models", "generate_video", "get_video",
                                  "list_video_models", "generate_music", "get_music",
                                  "create_upload", "create_download",
-                                 "start_model", "stop_model", "web_search", "web_fetch"})
+                                 "start_model", "stop_model", "web_search", "web_fetch",
+                                 "decide"})
 
     def test_get_has_no_stream(self):
         self.assertEqual(self.client.get("/mcp").status_code, 405)
@@ -1078,7 +1078,7 @@ class StartStopModelTests(unittest.TestCase):
         get_recipes = mock.Mock(return_value=self.recipes)
         self.patches = [
             *(mock.patch.object(m, "get_recipes", get_recipes)
-              for m in (mcp, image_service, video_service, audio_service)),
+              for m in (mcp, image_service, video_service, audio_service, decision_service)),
             mock.patch.object(mcp, "get_installed_slugs", mock.AsyncMock(return_value=set(self.recipes))),
             mock.patch.object(mcp, "is_recipe_running",
                               mock.AsyncMock(side_effect=lambda slug: slug in self.running)),
@@ -1113,7 +1113,8 @@ class StartStopModelTests(unittest.TestCase):
         for name in ("start_model", "stop_model"):
             result = self.call(name, model="llm")
             self.assertTrue(result["isError"])
-            self.assertIn("not an installed image, video or music model", result["content"][0]["text"])
+            self.assertIn("not an installed image, video, music or decision model",
+                          result["content"][0]["text"])
         self.launch.assert_not_called()
         self.stop.assert_not_called()
 
@@ -1174,6 +1175,115 @@ class StartStopModelTests(unittest.TestCase):
         result = self.call("stop_model", model="img-big")
         self.assertEqual((result["isError"], result["structuredContent"]["status"]), (False, "stopped"))
         self.stop.assert_not_called()
+
+
+class _FakeDecisionServer:
+    """Stands in for aiohttp.ClientSession: records the one POST /v1/systemone."""
+    sent: dict = {}
+    reply = (200, {"model": "clef-flash", "answers": {}})
+
+    def __init__(self, *a, **kw):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def post(self, url, headers=None, json=None):
+        _FakeDecisionServer.sent = {"url": url, "json": json}
+        status, body = _FakeDecisionServer.reply
+
+        class _Resp:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *exc):
+                return False
+
+            async def json(self, content_type=None):
+                return body
+        _Resp.status = status
+        return _Resp()
+
+
+class DecisionToolTests(unittest.TestCase):
+    """decide: typed questions about text and media, answered by a systemone-api model."""
+
+    CATEGORY = {"category": {"type": "choice", "instructions": "Which category?",
+                             "criteria": {"stage": "A stage", "crowd": "An audience"}}}
+
+    def setUp(self):
+        recipes = {"clef": SimpleNamespace(tags=["systemone-api"]),
+                   "img": SimpleNamespace(tags=["openai-images", "text-to-image"])}
+        self.running = {"clef"}
+        self.patches = [
+            mock.patch.object(decision_service, "get_recipes", return_value=recipes),
+            mock.patch.object(decision_service, "get_installed_slugs",
+                              mock.AsyncMock(return_value=set(recipes))),
+            mock.patch.object(decision_service, "is_recipe_running",
+                              mock.AsyncMock(side_effect=lambda slug: slug in self.running)),
+            mock.patch.object(decision_service, "is_ready", side_effect=lambda slug: slug in self.running),
+            mock.patch.object(decision_service.aiohttp, "ClientSession", _FakeDecisionServer),
+            mock.patch.object(decision_service.proxy_service, "internal_url", return_value="http://clef"),
+            mock.patch.object(decision_service, "load_input",
+                              mock.AsyncMock(side_effect=lambda ref, *a, **k: ref.encode())),
+        ]
+        for patch in self.patches:
+            patch.start()
+        _FakeDecisionServer.reply = (200, {"model": "clef-flash", "answers": {
+            "category": {"type": "choice", "choice": "stage", "confidence": 0.9,
+                         "probabilities": {"stage": 0.9, "crowd": 0.1}}}})
+
+    def tearDown(self):
+        for patch in reversed(self.patches):
+            patch.stop()
+
+    def call(self, **args):
+        return asyncio.run(mcp.call_tool("decide", args, "http://h", user=OWNER))
+
+    def test_only_tagged_recipes_are_decision_models(self):
+        self.assertEqual(decision_service.backends(), {"clef"})
+
+    def test_media_go_as_base64_and_answers_come_back_in_the_call(self):
+        result = self.call(state="Photos from Friday's show", questions=self.CATEGORY,
+                           images=["https://x/a.png"], videos=["https://x/b.mp4"])
+        self.assertFalse(result["isError"])
+        self.assertEqual(result["structuredContent"]["model"], "clef")
+        self.assertEqual(result["structuredContent"]["answers"]["category"]["choice"], "stage")
+        sent = _FakeDecisionServer.sent
+        self.assertEqual(sent["url"], "http://clef/v1/systemone")
+        self.assertEqual(sent["json"]["images"], [base64.b64encode(b"https://x/a.png").decode()])
+        self.assertEqual(sent["json"]["videos"], [base64.b64encode(b"https://x/b.mp4").decode()])
+        self.assertEqual(sent["json"]["questions"], self.CATEGORY)
+
+    def test_questions_sent_as_json_text_are_accepted(self):
+        for text in (json.dumps(self.CATEGORY), json.dumps(self.CATEGORY) + "}"):  # stray brace too
+            result = self.call(state="s", questions=text)
+            self.assertFalse(result["isError"])
+            self.assertEqual(_FakeDecisionServer.sent["json"]["questions"], self.CATEGORY)
+
+    def test_badly_formed_questions_are_tool_errors(self):
+        for questions, message in (
+                ({}, "map each question id"),
+                ({"q": {"type": "maybe"}}, "must be choice, score or noul"),
+                ({"q": {"type": "choice", "criteria": {"only": "one"}}}, "at least two option ids"),
+                ({"q": {"type": "score", "criteria": {"a": "b"}}}, "at least two levels")):
+            result = self.call(state="s", questions=questions)
+            self.assertTrue(result["isError"])
+            self.assertIn(message, result["content"][0]["text"])
+
+    def test_no_running_model_says_how_to_start_one(self):
+        self.running.clear()
+        result = self.call(state="s", questions=self.CATEGORY)
+        self.assertIn("Start clef with start_model", result["content"][0]["text"])
+
+    def test_model_refusal_is_passed_on(self):
+        _FakeDecisionServer.reply = (400, {"error": {"message": "at most 4 images"}})
+        result = self.call(state="s", questions=self.CATEGORY)
+        self.assertTrue(result["isError"])
+        self.assertIn("clef refused the request: at most 4 images", result["content"][0]["text"])
 
 
 class ProxiedApiRecipeTests(unittest.TestCase):
