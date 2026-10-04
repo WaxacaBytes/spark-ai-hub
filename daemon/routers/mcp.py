@@ -134,7 +134,8 @@ TOOLS = [
         "title": "Fetch web page",
         "description": (
             "Read one web page, fetched from the Spark, as markdown (HTML) or text. HTTPS "
-            "only; sends no cookies, so pages that need a login show what an anonymous "
+            "only (an admin account may also read http:// pages on its local network); "
+            "sends no cookies, so pages that need a login show what an anonymous "
             "visitor sees. Long pages are truncated."
         ),
         "inputSchema": {
@@ -505,7 +506,7 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             url = str(args.get("url") or "").strip()
             if not url:
                 raise web_service.WebError("'url' is required.")
-            return _text(await web_service.fetch(url))
+            return _text(await web_service.fetch(url, user))
         if name == "list_image_models":
             return _text(json.dumps(await image_service.list_models(), indent=2))
         if name in ("create_upload", "create_download"):

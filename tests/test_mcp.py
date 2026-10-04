@@ -1,7 +1,9 @@
 import asyncio
 import base64
 import io
+import ipaddress
 import json
+import socket
 import tempfile
 import unittest
 from types import SimpleNamespace
@@ -363,6 +365,34 @@ class WebToolTests(unittest.TestCase):
                         "https://127.0.0.1:9010/api/admin/users", "https://localhost/"):
                 with self.assertRaises(web_service.WebError, msg=url):
                     await web_service.fetch(url)
+        asyncio.run(go())
+
+    def test_only_an_admin_reaches_the_lan_and_nobody_the_spark(self):
+        admin, member = {"id": 1, "role": "admin"}, {"id": 2, "role": "user"}
+        spark = [ipaddress.ip_network(n) for n in
+                 ("127.0.0.0/8", "::1/128", "192.168.3.219/32", "172.21.0.0/16")]
+
+        def resolve(ip):
+            return lambda *a, **k: [(socket.AF_INET, 0, 0, "", (ip, 80))]
+
+        with mock.patch.object(web_service, "_spark_networks", return_value=spark):
+            for ip, as_admin, as_member in (
+                    ("93.184.215.14", "public", "public"),   # the internet
+                    ("192.168.3.40", "lan", None),           # a device at home
+                    ("100.90.1.2", "lan", None),             # the tailnet
+                    ("192.168.3.219", None, None),           # the Spark's own address
+                    ("127.0.0.1", None, None),               # the daemon, the Spark's services
+                    ("172.21.0.5", None, None)):             # a recipe's container
+                with mock.patch.object(web_service.socket, "getaddrinfo", resolve(ip)):
+                    self.assertEqual(web_service.reach("h", 80, admin), as_admin, ip)
+                    self.assertEqual(web_service.reach("h", 80, member), as_member, ip)
+                    self.assertEqual(web_service.reach("h", 80, None), as_member, ip)
+
+    def test_plain_http_only_inside_the_local_network(self):
+        async def go():
+            with mock.patch.object(web_service, "reach", return_value="public"):
+                with self.assertRaises(web_service.WebError):
+                    await web_service.fetch("http://example.com/", {"role": "admin"})
         asyncio.run(go())
 
     def test_html_keeps_the_content_and_drops_the_furniture(self):

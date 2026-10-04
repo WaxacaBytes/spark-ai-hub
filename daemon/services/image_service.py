@@ -425,8 +425,9 @@ async def load_input(ref: str, session: aiohttp.ClientSession, user: dict | None
     if parts.scheme in ("http", "https") and parts.hostname:
         port = parts.port or (443 if parts.scheme == "https" else 80)
         # Any signed-in user can make the daemon fetch this, so it must not be a
-        # way to reach the daemon's own port or anything else on the LAN.
-        if not await asyncio.to_thread(web_service.is_public, parts.hostname, port):
+        # way to reach the daemon's own port or anything else on the LAN; only an
+        # admin may reach the LAN (web_service.reach).
+        if await asyncio.to_thread(web_service.reach, parts.hostname, port, user) is None:
             raise ImageError(f"Only public http(s) {noun} URLs can be fetched.")
         async with session.get(ref, allow_redirects=False) as r:
             if r.status != 200:

@@ -7,15 +7,18 @@ allows, with no account, cookie or key.
 
 Fetch goes straight from the Spark to the page. It is HTTPS only, sends no
 cookies and no Referer, and refuses anything that resolves to a private
-address, since any signed-in user can make the daemon fetch a URL.
+address, since any signed-in user can make the daemon fetch a URL. An admin
+may also read pages on the local network (plain http too); see `reach`.
 """
 from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
 import re
 import socket
 import ssl
+import subprocess
 import urllib.parse
 
 import aiohttp
@@ -57,6 +60,51 @@ def is_public(host: str, port: int) -> bool:
     except OSError:
         return False
     return bool(infos) and all(ipaddress.ip_address(i[4][0]).is_global for i in infos)
+
+
+def _spark_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+    """The Spark itself: loopback, every address on its own interfaces, and the
+    whole subnet of each Docker bridge, where the recipes' containers live."""
+    out = subprocess.run(["ip", "-j", "addr", "show"], capture_output=True, text=True,
+                         check=True, timeout=5).stdout
+    nets = [ipaddress.ip_network("127.0.0.0/8"), ipaddress.ip_network("::1/128")]
+    for iface in json.loads(out):
+        bridge = iface.get("ifname") == "docker0" or iface.get("ifname", "").startswith("br-")
+        for addr in iface.get("addr_info", []):
+            prefix = addr["prefixlen"] if bridge else None
+            nets.append(ipaddress.ip_network(
+                f"{addr['local']}/{prefix}" if prefix is not None else addr["local"], strict=False))
+    return nets
+
+
+def reach(host: str, port: int, user: dict | None) -> str | None:
+    """Where a fetch of host:port for `user` lands: "public", "lan", or None (refused).
+
+    Everyone may reach the public internet. An admin may also reach the local
+    network and the tailnet, so their agents can work with local devices; any
+    other account or key may not, so Hub access never opens the owner's network.
+    Nobody reaches the Spark itself (its own addresses, loopback, containers):
+    the daemon's port and every recipe stay behind the front door.
+    """
+    try:
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+    except OSError:
+        return None
+    addrs = [ipaddress.ip_address(i[4][0].split("%")[0]) for i in infos]
+    addrs = [getattr(a, "ipv4_mapped", None) or a for a in addrs]
+    if not addrs:
+        return None
+    if all(a.is_global for a in addrs):
+        return "public"
+    if not user or user.get("role") != "admin":
+        return None
+    try:
+        spark = _spark_networks()
+    except (OSError, subprocess.SubprocessError, ValueError, KeyError):
+        return None  # can't tell what is the Spark: refuse rather than guess
+    if any(a.is_unspecified or a.is_multicast or any(a in net for net in spark) for a in addrs):
+        return None
+    return "lan"
 
 
 async def read_capped(response: aiohttp.ClientResponse, limit: int) -> bytes:
@@ -119,13 +167,12 @@ def format_results(data: dict, count: int) -> str:
 
 def _check_url(url: str) -> urllib.parse.SplitResult:
     parts = urllib.parse.urlsplit(url.strip())
-    if parts.scheme != "https" or not parts.hostname:
-        raise WebError(f"Only https:// URLs can be fetched (got {url!r}). Plain http is refused "
-                       "so nothing travels unencrypted.")
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise WebError(f"Only https:// URLs can be fetched (got {url!r}).")
     return parts
 
 
-async def fetch(url: str) -> str:
+async def fetch(url: str, user: dict | None = None) -> str:
     """The page at `url` as markdown (HTML) or text, following safe redirects."""
     headers = {"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.9",
                "Accept": "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5"}
@@ -138,9 +185,16 @@ async def fetch(url: str) -> str:
                                      headers=headers, connector=connector) as session:
         for _ in range(MAX_REDIRECTS + 1):
             parts = _check_url(url)
-            if not await asyncio.to_thread(is_public, parts.hostname, parts.port or 443):
+            port = parts.port or (443 if parts.scheme == "https" else 80)
+            where = await asyncio.to_thread(reach, parts.hostname, port, user)
+            if where is None:
                 raise WebError(f"{parts.hostname} is not a public address; only public sites "
                                "can be fetched.")
+            # Plain http only inside the local network: across the internet
+            # nothing travels unencrypted.
+            if parts.scheme == "http" and where == "public":
+                raise WebError(f"Only https:// URLs can be fetched (got {url!r}). Plain http is "
+                               "refused so nothing travels unencrypted.")
             try:
                 async with session.get(url, allow_redirects=False) as r:
                     if r.status in (301, 302, 303, 307, 308) and "Location" in r.headers:
