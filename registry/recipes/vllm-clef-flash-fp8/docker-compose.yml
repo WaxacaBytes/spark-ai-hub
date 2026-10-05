@@ -1,0 +1,117 @@
+services:
+  clef:
+    # Cloudflare's Clef-Flash decision model on the Jev / SystemOne API
+    # (POST /v1/systemone), with vLLM running the backbone.
+    #
+    # Clef does not generate text. It reads a state (text or JSON, plus images
+    # and videos) and a set of typed questions -- a choice among named options,
+    # a score on an ordered scale, or a yes/no -- and returns a probability for
+    # every allowed answer in one forward pass. It is Qwen3.5-9B with its vision
+    # encoder plus Cloudflare's joint schema head, which reads the final hidden
+    # state of every prompt token. No serving engine runs that head, so vLLM
+    # serves the backbone as a pooling model (every token's hidden state, the
+    # flags below) and server.py beside this file runs Cloudflare's own head
+    # and prompt builder on its output. vLLM batches requests, so decisions an
+    # agent fans out run together instead of one after another.
+    #
+    # Weights: Cloudflare's BF16 release, quantized to FP8 by vLLM as it loads
+    # them (--quantization fp8_per_tensor: every linear layer of the backbone
+    # and of its vision encoder, one scale per tensor). Cloudflare publishes no
+    # quantized Clef and every quantized upload on Hugging Face is a third
+    # party's, so the quantization happens here, from Cloudflare's own weights.
+    # Clef's head stays BF16.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Cloudflare/clef-flash', revision='17f0b0ad64efb65d273590632833508766b2aae6', local_dir='/models/clef-flash', ignore_patterns=['.gitattributes'], max_workers=8)"
+        FROM vllm/vllm-openai:v0.31.0
+        # PyAV decodes the uploaded videos into frames; the image has no decoder.
+        RUN pip install --no-cache-dir --timeout 300 --retries 10 av==19.0.1
+        COPY --from=weights /models /models
+        WORKDIR /app
+        COPY server.py .
+        ENTRYPOINT ["python3", "server.py"]
+    image: spark-ai-hub/vllm-clef-flash-fp8:v0.31.0-17f0b0a
+    container_name: spark-ai-hub-vllm-clef-flash-fp8
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/vllm-clef-flash-fp8/.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    command:
+      - --model
+      - /models/clef-flash
+      - --served-model-name
+      - clef-flash
+      # The backbone as a pooling model that returns the final hidden state of
+      # every prompt token, unnormalized: what Clef's head reads.
+      - --runner
+      - pooling
+      - --convert
+      - embed
+      - --pooler-config
+      - '{"task":"token_embed","tok_pooling_type":"ALL","use_activation":false}'
+      # Tokens per request for the state, the media and the questions
+      # together: the context Cloudflare serves Clef with on Workers AI.
+      - --max-model-len
+      - "65536"
+      - --quantization
+      - fp8_per_tensor
+      # A fixed KV cache instead of a share of the GPU: 3 GiB holds ~93K tokens
+      # (~35 KB a token: 8 full-attention layers in BF16, plus the DeltaNet
+      # state), one full 65,536-token request or several photos and clips at once.
+      - --kv-cache-memory-bytes
+      - "3221225472"
+      # With the KV cache fixed above, this only sets how much memory must be
+      # free at startup (vLLM's default would ask for 92% of the Spark).
+      - --gpu-memory-utilization
+      - "0.15"
+      - --max-num-seqs
+      - "16"
+      # Workers AI takes at most 4 images a request; videos are local-only.
+      # The sizes are the largest server.py sends (below), so vLLM reserves
+      # memory for those and no more.
+      - --limit-mm-per-prompt
+      - '{"image":{"count":4,"width":1672,"height":1254},"video":{"count":2,"num_frames":64,"width":740,"height":553}}'
+      - --max-images
+      - "4"
+      - --max-videos
+      - "2"
+      # A larger picture is scaled down to ~2 megapixels first, about 2,000
+      # vision tokens; the model's own processor would take up to 16 MP.
+      - --max-image-pixels
+      - "2097152"
+      # Video: 2 frames a second (the processor's own rate), at most 64
+      # frames (longer clips are thinned evenly), each ~0.4 MP.
+      - --video-fps
+      - "2"
+      - --max-video-frames
+      - "64"
+      - --max-video-frame-pixels
+      - "409600"
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

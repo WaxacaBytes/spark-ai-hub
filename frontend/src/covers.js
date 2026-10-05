@@ -61,6 +61,7 @@ const FAMILY = [
   ['inkling', 'thinking-machines'], ['minimax', 'minimax'], ['laguna', 'poolside'],
   ['ling3', 'inclusion'], ['seed-oss', 'bytedance'], ['minicpm', 'openbmb'],
   ['mistral', 'mistral'], ['mimo', 'xiaomi'], ['ornith', 'ornith'], ['clef', 'cloudflare'],
+  ['intern-decision', 'internlm'],
 ]
 
 const BY_AUTHOR = {
@@ -78,7 +79,7 @@ export function vendorKey(recipe) {
   if (!recipe) return 'generic'
   // The engine prefix is stripped first: otherwise every `llamacpp-*` recipe
   // contains "llama" and the whole llama.cpp shelf lands on Meta.
-  const family = (recipe.slug || '').replace(/^(vllm|llamacpp|exllamav3|atlas|tensorfold|transformers)-/, '')
+  const family = (recipe.slug || '').replace(/^(vllm|llamacpp|exllamav3|atlas|tensorfold)-/, '')
   for (const [needle, key] of FAMILY) {
     if (family.includes(needle)) return key
   }
@@ -106,6 +107,7 @@ export const VENDOR_LABELS = {
   minimax: 'MiniMax',
   poolside: 'poolside · Laguna',
   cloudflare: 'Cloudflare · Clef',
+  internlm: 'InternLM · Intern-Decision',
   inclusion: 'inclusionAI · Ling',
   openbmb: 'OpenBMB',
   mistral: 'Mistral AI',

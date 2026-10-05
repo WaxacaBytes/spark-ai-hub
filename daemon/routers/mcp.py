@@ -78,7 +78,8 @@ INSTRUCTIONS = (
     "needed between calls. Keep calling in the same turn instead of telling the user "
     "to wait, and never start the same render again: that queues a second one. "
     "start_model works the same way: call it again until the model is ready.\n\n"
-    "Makes decisions with decide: a decision model on the Spark answers typed questions "
+    "Makes decisions with decide: a decision model on the Spark, such as Cloudflare's Clef "
+    "(list_decision_models names them), answers typed questions "
     "(a choice among named options, a score, a yes/no) about text, JSON, images and videos "
     "with a probability for every answer, e.g. to sort images and videos into the user's "
     "categories. You gather the inputs and act on the answers; let the model make the call, "
@@ -97,7 +98,8 @@ _STEPS_HINT = (
 )
 
 _MODEL_ARG = {"type": "string",
-              "description": "A model id from list_image_models or list_video_models, or a music model."}
+              "description": ("A model id from list_image_models, list_video_models or "
+                              "list_decision_models, or a music model.")}
 
 _IMAGE_REFS = (
     "Each item is a URL returned by generate_image or edit_image, an upload's URL "
@@ -406,7 +408,8 @@ TOOLS = [
                                "upload's URL (create_upload, or the Hub's My files page), or a "
                                "public http(s) video URL; never a file path.")},
                 "model": {"type": "string",
-                          "description": "A decision model to use; leave out for the running one."},
+                          "description": ("A model id from list_decision_models. Omit to use "
+                                          "whichever is running.")},
             },
             "required": ["state", "questions"],
             "additionalProperties": False,
@@ -447,6 +450,14 @@ TOOLS = [
             "additionalProperties": False,
         },
         "annotations": {"destructiveHint": True, "idempotentHint": True},
+    },
+    {
+        "name": "list_decision_models",
+        "title": "List decision models",
+        "description": ("List the Spark's decision models, such as Cloudflare's Clef: what "
+                        "each reads (text, images, videos) and whether it is running."),
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "annotations": {"readOnlyHint": True},
     },
     {
         "name": "list_image_models",
@@ -509,6 +520,8 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             return _text(await web_service.fetch(url, user))
         if name == "list_image_models":
             return _text(json.dumps(await image_service.list_models(), indent=2))
+        if name == "list_decision_models":
+            return _text(json.dumps(await decision_service.list_models(), indent=2))
         if name in ("create_upload", "create_download"):
             return await _link_tool(name, args, origin, user)
         if name == "decide":

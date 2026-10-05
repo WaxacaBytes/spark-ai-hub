@@ -34,6 +34,29 @@ def backends() -> set[str]:
     return {slug for slug, recipe in get_recipes().items() if SYSTEMONE_TAG in recipe.tags}
 
 
+# What list_decision_models says a model reads besides text, from its recipe's tags.
+ACCEPTS = {"vision": "images", "video": "videos"}
+
+
+async def list_models() -> list[dict]:
+    """Every installed decision model: what it reads and whether it is running."""
+    recipes = get_recipes()
+    out = []
+    for slug in sorted(backends() & await get_installed_slugs()):
+        recipe = recipes[slug]
+        running = await is_recipe_running(slug)
+        out.append({
+            "model": slug,
+            "name": recipe.name,
+            "author": recipe.author,
+            "accepts": ["text"] + [kind for tag, kind in ACCEPTS.items() if tag in recipe.tags],
+            "state": ("ready" if running and is_ready(slug)
+                      else "starting" if running else "stopped"),
+            "min_memory_gb": recipe.requirements.min_memory_gb,
+        })
+    return out
+
+
 async def pick_backend(model: str | None) -> str:
     """The model to ask: the one named, else one that is running."""
     installed = sorted(backends() & await get_installed_slugs())

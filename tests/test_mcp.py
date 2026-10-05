@@ -115,7 +115,7 @@ class McpProtocolTests(unittest.TestCase):
                                  "list_video_models", "generate_music", "get_music",
                                  "create_upload", "create_download",
                                  "start_model", "stop_model", "web_search", "web_fetch",
-                                 "decide"})
+                                 "decide", "list_decision_models"})
 
     def test_get_has_no_stream(self):
         self.assertEqual(self.client.get("/mcp").status_code, 405)
@@ -1245,7 +1245,9 @@ class DecisionToolTests(unittest.TestCase):
                              "criteria": {"stage": "A stage", "crowd": "An audience"}}}
 
     def setUp(self):
-        recipes = {"clef": SimpleNamespace(tags=["systemone-api"]),
+        recipes = {"clef": SimpleNamespace(tags=["systemone-api", "vision", "video"], name="Clef-Flash",
+                                           author="Cloudflare",
+                                           requirements=SimpleNamespace(min_memory_gb=20)),
                    "img": SimpleNamespace(tags=["openai-images", "text-to-image"])}
         self.running = {"clef"}
         self.patches = [
@@ -1275,6 +1277,12 @@ class DecisionToolTests(unittest.TestCase):
 
     def test_only_tagged_recipes_are_decision_models(self):
         self.assertEqual(decision_service.backends(), {"clef"})
+
+    def test_list_decision_models_names_each_model_and_what_it_reads(self):
+        result = asyncio.run(mcp.call_tool("list_decision_models", {}, "http://h", user=OWNER))
+        self.assertEqual(json.loads(result["content"][0]["text"]), [{
+            "model": "clef", "name": "Clef-Flash", "author": "Cloudflare",
+            "accepts": ["text", "images", "videos"], "state": "ready", "min_memory_gb": 20}])
 
     def test_media_go_as_base64_and_answers_come_back_in_the_call(self):
         result = self.call(state="Photos from Friday's show", questions=self.CATEGORY,

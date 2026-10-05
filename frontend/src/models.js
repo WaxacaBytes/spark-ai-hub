@@ -42,7 +42,7 @@ const BUILD_TOKENS = new Set([
   'mmap',
 ])
 
-const ENGINE_PREFIX = /^(vllm|vllmomni|sglang|llamacpp|exllamav3|atlas|tensorfold|transformers)-/
+const ENGINE_PREFIX = /^(vllm|vllmomni|sglang|llamacpp|exllamav3|atlas|tensorfold)-/
 
 function modelKey(recipe) {
   const parts = (recipe.slug || '').replace(ENGINE_PREFIX, '').split('-')

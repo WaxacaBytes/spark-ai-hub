@@ -1,0 +1,54 @@
+name: "Clef-Flash"
+slug: vllm-clef-flash-fp8
+version: "1.0.0"
+description: "Cloudflare's Clef-Flash, a 9B decision model post-trained from Qwen3.5-9B: it does not write text, it decides. Give it a state (text or JSON, up to 4 images and 2 videos) and typed questions — a choice among named options, a score on an ordered scale, or a yes/no — and it returns a calibrated probability for every allowed answer in one forward pass. This build runs the backbone on vLLM, which batches decisions that arrive together, with Cloudflare's own decision head and prompt builder on top. Your agents reach it through the Hub's decide tool, e.g. to sort images and clips into your own categories while an LLM orchestrates. Served on the Jev / SystemOne API (POST /v1/systemone) from Cloudflare's BF16 weights, quantized to FP8 by vLLM as they load; videos are sampled at 2 frames a second, up to 64 frames. Apache 2.0."
+author: "Cloudflare (post-trained from Qwen3.5-9B)"
+source: "community"
+website: "https://huggingface.co/Cloudflare/clef-flash"
+upstream: "https://blog.cloudflare.com/clef-decision-models/"
+category: multi-modal
+tags:
+  - systemone-api
+  - decision-model
+  - classification
+  - multimodal
+  - vision
+  - video
+  - vllm
+  - qwen
+logo: "/logos/cloudflare.png"
+requirements:
+  min_memory_gb: 20
+  recommended_memory_gb: 24
+  disk_gb: 60
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP decide tool calls its API. Proxied
+  # so the Hub reaches it at /run/vllm-clef-flash-fp8/ with no host port.
+  type: api-only
+  port: 8000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 25
+  gpu: true
+status: experimental
+engine: "vLLM"
+params_b: 9
+arch: dense
+quantization: "FP8"
+weights_gb: 17.8
+release_date: "2026-10-01"
+requires_hf_token: false
+integration:
+  # Agents reach it through the Hub's MCP server: the `decide` tool, whose
+  # optional `model` argument is this recipe's slug.
+  api_url: "<HUB>/mcp"
+  model_id: "vllm-clef-flash-fp8"
+  api_key: "<API_KEY>"
+  # Tokens per decision for the state, the media and the questions together
+  # (--max-model-len), Cloudflare's own limit on Workers AI.
+  max_context: "65536"
+  curl_example: "curl <HUB>/mcp -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -H 'Accept: application/json' -d '{\"jsonrpc\": \"2.0\", \"id\": 1, \"method\": \"tools/call\", \"params\": {\"name\": \"decide\", \"arguments\": {\"model\": \"vllm-clef-flash-fp8\", \"state\": \"Checkout has been failing for every customer for the last hour.\", \"questions\": {\"team\": {\"type\": \"choice\", \"instructions\": \"Which team should handle this?\", \"criteria\": {\"billing\": \"Payments and refunds\", \"technical\": \"Outages and errors\"}}}}}}'"

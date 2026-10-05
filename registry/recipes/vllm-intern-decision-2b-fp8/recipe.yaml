@@ -1,0 +1,51 @@
+name: "Intern-Decision-2B"
+slug: vllm-intern-decision-2b-fp8
+version: "1.0.0"
+description: "InternLM's Intern-Decision-2B, a 2B decision model fine-tuned from Qwen3.5-2B: it does not write text, it decides. Give it a state (text or JSON, up to 8 images, and videos) and typed questions — a choice among named options, a score on an ordered scale, or a yes/no — and it returns a calibrated probability for every allowed answer in one forward pass. Your agents reach it through the Hub's decide tool, e.g. to sort images and clips into your own categories while an LLM orchestrates. Served on the Jev / SystemOne API (POST /v1/systemone) from InternLM's BF16 weights, quantized to FP8 by vLLM as they load, on vLLM with InternLM's own prompt and calibration. Apache 2.0."
+author: "InternLM (fine-tuned from Qwen3.5-2B)"
+source: "community"
+website: "https://huggingface.co/internlm/Intern-Decision-2B"
+upstream: "https://github.com/internlm/Intern-Decision"
+category: multi-modal
+tags:
+  - systemone-api
+  - decision-model
+  - classification
+  - multimodal
+  - vision
+  - video
+  - vllm
+  - qwen
+logo: "/logos/internlm.png"
+requirements:
+  min_memory_gb: 12
+  recommended_memory_gb: 16
+  disk_gb: 30
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP decide tool calls its API. Proxied
+  # so the Hub reaches it at /run/vllm-intern-decision-2b-fp8/ with no host port.
+  type: api-only
+  port: 8000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 15
+  gpu: true
+status: experimental
+engine: "vLLM"
+params_b: 2
+arch: dense
+quantization: "FP8"
+weights_gb: 4.4
+release_date: "2026-09-26"
+requires_hf_token: false
+integration:
+  # Agents reach it through the Hub's MCP server: the `decide` tool, whose
+  # optional `model` argument is this recipe's slug.
+  api_url: "<HUB>/mcp"
+  model_id: "vllm-intern-decision-2b-fp8"
+  api_key: "<API_KEY>"
+  max_context: "16384"

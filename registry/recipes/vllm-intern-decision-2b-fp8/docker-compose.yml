@@ -1,0 +1,107 @@
+services:
+  intern-decision:
+    # InternLM's Intern-Decision-2B decision model on the Jev / SystemOne API
+    # (POST /v1/systemone), with vLLM running the model.
+    #
+    # Intern-Decision does not generate text. It reads a state (text or JSON,
+    # plus images) and a set of typed questions -- a choice among named
+    # options, a score on an ordered scale, or a yes/no -- and returns a
+    # probability for every allowed answer in one forward pass. It is
+    # Qwen3.5-2B with its vision encoder, fine-tuned so that each answer is the
+    # next-token distribution over one-letter option symbols. vLLM serves it as
+    # a pooling model (every token's hidden state, the flags below), and
+    # server.py beside this file turns the hidden states before each answer
+    # into those distributions with InternLM's own prompt and calibration.
+    #
+    # Weights: InternLM's BF16 release, quantized to FP8 by vLLM as it loads
+    # them (--quantization fp8_per_tensor: every linear layer of the model and
+    # of its vision encoder, one scale per tensor). InternLM publishes no
+    # quantized build and the only one on Hugging Face is a third party's, so
+    # the quantization happens here, from InternLM's own weights.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('internlm/Intern-Decision-2B', revision='8797836c65fc91a2435b1fb6850b5f0aabd75cc3', local_dir='/models/intern-decision-2b', ignore_patterns=['.gitattributes'], max_workers=8)"
+        FROM vllm/vllm-openai:v0.31.0
+        # PyAV decodes the uploaded videos into frames; the image has no decoder.
+        RUN pip install --no-cache-dir --timeout 300 --retries 10 av==19.0.1
+        COPY --from=weights /models /models
+        WORKDIR /app
+        COPY server.py .
+        ENTRYPOINT ["python3", "server.py"]
+    image: spark-ai-hub/vllm-intern-decision-2b-fp8:v0.31.0-8797836
+    container_name: spark-ai-hub-vllm-intern-decision-2b-fp8
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/vllm-intern-decision-2b-fp8/.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    command:
+      - --model
+      - /models/intern-decision-2b
+      - --served-model-name
+      - intern-decision-2b
+      # The model as a pooling model that returns the final hidden state of
+      # every prompt token, unnormalized: what the answers are read from.
+      - --runner
+      - pooling
+      - --convert
+      - embed
+      - --pooler-config
+      - '{"task":"token_embed","tok_pooling_type":"ALL","use_activation":false}'
+      # Tokens per request for the state, the media and the questions together.
+      - --max-model-len
+      - "16384"
+      - --quantization
+      - fp8_per_tensor
+      # A fixed KV cache instead of a share of the GPU: one full-length request
+      # or several smaller ones at once.
+      - --kv-cache-memory-bytes
+      - "1073741824"
+      # With the KV cache fixed above, this only sets how much memory must be
+      # free at startup (vLLM's default would ask for 92% of the Spark).
+      - --gpu-memory-utilization
+      - "0.10"
+      - --max-num-seqs
+      - "16"
+      - --limit-mm-per-prompt
+      - '{"image":{"count":8,"width":1672,"height":1254},"video":{"count":2,"num_frames":64,"width":740,"height":553}}'
+      - --max-videos
+      - "2"
+      # A larger picture is scaled down to ~2 megapixels first.
+      - --max-image-pixels
+      - "2097152"
+      # Video: 2 frames a second, at most 64 frames (longer clips are thinned
+      # evenly), each ~0.4 MP.
+      - --video-fps
+      - "2"
+      - --max-video-frames
+      - "64"
+      - --max-video-frame-pixels
+      - "409600"
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true
