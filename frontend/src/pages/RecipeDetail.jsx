@@ -10,6 +10,7 @@ import { useAuth } from '../auth'
 import { backdropFor, posterFor } from '../covers'
 import { speedLabel } from '../models'
 import CoverInfoModal from '../components/CoverInfoModal'
+import YamlEditor from '../components/YamlEditor'
 
 const DETAIL_TABS = [
   { id: 'details', label: 'Overview' },
@@ -879,11 +880,10 @@ function ComposeEditor({ slug }) {
             Loading docker-compose.yml...
           </div>
         ) : (
-          <textarea
+          <YamlEditor
             value={content}
-            onChange={(e) => setContent(e.target.value)}
-            spellCheck={false}
-            className="flex-1 min-h-0 w-full bg-[#08080F] text-gray-300 font-mono text-[12px] leading-6 p-4 rounded-2xl border border-outline-dim resize-none focus:outline-none focus:border-primary/50"
+            onChange={setContent}
+            className="flex-1 min-h-0 w-full overflow-hidden bg-[#08080F] rounded-2xl border border-outline-dim focus-within:border-primary/50"
           />
         )}
 
