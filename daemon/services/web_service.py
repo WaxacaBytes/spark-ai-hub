@@ -133,10 +133,12 @@ async def search(query: str, max_results: int | None = None) -> str:
                 if r.status != 200:
                     raise WebError(
                         "Web search is unavailable: SearXNG is not running on the Spark "
-                        f"(HTTP {r.status}). Install or start SearXNG from the Spark AI Hub.")
+                        f"(HTTP {r.status}). Start it with start_model (model \"searxng\"), "
+                        "then search again.")
                 data = await r.json(content_type=None)
     except aiohttp.ClientError as exc:
-        raise WebError(f"Web search is unavailable: {exc}") from None
+        raise WebError(f"Web search is unavailable: {exc}. If SearXNG is stopped, start it "
+                       "with start_model (model \"searxng\"), then search again.") from None
     return format_results(data, count)
 
 

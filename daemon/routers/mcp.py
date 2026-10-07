@@ -53,7 +53,8 @@ INSTRUCTIONS = (
     "Searches the web privately with web_search (SearXNG on the user's DGX Spark: no "
     "accounts, cookies or API keys) and reads a page with web_fetch (https only, fetched "
     "from the Spark). Use these for anything current or beyond your training data, and "
-    "cite the URLs you rely on.\n\n"
+    "cite the URLs you rely on. If web_search says SearXNG is not running, start it with "
+    "start_model (model \"searxng\") and search again.\n\n"
     "Generates and edits images, generates and edits videos, and composes music, with open models running on "
     "the user's DGX Spark. Call list_image_models / list_video_models to see which "
     "are running. A stopped model can be started with start_model; when memory is short, "
@@ -99,7 +100,8 @@ _STEPS_HINT = (
 
 _MODEL_ARG = {"type": "string",
               "description": ("A model id from list_image_models, list_video_models or "
-                              "list_decision_models, or a music model.")}
+                              "list_decision_models, a music model, or \"searxng\" for the "
+                              "search engine web_search runs on.")}
 
 _IMAGE_REFS = (
     "Each item is a URL returned by generate_image or edit_image, an upload's URL "
@@ -420,12 +422,13 @@ TOOLS = [
         "name": "start_model",
         "title": "Start model",
         "description": (
-            "Start one of the Spark's stopped image, video, music or decision models so the other "
+            "Start one of the Spark's stopped image, video, music or decision models, or "
+            "SearXNG (model \"searxng\"), the search engine web_search runs on, so the other "
             "tools can use it. Loading takes from under a minute to about 15 minutes for "
             f"the largest. Waits up to {CHECK_WAIT} s; returns once the model is ready, or "
             "\"Not done yet\", in which case call start_model again with the same model "
             "until it is ready. Refused when the model needs more memory than is free: the "
-            "error names what is running, and stop_model can free a media model among them."
+            "error names what is running, and stop_model can free a model among them."
         ),
         "inputSchema": {
             "type": "object",
@@ -439,9 +442,10 @@ TOOLS = [
         "name": "stop_model",
         "title": "Stop model",
         "description": (
-            "Stop a running image, video, music or decision model to free its memory, e.g. to "
-            "start another with start_model. Refused while the model is rendering a job. Only "
-            "these models can be stopped here; LLMs and other apps are managed in the Hub."
+            "Stop a running image, video, music or decision model, or SearXNG (model "
+            "\"searxng\"), to free its memory, e.g. to start another with start_model. Refused "
+            "while the model is rendering a job. Only these can be stopped here; LLMs and every "
+            "other app are managed in the Hub."
         ),
         "inputSchema": {
             "type": "object",
@@ -631,9 +635,9 @@ def _started(tool: str, job_id: str, model: str, info: dict | None = None) -> di
 
 
 # ------------------------------------------------------------ start / stop
-# Agents may start and stop the media models the tools above list, and nothing
-# else: LLMs and other apps stay the Hub's. Both go through the same launch and
-# stop the Hub's buttons use.
+# Agents may start and stop the media models the tools above list, and one
+# app: SearXNG, the search engine web_search runs on. LLMs and every other app
+# stay the Hub's. Both go through the same launch and stop the Hub's buttons use.
 
 READY_POLL_SECONDS = 2
 # One start at a time, so two agents cannot both see the same free memory and
@@ -641,19 +645,22 @@ READY_POLL_SECONDS = 2
 _start_lock = asyncio.Lock()
 
 
-def _media_slugs() -> set[str]:
+MCP_APPS = {web_service.SEARXNG}
+
+
+def _startable_slugs() -> set[str]:
     return (set(image_service.backends()) | set(video_service.backends())
-            | set(audio_service.backends()) | decision_service.backends())
+            | set(audio_service.backends()) | decision_service.backends() | MCP_APPS)
 
 
-async def _media_model(args: dict) -> str:
-    """The installed image, video, music or decision model `args` names."""
+async def _startable(args: dict) -> str:
+    """The installed media model, or SearXNG, that `args` names."""
     slug = str(args.get("model") or "").strip()
-    installed = _media_slugs() & await get_installed_slugs()
+    installed = _startable_slugs() & await get_installed_slugs()
     if slug not in installed:
         raise image_service.ImageError(
-            f"'{slug}' is not an installed image, video, music or decision model. "
-            f"Installed: {', '.join(sorted(installed)) or 'none'}.")
+            f"'{slug}' is not an installed image, video, music or decision model, or "
+            f"SearXNG. Installed: {', '.join(sorted(installed)) or 'none'}.")
     return slug
 
 
@@ -662,13 +669,13 @@ async def _check_memory(slug: str) -> None:
     need, free, running = await memory_plan(slug)
     if free >= need:
         return
-    media = _media_slugs()
-    running_media = [o for o in running if o in media]
-    running_other = [o for o in running if o not in media]
+    startable = _startable_slugs()
+    running_media = [o for o in running if o in startable]
+    running_other = [o for o in running if o not in startable]
     recipes = get_recipes()
     lines = [f"{slug} needs about {need:.0f} GB and only {max(free, 0):.0f} GB is free."]
     if running_media:
-        lines.append("Running media models you can stop with stop_model: "
+        lines.append("Running models you can stop with stop_model: "
                      + ", ".join(running_media) + ".")
     if running_other:
         lines.append("Also running (only the Hub can stop these): "
@@ -677,7 +684,7 @@ async def _check_memory(slug: str) -> None:
 
 
 async def _start_model(args: dict, origin: str, on_progress=None, user: dict | None = None) -> dict:
-    slug = await _media_model(args)
+    slug = await _startable(args)
     async with _start_lock:
         if not await is_recipe_running(slug) and get_pending(slug) != "launching":
             await _check_memory(slug)
@@ -696,7 +703,7 @@ async def _start_model(args: dict, origin: str, on_progress=None, user: dict | N
                 f"{slug} stopped before it finished loading. Its log is on its page in the Hub.")
         if asyncio.get_running_loop().time() >= deadline:
             return {"content": [{"type": "text", "text": (
-                        f"Not done yet: {slug} is still loading its weights. Now call start_model "
+                        f"Not done yet: {slug} is still starting up. Now call start_model "
                         f"with model {slug} again, and keep calling it until it is ready.")}],
                     "structuredContent": {"model": slug, "status": "starting", "done": False,
                                           "next_call": {"tool": "start_model",
@@ -712,7 +719,7 @@ async def _start_model(args: dict, origin: str, on_progress=None, user: dict | N
 
 
 async def _stop_model(args: dict) -> dict:
-    slug = await _media_model(args)
+    slug = await _startable(args)
     if not await is_recipe_running(slug):
         return {"content": [{"type": "text", "text": f"{slug} is already stopped."}],
                 "structuredContent": {"model": slug, "status": "stopped"}, "isError": False}

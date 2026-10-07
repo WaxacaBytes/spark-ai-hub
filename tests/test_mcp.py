@@ -1088,7 +1088,7 @@ class UnifiedVideoEditAndMusicTests(unittest.TestCase):
 
 
 class StartStopModelTests(unittest.TestCase):
-    """Agents start and stop the media models they list -- and nothing else."""
+    """Agents start and stop the media models they list, and SearXNG -- nothing else."""
 
     def setUp(self):
         from types import SimpleNamespace
@@ -1099,6 +1099,8 @@ class StartStopModelTests(unittest.TestCase):
             "img-big": recipe("Big image", 60, "openai-images", "text-to-image"),
             "img-small": recipe("Small image", 20, "openai-images", "text-to-image"),
             "llm": recipe("Chat LLM", 80),
+            "searxng": recipe("SearXNG", 1),
+            "open-webui": recipe("Open WebUI", 2),
         }
         self.running = {"img-small", "llm"}
         self.ready = {"img-small", "llm"}
@@ -1139,14 +1141,26 @@ class StartStopModelTests(unittest.TestCase):
     def call(self, name, **args):
         return asyncio.run(mcp.call_tool(name, args, "http://h", user=OWNER))
 
-    def test_only_installed_media_models(self):
+    def test_only_installed_media_models_and_searxng(self):
         for name in ("start_model", "stop_model"):
-            result = self.call(name, model="llm")
-            self.assertTrue(result["isError"])
-            self.assertIn("not an installed image, video, music or decision model",
-                          result["content"][0]["text"])
+            for slug in ("llm", "open-webui"):
+                result = self.call(name, model=slug)
+                self.assertTrue(result["isError"])
+                self.assertIn("not an installed image, video, music or decision model, or SearXNG",
+                              result["content"][0]["text"])
         self.launch.assert_not_called()
         self.stop.assert_not_called()
+
+    def test_searxng_is_the_one_app_agents_start_and_stop(self):
+        self.ready.add("searxng")
+        started = self.call("start_model", model="searxng")
+        self.assertFalse(started["isError"])
+        self.launch.assert_awaited_once_with("searxng", OWNER, "http://h")
+        self.assertEqual(started["structuredContent"]["status"], "ready")
+        stopped = self.call("stop_model", model="searxng")
+        self.assertFalse(stopped["isError"])
+        self.stop.assert_awaited_once_with("searxng")
+        self.assertNotIn("searxng", self.running)
 
     def test_start_refused_when_memory_is_short_names_what_is_running(self):
         result = self.call("start_model", model="img-big")
