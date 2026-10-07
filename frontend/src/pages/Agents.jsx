@@ -384,16 +384,18 @@ function ServedRow({ model, recipe, isDefault = false, pending = false }) {
 // logo, then numbered steps for that one agent and nothing else. Two cards of
 // small print (a CLI way and a manual way, each with sub-steps) made people
 // read everything to find the two lines that applied to them. The manual
-// OpenAI-compatible setup is just one more answer: "Any other app".
+// OpenAI-compatible setup is just one more answer, "Any other app", and so is
+// the Hub's MCP server for apps that only want its tools.
 
 const OTHER = { id: 'other', name: 'Any other app', kind: 'Other' }
+const MCP = { id: 'mcp', name: 'MCP tools', kind: 'Other' }
+const EXTRAS = [OTHER, MCP]
 
 function ConnectAgent({ info, apiKey, keyValue, modelId, hasModel }) {
   const agents = info?.agents || []
   const [picked, setPicked] = useState(savedAgent)
-  const choice = picked === OTHER.id
-    ? OTHER
-    : agents.find((a) => a.id === picked) || agents.find((a) => a.id === 'claude') || agents[0]
+  const choice = EXTRAS.find((x) => x.id === picked)
+    || agents.find((a) => a.id === picked) || agents.find((a) => a.id === 'claude') || agents[0]
   const stepsRef = useRef(null)
 
   const pick = (id) => {
@@ -424,12 +426,14 @@ function ConnectAgent({ info, apiKey, keyValue, modelId, hasModel }) {
             {desktop.length > 0 && (
               <TileGroup label="Desktop apps" agents={desktop} selected={choice?.id} onPick={pick} />
             )}
-            <TileGroup label="Something else" agents={[OTHER]} selected={choice?.id} onPick={pick} />
+            <TileGroup label="Something else" agents={EXTRAS} selected={choice?.id} onPick={pick} />
           </div>
 
           <div ref={stepsRef} className="scroll-mt-4 lg:sticky lg:top-4">
             {choice?.id === OTHER.id ? (
               <OtherAppSteps info={info} apiKey={apiKey} keyValue={keyValue} modelId={modelId} hasModel={hasModel} />
+            ) : choice?.id === MCP.id ? (
+              <McpSteps info={info} apiKey={apiKey} keyValue={keyValue} />
             ) : choice ? (
               <SahSteps agent={choice} info={info} apiKey={apiKey} />
             ) : null}
@@ -577,10 +581,11 @@ function AgentLogo({ agent, size = 20 }) {
   const box = { width: size, height: size }
   const inner = { width: Math.round(size * 0.66), height: Math.round(size * 0.66) }
   const shell = `flex shrink-0 items-center justify-center overflow-hidden ${size >= 32 ? 'rounded-xl' : 'rounded-md'}`
-  if (agent.id === OTHER.id) {
+  if (agent.id === OTHER.id || agent.id === MCP.id) {
+    const Icon = agent.id === MCP.id ? ToolsIcon : PlugIcon
     return (
       <span className={`${shell} bg-surface-highest text-text-muted`} style={box}>
-        <PlugIcon style={inner} />
+        <Icon style={inner} />
       </span>
     )
   }
@@ -642,10 +647,9 @@ export OPENAI_API_KEY=${key}
 export ANTHROPIC_BASE_URL=${base}
 export ANTHROPIC_AUTH_TOKEN=${key}`,
   },
-  {
-    id: 'mcp',
-    label: 'MCP tools',
-    body: ({ base, key }) => `{
+]
+
+const mcpJson = ({ base, key }) => `{
   "mcpServers": {
     "sah": {
       "type": "http",
@@ -653,14 +657,13 @@ export ANTHROPIC_AUTH_TOKEN=${key}`,
       "headers": { "Authorization": "Bearer ${key}" }
     }
   }
-}`,
-  },
-]
+}`
 
-function OtherAppSteps({ info, apiKey, keyValue, modelId, hasModel }) {
+// Where this Spark can be reached. The page's own origin first: it is the one
+// address known to work from where you are sitting. The others are what the
+// Spark answers on besides.
+function useAddresses(info) {
   const origin = hubOrigin()
-  // The page's own origin first: it is the one address known to work from
-  // where you are sitting. The others are what the Spark answers on besides.
   const addresses = useMemo(() => {
     const out = [{ url: origin, label: 'This page', note: 'The address you opened the Hub on.' }]
     for (const c of info?.candidates || []) {
@@ -670,8 +673,193 @@ function OtherAppSteps({ info, apiKey, keyValue, modelId, hasModel }) {
     return out
   }, [info, origin])
   const [base, setBase] = useState(origin)
+  return [addresses, addresses.find((a) => a.url === base) || addresses[0], setBase]
+}
+
+function AddressPicker({ addresses, address, onPick }) {
+  if (addresses.length < 2) return null
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2">
+      <span className="text-xs text-text-dim">Using it from somewhere else? Address:</span>
+      <div className="flex flex-wrap gap-1 rounded-xl border border-outline-dim bg-surface-high p-0.5">
+        {addresses.map((a) => (
+          <button
+            key={a.url}
+            type="button"
+            onClick={() => onPick(a.url)}
+            title={a.note}
+            className={`cursor-pointer rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all ${
+              address.url === a.url ? 'bg-primary text-primary-on' : 'bg-transparent text-text-muted hover:text-text'
+            }`}
+          >
+            {a.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// One-click installs for the MCP clients that take one. Every link is the
+// app's own URL scheme, so the config -- key included -- goes straight from
+// this page to the app on this computer. The https "redirect" variants some of
+// them also offer (vscode.dev, cursor.com) would carry the key through a third
+// party's server, so they are not used.
+//   Cursor     cursor.com/docs/mcp/install-links   base64 of the bare server object
+//   VS Code    VS Code MCP developer guide          URL-encoded JSON with name + type
+//   LM Studio  lmstudio.ai/docs/app/mcp/deeplink    base64 of the bare server object
+//   Goose      block/goose deeplink.ts              url + header=KEY=VALUE params
+const b64 = (obj) => encodeURIComponent(btoa(JSON.stringify(obj)))
+const MCP_CLIENTS = [
+  {
+    id: 'cursor',
+    name: 'Cursor',
+    link: ({ url, key }) => `cursor://anysphere.cursor-deeplink/mcp/install?name=sah&config=${
+      b64({ url, headers: { Authorization: `Bearer ${key}` } })}`,
+  },
+  {
+    id: 'vscode',
+    name: 'VS Code',
+    link: ({ url, key }) => `vscode:mcp/install?${encodeURIComponent(JSON.stringify({
+      name: 'sah', type: 'http', url, headers: { Authorization: `Bearer ${key}` },
+    }))}`,
+  },
+  {
+    id: 'lmstudio',
+    name: 'LM Studio',
+    link: ({ url, key }) => `lmstudio://add_mcp?name=sah&config=${
+      b64({ url, headers: { Authorization: `Bearer ${key}` } })}`,
+  },
+  {
+    id: 'goose',
+    name: 'Goose',
+    link: ({ url, key }) => `goose://extension?name=${encodeURIComponent('Spark AI Hub')}`
+      + `&url=${encodeURIComponent(url)}&timeout=900`
+      + `&header=${encodeURIComponent(`Authorization=Bearer ${key}`)}`,
+  },
+]
+
+// Claude's connectors are called from Anthropic's cloud, so its link only works
+// with an address the internet can reach over HTTPS -- the Hub's tunnel, when
+// the page was opened through it. The link carries only the name and URL; the
+// key goes in by hand under Request headers (a beta Claude rolls out by account).
+function claudeConnectorLink(url) {
+  return 'https://claude.ai/customize/connectors?modal=add-custom-connector'
+    + `&connectorName=${encodeURIComponent('Spark AI Hub')}&connectorUrl=${encodeURIComponent(url)}`
+}
+
+function McpSteps({ info, apiKey, keyValue }) {
+  const [addresses, address, setBase] = useAddresses(info)
+  const [opened, setOpened] = useState(null)
+  const mcpUrl = `${address.url}/mcp`
+  const publicUrl = info?.external_origin && window.location.protocol === 'https:'
+    ? `${hubOrigin()}/mcp`
+    : null
+
+  const open = (client) => {
+    setOpened(client.id)
+    // Navigated from code rather than an <a href>, so the key-bearing link
+    // never shows in the browser's status bar.
+    window.location.assign(client.link({ url: mcpUrl, key: keyValue }))
+  }
+
+  return (
+    <StepsCard agent={MCP} title="Add the Hub's tools to your app">
+      <BigStep n="1" title="One click, if your app is here" sub="It opens the app with everything filled in, your key included.">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {MCP_CLIENTS.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => open(c)}
+              className={`flex cursor-pointer items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition-all ${
+                opened === c.id
+                  ? 'border-primary bg-primary/10 text-text'
+                  : 'border-outline-dim bg-surface-high/50 text-text-muted hover:border-text-dim hover:text-text'
+              }`}
+            >
+              <img src={`/logos/agents/${c.id}.png`} alt="" className="h-7 w-7 shrink-0 rounded-lg object-contain" />
+              <span className="min-w-0">
+                <span className="block truncate">{c.name}</span>
+                <span className="block text-[11px] font-normal text-text-dim">Add to {c.name}</span>
+              </span>
+            </button>
+          ))}
+          <button
+            type="button"
+            disabled={!publicUrl}
+            onClick={() => { setOpened('claude'); window.open(claudeConnectorLink(publicUrl), '_blank', 'noopener') }}
+            className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition-all ${
+              !publicUrl
+                ? 'cursor-not-allowed border-outline-dim bg-transparent text-text-dim opacity-60'
+                : opened === 'claude'
+                  ? 'cursor-pointer border-primary bg-primary/10 text-text'
+                  : 'cursor-pointer border-outline-dim bg-surface-high/50 text-text-muted hover:border-text-dim hover:text-text'
+            }`}
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white">
+              <ClaudeMark style={{ width: 18, height: 18 }} className="text-[#D97757]" />
+            </span>
+            <span className="min-w-0">
+              <span className="block truncate">Claude</span>
+              <span className="block text-[11px] font-normal text-text-dim">{publicUrl ? 'Add connector' : 'Needs public HTTPS'}</span>
+            </span>
+          </button>
+        </div>
+
+        {opened && opened !== 'claude' && (
+          <p className="m-0 mt-3 text-xs leading-5 text-text-dim">
+            Nothing happened? The app isn't installed on this computer, or it is too old for
+            one-click installs. Add it by hand below.
+          </p>
+        )}
+        {opened === 'claude' && publicUrl && (
+          <div className="mt-3 rounded-xl border border-outline-dim bg-surface-high/40 p-3">
+            <div className="text-sm font-semibold text-text">One more thing in Claude's form</div>
+            <p className="m-0 mt-1 text-xs leading-5 text-text-muted">
+              Choose <strong>No sign-in</strong>, open <strong>Request headers</strong>, pick{' '}
+              <code className="font-mono">authorization</code> and paste this value. No Request
+              headers section? Claude hasn't turned it on for your account yet.
+            </p>
+            <div className="mt-2"><CopyCode text={`Bearer ${keyValue}`} secret={apiKey} /></div>
+          </div>
+        )}
+        {!publicUrl && (
+          <p className="m-0 mt-3 text-xs leading-5 text-text-dim">
+            Claude connects from Anthropic's cloud, so it needs the Hub's public HTTPS address.
+            Open this page through that address to add it.
+          </p>
+        )}
+      </BigStep>
+
+      <BigStep n="2" title="Any other app: add it by hand" sub="In its “MCP servers”, “Connectors” or “Tools” settings.">
+        <div className="overflow-hidden rounded-xl border border-outline-dim">
+          <SettingRow label="URL" value={mcpUrl} />
+          <SettingRow label="Header" value={`Authorization: Bearer ${keyValue}`} secret={apiKey} />
+          <SettingRow label="Transport" value="Streamable HTTP" />
+        </div>
+        <AddressPicker addresses={addresses} address={address} onPick={setBase} />
+        <div className="mt-4 mb-2 text-xs font-semibold text-text-muted">Or paste it as JSON</div>
+        <CopyCode text={mcpJson({ base: address.url, key: keyValue })} secret={apiKey} multiline />
+      </BigStep>
+
+      <BigStep n="✓" title="That's it" sub="Your app can now use:">
+        <div className="flex flex-wrap gap-1.5">
+          {MCP_TOOLS.map((t) => (
+            <span key={t} className="rounded-full bg-surface-high px-3 py-1 text-xs font-semibold text-text-muted">{t}</span>
+          ))}
+        </div>
+        <p className="m-0 mt-3 text-xs leading-5 text-text-dim">
+          Agents set up with sah already have these. Give tool calls at least 900 seconds: a video render takes minutes.
+        </p>
+      </BigStep>
+    </StepsCard>
+  )
+}
+
+function OtherAppSteps({ info, apiKey, keyValue, modelId, hasModel }) {
+  const [addresses, address, setBase] = useAddresses(info)
   const [snippetId, setSnippetId] = useState('curl')
-  const address = addresses.find((a) => a.url === base) || addresses[0]
   const snippet = SNIPPETS.find((s) => s.id === snippetId)
   const values = { base: address.url, key: keyValue, model: modelId }
 
@@ -693,37 +881,17 @@ function OtherAppSteps({ info, apiKey, keyValue, modelId, hasModel }) {
             hint={hasModel ? 'The model running now.' : 'Any name works: the Hub uses the largest model running.'}
           />
         </div>
-        {addresses.length > 1 && (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className="text-xs text-text-dim">Using it from somewhere else? Address:</span>
-            <div className="flex flex-wrap gap-1 rounded-xl border border-outline-dim bg-surface-high p-0.5">
-              {addresses.map((a) => (
-                <button
-                  key={a.url}
-                  type="button"
-                  onClick={() => setBase(a.url)}
-                  title={a.note}
-                  className={`cursor-pointer rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-all ${
-                    address.url === a.url ? 'bg-primary text-primary-on' : 'bg-transparent text-text-muted hover:text-text'
-                  }`}
-                >
-                  {a.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
+        <AddressPicker addresses={addresses} address={address} onPick={setBase} />
       </BigStep>
 
       <BigStep n="✓" title="That's it" sub="The app now talks to the models running on this Spark.">
         <details className="group">
           <summary className="cursor-pointer list-none text-xs font-semibold text-text-dim hover:text-text">
             <span className="inline-block transition-transform group-open:rotate-90">›</span>{' '}
-            More: Anthropic apps, tools (MCP) and code examples
+            More: Anthropic apps and code examples
           </summary>
           <div className="mt-3 overflow-hidden rounded-xl border border-outline-dim">
             <SettingRow label="Anthropic" value={address.url} hint="Base URL for apps that speak Anthropic's Messages API." />
-            <SettingRow label="MCP tools" value={`${address.url}/mcp`} hint={`${MCP_TOOLS.join(', ')}. Same key, as a Bearer token.`} />
           </div>
           <div className="mt-3 mb-2 flex flex-wrap gap-1">
             {SNIPPETS.map((s) => (
@@ -742,11 +910,6 @@ function OtherAppSteps({ info, apiKey, keyValue, modelId, hasModel }) {
             ))}
           </div>
           <CopyCode text={snippet.body(values)} secret={apiKey} multiline />
-          {snippetId === 'mcp' && (
-            <p className="m-0 mt-2 text-xs leading-5 text-text-dim">
-              Give tool calls at least 900 seconds: a video render takes minutes.
-            </p>
-          )}
         </details>
       </BigStep>
     </StepsCard>
@@ -863,6 +1026,14 @@ function PlugIcon({ style }) {
       <path d="M9 2v6M15 2v6" />
       <path d="M6 8h12v4a6 6 0 0 1-12 0z" />
       <path d="M12 18v4" />
+    </svg>
+  )
+}
+
+function ToolsIcon({ style }) {
+  return (
+    <svg style={style} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-label="MCP tools">
+      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
     </svg>
   )
 }
