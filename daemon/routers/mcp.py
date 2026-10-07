@@ -19,7 +19,9 @@ as Claude's connectors.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -40,7 +42,15 @@ from daemon.services.registry_service import get_recipes
 router = APIRouter(tags=["mcp"])
 
 PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26")
-SERVER_INFO = {"name": "spark-ai-hub", "title": "Spark AI Hub", "version": "1.0.0"}
+# The Hub's mark, so a client that shows server icons (MCP 2025-11-25,
+# Implementation.icons) shows ours rather than a generic tile. Inlined as a
+# data URI: a LAN or offline client has no https URL it could fetch.
+_ICON = Path(__file__).resolve().parents[2] / "frontend" / "public" / "icon-128.png"
+SERVER_INFO = {
+    "name": "spark-ai-hub", "title": "Spark AI Hub", "version": "1.0.0",
+    **({"icons": [{"src": "data:image/png;base64," + base64.b64encode(_ICON.read_bytes()).decode(),
+                   "mimeType": "image/png", "sizes": ["128x128"]}]} if _ICON.is_file() else {}),
+}
 KEEPALIVE_SECONDS = 10
 # How long get_image / get_video / get_music / start_model hold a call open
 # before answering "not done yet". Short enough for any client's tool timeout,
