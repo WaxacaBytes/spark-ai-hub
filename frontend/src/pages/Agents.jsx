@@ -559,6 +559,8 @@ function agentNote(agent) {
 // lab's logo the Hub already ships. `fill`: the icon carries its own
 // background and takes the whole chip; otherwise it sits padded on white.
 const AGENT_LOGOS = {
+  // The Model Context Protocol's own mark (modelcontextprotocol.io favicon).
+  mcp: { src: '/logos/agents/mcp.png', fill: true },
   codex: { src: '/logos/openai.png' },
   chatgpt: { src: '/logos/openai.png' },
   qwen: { src: '/logos/qwen.png' },
@@ -581,11 +583,10 @@ function AgentLogo({ agent, size = 20 }) {
   const box = { width: size, height: size }
   const inner = { width: Math.round(size * 0.66), height: Math.round(size * 0.66) }
   const shell = `flex shrink-0 items-center justify-center overflow-hidden ${size >= 32 ? 'rounded-xl' : 'rounded-md'}`
-  if (agent.id === OTHER.id || agent.id === MCP.id) {
-    const Icon = agent.id === MCP.id ? ToolsIcon : PlugIcon
+  if (agent.id === OTHER.id) {
     return (
       <span className={`${shell} bg-surface-highest text-text-muted`} style={box}>
-        <Icon style={inner} />
+        <PlugIcon style={inner} />
       </span>
     )
   }
@@ -741,8 +742,9 @@ const MCP_CLIENTS = [
 
 // Claude's connectors are called from Anthropic's cloud, so its link only works
 // with an address the internet can reach over HTTPS -- the Hub's tunnel, when
-// the page was opened through it. The link carries only the name and URL; the
-// key goes in by hand under Request headers (a beta Claude rolls out by account).
+// the page was opened through it. The link carries only the name and URL and
+// no key: Claude signs in through the Hub's OAuth (routers/oauth.py), and the
+// person approves it on the Hub's "Allow Claude?" page.
 function claudeConnectorLink(url) {
   return 'https://claude.ai/customize/connectors?modal=add-custom-connector'
     + `&connectorName=${encodeURIComponent('Spark AI Hub')}&connectorUrl=${encodeURIComponent(url)}`
@@ -815,13 +817,12 @@ function McpSteps({ info, apiKey, keyValue }) {
         )}
         {opened === 'claude' && publicUrl && (
           <div className="mt-3 rounded-xl border border-outline-dim bg-surface-high/40 p-3">
-            <div className="text-sm font-semibold text-text">One more thing in Claude's form</div>
+            <div className="text-sm font-semibold text-text">In Claude: Add, then Connect</div>
             <p className="m-0 mt-1 text-xs leading-5 text-text-muted">
-              Choose <strong>No sign-in</strong>, open <strong>Request headers</strong>, pick{' '}
-              <code className="font-mono">authorization</code> and paste this value. No Request
-              headers section? Claude hasn't turned it on for your account yet.
+              Keep the form's defaults and click <strong>Add</strong>, then <strong>Connect</strong>.
+              Claude opens this Hub: sign in if asked and click <strong>Allow</strong>. No key to
+              paste. It works in Claude Desktop too, on the same account.
             </p>
-            <div className="mt-2"><CopyCode text={`Bearer ${keyValue}`} secret={apiKey} /></div>
           </div>
         )}
         {!publicUrl && (
@@ -1026,14 +1027,6 @@ function PlugIcon({ style }) {
       <path d="M9 2v6M15 2v6" />
       <path d="M6 8h12v4a6 6 0 0 1-12 0z" />
       <path d="M12 18v4" />
-    </svg>
-  )
-}
-
-function ToolsIcon({ style }) {
-  return (
-    <svg style={style} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-label="MCP tools">
-      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
     </svg>
   )
 }
