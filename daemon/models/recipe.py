@@ -256,6 +256,7 @@ class Recipe(BaseModel):
     # ever answers its health check; cleared on the next launch.
     error: str | None = None
 
+    @computed_field
     @property
     def memory_gb(self) -> float:
         """What the app holds once it is up, in GiB."""

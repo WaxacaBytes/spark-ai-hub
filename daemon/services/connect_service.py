@@ -26,27 +26,40 @@ out to the internet and back.
 """
 from __future__ import annotations
 
+import functools
+import importlib.machinery
+import importlib.util
 import ipaddress
 import json
 import re
 import socket
 import subprocess
+from pathlib import Path
 
 
-# Agents that `sah` can wire to the served model. Mirrors the sah CLI's
-# integration list — the modal renders these so users know what's supported.
-SUPPORTED_AGENTS = [
-    {"name": "OpenCode", "kind": "CLI", "command": "sah opencode"},
-    {"name": "Codex", "kind": "CLI", "command": "sah codex"},
-    {"name": "Claude Code", "kind": "CLI", "command": "sah claude"},
-    {"name": "Qwen Code", "kind": "CLI", "command": "sah qwen"},
-    {"name": "Hermes", "kind": "CLI", "command": "sah hermes"},
-    {"name": "OpenClaw", "kind": "CLI", "command": "sah openclaw"},
-    {"name": "Pi", "kind": "CLI", "command": "sah pi"},
-    {"name": "Claude Desktop", "kind": "Desktop", "command": "sah claude-desktop --install"},
-    {"name": "Hermes Desktop", "kind": "Desktop", "command": "sah hermes-desktop"},
-    {"name": "Other OpenAI/Anthropic apps", "kind": "Any", "command": "sah env"},
-]
+# The agents `sah` can wire to the Hub, read off the CLI's own integration
+# registry so the page can never list a client sah does not have. sah is
+# stdlib-only and does nothing at import but read its key file.
+SAH_PATH = Path(__file__).resolve().parents[2] / "sah" / "sah"
+
+
+@functools.cache
+def supported_agents() -> list[dict]:
+    loader = importlib.machinery.SourceFileLoader("sah_cli", str(SAH_PATH))
+    module = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+    loader.exec_module(module)
+    return [
+        {
+            "id": item.name,
+            "name": item.display,
+            "kind": item.kind,
+            # Desktop apps are not launched from a shell: sah writes their
+            # config once and the app picks it up on its next start.
+            "command": f"sah {item.name}" if item.launchable else f"sah {item.name} --install",
+            "writes_config": item.writes_config,
+        }
+        for item in module.INTEGRATIONS
+    ]
 
 
 def _short_hostname() -> str:
@@ -333,7 +346,7 @@ def compute_connect_info(
         "client_local": is_local_client(caller_ip),
         "local_url": next((c["url"] for c in local if c["kind"] == "ip"), None),
         "local_urls": [c["url"] for c in local],
-        "agents": SUPPORTED_AGENTS,
+        "agents": supported_agents(),
         "commands": {
             "install": (
                 f"curl -fsSL {install_from}/sah/install.sh | sh -s -- --key {api_key}"

@@ -42,6 +42,34 @@ const BUILD_TOKENS = new Set([
   'mmap',
 ])
 
+// ── Kinds ─────────────────────────────────────────────────────────────
+// Three kinds of thing on this Spark: apps (their own UI), the language
+// models an agent talks to at /v1, and the media models it calls as tools
+// through /mcp.
+
+export function isModel(recipe) {
+  return recipe.slug.startsWith('vllm-')
+    || recipe.slug.startsWith('sglang-')
+    || recipe.slug.startsWith('vllmomni-')
+    || recipe.slug.startsWith('hidream-')
+    || recipe.slug.startsWith('llamacpp-')
+    || recipe.slug.startsWith('exllamav3-')
+    || recipe.slug.startsWith('atlas-')
+    || recipe.slug.startsWith('tensorfold-')
+}
+
+// A model an agent drives: an OpenAI-compatible server the Hub's /v1 routes
+// to. Mirrors Recipe.is_llm on the daemon.
+export function isAgentModel(recipe) {
+  return recipe.category === 'llm' && recipe.ui?.type === 'api-only'
+}
+
+// Every other model: image, video, music and decision models, which agents
+// call as tools through the Hub's MCP server rather than talk to.
+export function isMediaModel(recipe) {
+  return isModel(recipe) && !isAgentModel(recipe)
+}
+
 const ENGINE_PREFIX = /^(vllm|vllmomni|sglang|llamacpp|exllamav3|atlas|tensorfold)-/
 
 function modelKey(recipe) {

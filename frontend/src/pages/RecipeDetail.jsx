@@ -210,7 +210,7 @@ function RecipeDetailPage({ slug }) {
         <button
           onClick={() => setShowCoverInfo(true)}
           title="What is this picture?"
-          className="absolute bottom-3 right-4 z-10 flex items-center gap-1.5 rounded-full border border-glass-border bg-black/40 px-2.5 py-1 text-[11px] font-medium text-white/80 backdrop-blur-md cursor-pointer hover:bg-black/60 hover:text-white transition-all"
+          className="absolute top-3 right-4 sm:top-auto sm:bottom-3 z-10 flex items-center gap-1.5 rounded-full border border-glass-border bg-black/40 px-2.5 py-1 text-[11px] font-medium text-white/80 backdrop-blur-md cursor-pointer hover:bg-black/60 hover:text-white transition-all"
         >
           <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="12" cy="12" r="10" />
@@ -220,7 +220,7 @@ function RecipeDetailPage({ slug }) {
           About this image
         </button>
 
-        <div className="relative px-6 py-5">
+        <div className="relative px-4 py-5 sm:px-6">
         <button
           onClick={goBack}
           className="flex items-center gap-1.5 text-text-muted hover:text-primary bg-transparent border-none cursor-pointer text-sm p-0 mb-4 transition-colors font-medium font-display"
@@ -231,7 +231,7 @@ function RecipeDetailPage({ slug }) {
           Back
         </button>
 
-        <div className="flex items-center gap-5">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-4">
           {!posterFailed && (
             <img
               src={posterFor(recipe)}
@@ -242,16 +242,16 @@ function RecipeDetailPage({ slug }) {
           )}
 
           {logoUrl && !logoFailed ? (
-            <img src={logoUrl} alt={recipe.name} className="w-20 h-20 rounded-2xl object-contain bg-surface-high p-2.5 shadow-lg shrink-0" onError={() => setLogoFailed(true)} />
+            <img src={logoUrl} alt={recipe.name} className="w-14 h-14 sm:w-20 sm:h-20 rounded-2xl object-contain bg-surface-high p-2 sm:p-2.5 shadow-lg shrink-0" onError={() => setLogoFailed(true)} />
           ) : (
-            <div className="w-20 h-20 rounded-2xl bg-surface-high flex items-center justify-center text-4xl shrink-0">{recipe.icon || '◻'}</div>
+            <div className="w-14 h-14 sm:w-20 sm:h-20 rounded-2xl bg-surface-high flex items-center justify-center text-3xl sm:text-4xl shrink-0">{recipe.icon || '◻'}</div>
           )}
 
           {/* Floor the title column so the spec badges wrap instead of
               squeezing a long name like "Inkling-Small 276B (UD-IQ2_M)"
               into a four-line sliver. */}
-          <div className="flex-1 min-w-[260px]">
-            <h1 className="text-2xl font-bold text-text tracking-tight m-0 font-display">{recipe.name}</h1>
+          <div className="flex-1 min-w-0 sm:min-w-[260px]">
+            <h1 className="text-xl sm:text-2xl font-bold text-text tracking-tight m-0 font-display">{recipe.name}</h1>
             <p className="text-sm text-text-dim mt-0.5 m-0">{recipe.author}</p>
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               {recipeCategories.map((cat) => (
@@ -282,7 +282,7 @@ function RecipeDetailPage({ slug }) {
             )}
           </div>
 
-          <div className="shrink-0 flex items-center gap-2">
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">
             {!recipe.installed && !recipe.starting && !isBusy && !isRemoving && (
               <button onClick={() => installRecipe(recipe.slug)} className="btn-primary px-6 py-2.5 text-sm font-bold">
                 Install
@@ -350,7 +350,7 @@ function RecipeDetailPage({ slug }) {
       </div>
 
       {recipe.error && (
-        <div className="shrink-0 px-6 py-3 border-b border-outline-dim bg-error-surface">
+        <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-outline-dim bg-error-surface">
           <div className="flex items-start gap-3">
             <span className="text-error text-base leading-6">⚠</span>
             <div className="min-w-0">
@@ -361,7 +361,7 @@ function RecipeDetailPage({ slug }) {
         </div>
       )}
 
-      <div className="shrink-0 px-6 py-3 border-b border-outline-dim bg-surface-low/40">
+      <div className="shrink-0 px-4 sm:px-6 py-3 border-b border-outline-dim bg-surface-low/40">
         <div className="inline-flex items-center gap-2 rounded-2xl bg-surface-high/70 p-1.5 border border-outline-dim">
           {DETAIL_TABS.map((tab) => {
             const active = tab.id === activeTab
@@ -384,7 +384,7 @@ function RecipeDetailPage({ slug }) {
 
       <div className="flex-1 min-h-0">
         {activeTab === 'details' ? (
-          <div className="h-full min-h-0 grid xl:grid-cols-[minmax(0,50rem)_minmax(24rem,1fr)]">
+          <div className="h-full min-h-0 grid grid-cols-1 xl:grid-cols-[minmax(0,50rem)_minmax(24rem,1fr)]">
             <div className="overflow-y-auto border-b border-outline-dim xl:border-b-0 xl:border-r bg-[linear-gradient(180deg,rgba(255,255,255,0.02),transparent_18%)]">
               <AboutTab recipe={recipe} purging={purging} purgeRecipe={purgeRecipe} isBuilding={isBusy} />
             </div>
@@ -593,7 +593,7 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
     .filter(Boolean)
 
   return (
-    <div className="w-full px-6 py-6">
+    <div className="w-full px-4 py-6 sm:px-6">
       <div className="max-w-[44rem]">
         <div className="space-y-7">
           <p className="text-[15px] text-text-muted leading-7 m-0">{recipe.description}</p>
@@ -850,8 +850,8 @@ function ComposeEditor({ slug }) {
   return (
     <div className="h-full min-h-0 flex flex-col">
       <div className="shrink-0 px-5 py-4 border-b border-outline-dim bg-surface-low/60">
-        <div className="flex items-start justify-between gap-4">
-          <div>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-1 basis-64">
             <h2 className="text-sm font-bold text-text font-display m-0">Compose Configuration</h2>
             <p className="text-sm text-text-dim mt-1 mb-0 leading-relaxed">Edit the live `docker-compose.yml` for this recipe. Save keeps your custom version; restore brings back the default file from the registry.</p>
           </div>

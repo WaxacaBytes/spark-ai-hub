@@ -75,7 +75,7 @@ export default function PosterCard({ recipe, highlight = null }) {
   return (
     <Link
       to={`/app/${recipe.slug}`}
-      className="poster-card group relative block w-[196px] shrink-0 no-underline text-inherit"
+      className="poster-card group relative block w-[calc(50%-6px)] shrink-0 no-underline text-inherit sm:w-[196px]"
       title={recipe.name}
     >
       <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl bg-surface-high ring-1 ring-glass-border">

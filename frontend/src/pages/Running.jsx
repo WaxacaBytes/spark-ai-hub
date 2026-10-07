@@ -17,7 +17,7 @@ export default function Running() {
   const installed = recipes.filter((r) => r.installed && !r.running && !r.starting && !installing[r.slug] && !updating[r.slug])
 
   return (
-    <div className="px-6 py-6 pb-12">
+    <div className="px-4 py-6 pb-12 sm:px-6">
       {/* Running Section */}
       <div className="flex items-center gap-3 mb-6">
         <h2 className="text-2xl font-bold tracking-tight font-display m-0">Running</h2>
@@ -118,10 +118,12 @@ function RunningCard({ recipe, onSelect, onStop }) {
   return (
     <div
       onClick={() => onSelect(recipe.slug)}
-      className={`bg-surface rounded-2xl p-5 cursor-pointer border-l-4 ${borderColor} card-hover`}
+      className={`bg-surface rounded-2xl p-4 sm:p-5 cursor-pointer border-l-4 ${borderColor} card-hover`}
       style={glowStyle}
     >
-      <div className="flex items-center gap-4">
+      {/* On a phone the status and buttons drop to a row of their own, so the
+          name keeps the width it needs. */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         {/* Icon */}
         {logoUrl && !logoFailed ? (
           <img src={logoUrl} alt={recipe.name} className="w-14 h-14 rounded-xl object-contain bg-surface-high p-2 shrink-0" onError={() => setLogoFailed(true)} />
@@ -132,11 +134,11 @@ function RunningCard({ recipe, onSelect, onStop }) {
         {/* Info */}
         <div className="flex-1 min-w-0">
           <h3 className="font-bold text-base text-text font-display m-0 truncate">{recipe.name}</h3>
-          <p className="text-xs text-text-dim m-0 mt-0.5">{recipe.author}</p>
+          <p className="text-xs text-text-dim m-0 mt-0.5 truncate">{recipe.author}</p>
         </div>
 
         {/* Status */}
-        <div className="flex items-center gap-4 shrink-0">
+        <div className="flex w-full items-center justify-end gap-3 shrink-0 sm:w-auto sm:gap-4">
           <div className="flex items-center gap-2">
             {isReady ? (
               <span className="flex items-center gap-1.5 text-xs font-medium font-label text-success bg-success/10 px-2.5 py-1 rounded-full">

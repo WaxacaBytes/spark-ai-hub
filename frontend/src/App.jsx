@@ -3,21 +3,23 @@ import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-r
 import { useStore } from './store'
 import { useMetrics } from './hooks/useMetrics'
 import ThemeToggle from './components/ThemeToggle'
+import RunningTray from './components/RunningTray'
 import HfTokenModal from './components/HfTokenModal'
 import HfAccessModal from './components/HfAccessModal'
-import ConnectModal from './components/ConnectModal'
 import LaunchConflictModal from './components/LaunchConflictModal'
 import { useAuth } from './auth'
 import Account, { Avatar } from './pages/Account'
 import Users from './pages/Users'
 import Files from './pages/Files'
 import Catalog from './pages/Catalog'
+import Agents, { AgentIcon } from './pages/Agents'
 import Running from './pages/Running'
 import System from './pages/System'
 import RecipeDetail from './pages/RecipeDetail'
 
 const NAV_ITEMS = [
   { path: '/', label: 'Store', icon: StorefrontIcon },
+  { path: '/agents', label: 'Agents', icon: AgentIcon },
   { path: '/running', label: 'Running', icon: PlayIcon },
   { path: '/files', label: 'My files', icon: FolderIcon },
   { path: '/about', label: 'About', icon: InfoIcon },
@@ -29,6 +31,7 @@ const ADMIN_NAV_ITEM = { path: '/users', label: 'Users', icon: UsersIcon }
 
 const PAGE_TITLES = {
   '/': 'Store',
+  '/agents': 'Agents',
   '/running': 'Running',
   '/system': 'System',
   '/about': 'About',
@@ -75,13 +78,16 @@ export default function App() {
     return () => clearInterval(interval)
   }, [fetchRecipes])
 
-  const runningCount = recipes.filter((r) => r.running || r.starting).length
   const navItems = user?.role === 'admin' ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS
+  const searchPlaceholder = location.pathname === '/agents' ? 'Search models...' : 'Search apps...'
 
+  // Phones get the same app with the chrome moved: the sidebar becomes a tab
+  // bar along the bottom (where a thumb reaches), and the header stacks the
+  // running tray under the title instead of beside it.
   return (
-    <div className="bg-bg text-text flex h-screen overflow-hidden transition-colors duration-300">
-      {/* ─── Sidebar ─── */}
-      <aside className="w-[72px] shrink-0 bg-sidebar-bg flex flex-col items-center py-4 border-r border-outline-dim">
+    <div className="bg-bg text-text flex h-[100dvh] overflow-hidden transition-colors duration-300">
+      {/* ─── Sidebar (tablet and up) ─── */}
+      <aside className="hidden w-[72px] shrink-0 bg-sidebar-bg md:flex flex-col items-center py-4 border-r border-outline-dim">
         {/* Logo */}
         <Link
           to="/"
@@ -106,11 +112,6 @@ export default function App() {
                 }`}
               >
                 <Icon className="w-5 h-5" />
-                {item.path === '/running' && runningCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-primary text-primary-on text-[10px] font-bold font-label rounded-full flex items-center justify-center px-1">
-                    {runningCount}
-                  </span>
-                )}
               </Link>
             )
           })}
@@ -167,39 +168,50 @@ export default function App() {
       {/* ─── Main ─── */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Bar */}
-        <header className="shrink-0 flex items-center justify-between px-6 py-3 bg-surface-low/60 backdrop-blur-md border-b border-outline-dim">
-          <div className="flex items-center gap-3">
-            <span className="text-lg font-bold tracking-tight font-display">Spark AI Hub</span>
-            <span className="text-[10px] text-text-dim font-medium font-label bg-surface-high px-2 py-0.5 rounded-md">v0.1</span>
+        <header className="shrink-0 bg-surface-low/60 backdrop-blur-md border-b border-outline-dim">
+          <div className="flex items-center gap-3 px-4 md:px-6 py-2.5 md:py-3">
+            <Link to="/" className="flex items-center gap-2.5 shrink-0 no-underline text-text">
+              <img src="/brand/spark-ai-hub-mark.svg" alt="" className="md:hidden w-8 h-8 rounded-xl bg-gradient-to-br from-[#152608] to-[#0A1404] p-1" />
+              <span className="text-lg font-bold tracking-tight font-display">Spark AI Hub</span>
+              <span className="hidden sm:inline text-[10px] text-text-dim font-medium font-label bg-surface-high px-2 py-0.5 rounded-md">v0.1</span>
+            </Link>
+
+            {/* What is running, always in view (beside the title from tablet up). */}
+            <div className="hidden md:flex flex-1 min-w-0 mx-2">
+              <RunningTray />
+            </div>
+
+            <div className="ml-auto md:ml-0 flex shrink-0 items-center gap-2">
+              {!isDetail && (
+                <div className="relative">
+                  <svg className="absolute left-3 md:left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-dim pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
+                  <input
+                    type="search"
+                    placeholder={searchPlaceholder}
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-32 focus:w-44 sm:w-56 sm:focus:w-56 lg:w-72 lg:focus:w-72 py-2 pl-9 md:pl-10 pr-3 md:pr-4 bg-surface-high rounded-xl text-text text-sm outline-none border border-outline-dim focus:border-primary/40 focus:ring-2 focus:ring-primary/10 placeholder:text-text-dim transition-all"
+                  />
+                </div>
+              )}
+              <div className="md:hidden"><ThemeToggle /></div>
+            </div>
           </div>
 
-          {!isDetail && (
-            <div className="relative">
-              <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-text-dim" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-              </svg>
-              <input
-                type="text"
-                placeholder="Search apps..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-72 py-2 pl-10 pr-4 bg-surface-high rounded-xl text-text text-sm outline-none border border-outline-dim focus:border-primary/40 focus:ring-2 focus:ring-primary/10 placeholder:text-text-dim transition-all"
-              />
-            </div>
-          )}
-
-          {isDetail && (
-            <div className="text-sm text-text-dim font-label">
-              {metrics?.gpu_name || 'NVIDIA GB10'}
-            </div>
-          )}
+          {/* Phones: the tray gets its own scrolling row under the title. */}
+          <div className="md:hidden overflow-x-auto px-4 pb-2.5 row-scroller">
+            <RunningTray scroll />
+          </div>
         </header>
 
         {/* Content */}
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden pb-20 md:pb-0">
           <Routes>
             <Route path="/" element={<div className="animate-fadeIn"><Catalog search={search} /></div>} />
+            <Route path="/agents" element={<Agents search={search} />} />
             <Route path="/running" element={<div className="animate-fadeIn"><Running /></div>} />
             <Route path="/system" element={<div className="animate-fadeIn"><System /></div>} />
             <Route path="/about" element={<div className="animate-fadeIn"><About /></div>} />
@@ -212,9 +224,39 @@ export default function App() {
           </Routes>
         </main>
       </div>
+
+      {/* ─── Tab bar (phones) ─── */}
+      <nav className="md:hidden fixed inset-x-0 bottom-0 z-40 flex items-stretch justify-around border-t border-outline-dim bg-sidebar-bg/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
+        {navItems.map((item) => {
+          const isActive = location.pathname === item.path
+          const Icon = item.icon
+          return (
+            <Link
+              key={item.path}
+              to={item.path}
+              className={`flex flex-1 min-w-0 flex-col items-center gap-0.5 py-2 no-underline text-[10px] font-label ${
+                isActive ? 'text-primary' : 'text-text-dim'
+              }`}
+            >
+              <Icon className="w-5 h-5" />
+              <span className="truncate">{item.label}</span>
+            </Link>
+          )
+        })}
+        {user && (
+          <Link
+            to="/account"
+            className={`flex flex-1 min-w-0 flex-col items-center gap-0.5 py-2 no-underline text-[10px] font-label ${
+              location.pathname === '/account' ? 'text-primary' : 'text-text-dim'
+            }`}
+          >
+            <Avatar user={user} size={20} />
+            <span className="truncate">Account</span>
+          </Link>
+        )}
+      </nav>
       <HfTokenModal />
       <HfAccessModal />
-      <ConnectModal />
       <LaunchConflictModal />
     </div>
   )

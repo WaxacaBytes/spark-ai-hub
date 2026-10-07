@@ -46,9 +46,6 @@ export const useStore = create((set, get) => ({
   // When non-null, a global modal asks to stop what is already running
   // before launching: { slug, blockers: [slug] }.
   launchRequest: null,
-  // "Connect a device" panel: reachable Hub addresses + copy-paste commands.
-  connectOpen: false,
-  connectInfo: null,
   _logWs: null,
   theme: getInitialTheme(),
 
@@ -199,17 +196,6 @@ export const useStore = create((set, get) => ({
 
   cancelHfAccess: () => set({ hfAccessRequest: null }),
 
-  openConnect: async () => {
-    set({ connectOpen: true })
-    try {
-      const res = await fetch('/api/system/connect')
-      if (res.ok) set({ connectInfo: await res.json() })
-    } catch (e) {
-      console.warn('Failed to fetch connect info:', e)
-    }
-  },
-
-  closeConnect: () => set({ connectOpen: false }),
 
   disconnectLogs: () => {
     const ws = get()._logWs

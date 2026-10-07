@@ -7,7 +7,7 @@ export default function ThemeToggle() {
   return (
     <button
       onClick={toggleTheme}
-      className="w-9 h-9 rounded-xl bg-surface-high flex items-center justify-center cursor-pointer border-none transition-all duration-300 hover:bg-surface-highest"
+      className="relative w-9 h-9 shrink-0 rounded-xl bg-surface-high flex items-center justify-center cursor-pointer border-none transition-all duration-300 hover:bg-surface-highest"
       title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
     >
       <svg

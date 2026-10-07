@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { formatParams } from './RecipeCard'
-import { buildLabel, displayName, speedLabel } from '../models'
+import { buildLabel, displayName } from '../models'
 import { openUrl as openUrlFor } from './RecipeCard'
+import Hint from './Hint'
 
 // Model builds, as rows of aligned numbers.
 //
@@ -20,8 +21,6 @@ import { openUrl as openUrlFor } from './RecipeCard'
 //   build      grouped under a model heading, which names the model, so a row
 //              only has to name its build
 //   ranked     one flat leaderboard per band; leads with a rank number
-//
-// "Jump back in" is deliberately not one of them -- see InstalledStrip.
 //
 const VARIANTS = {
   // The two speed columns are deliberately separate rather than one "19.5–59.4"
@@ -49,6 +48,51 @@ const VARIANTS = {
   },
 }
 
+// Phones get the same rows with the columns a thumb-width screen can hold:
+// the name, both speeds, one more figure and the action. Engine and quant
+// move under the name rather than disappearing, so every build stays on
+// screen and still tells itself apart. The third figure follows the sort —
+// sorted by params you see params — and is the size on disk otherwise.
+const COMPACT = {
+  build: {
+    columns: 'minmax(0,1fr) 42px 42px 48px 54px',
+    first: 'Build',
+    lead: null,
+    wrap: false,
+  },
+  ranked: {
+    columns: '16px minmax(0,1fr) 42px 42px 48px 54px',
+    first: 'Model · build',
+    lead: 'rank',
+    wrap: true,
+  },
+}
+const COMPACT_THIRD = { params: 'Params', 'aa-index': 'AA Index' }
+
+function variantFor(variant, narrow, highlight) {
+  if (!narrow) return VARIANTS[variant]
+  return {
+    ...COMPACT[variant],
+    headers: [],
+    fixedHeaders: ['Writing', 'Editing', COMPACT_THIRD[highlight] || 'On disk'],
+    aaIndex: highlight === 'aa-index',
+    sub: true,
+  }
+}
+
+const NARROW = '(max-width: 639px)'
+
+export function useNarrow() {
+  const [narrow, setNarrow] = useState(() => window.matchMedia(NARROW).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(NARROW)
+    const on = () => setNarrow(mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [])
+  return narrow
+}
+
 // Left to fill the window, the name column absorbs every spare pixel and
 // pushes the numbers ~900px from the name they describe; past that width a
 // row stops reading as one thing. So a wide window buys more tables rather
@@ -58,7 +102,20 @@ const VARIANTS = {
 // stack above it.
 const SPLIT_THRESHOLD = 8
 
-function formatContext(tokens) {
+// Why two speeds, said where the two numbers are.
+const HEADER_HINTS = {
+  Writing: 'Sustained tok/s writing new text from a short prompt (thinking on, 512 tokens, '
+    + 'temperature 0). Nothing can be copied from the prompt, so this is close to plain decode '
+    + 'speed — the figure every recipe carries.',
+  Editing: 'Sustained tok/s reproducing a document with a small change applied (thinking off, '
+    + '3000 tokens). Most of the output is already in the prompt, so builds that draft '
+    + 'speculatively (DFlash, DSpark, MTP) are far faster here than at writing — which is why '
+    + 'one number cannot describe them.',
+  'AA Index': 'Artificial Analysis Intelligence Index: a published capability score for the '
+    + 'base model, the same for every build of it.',
+}
+
+export function formatContext(tokens) {
   if (!tokens) return null
   if (tokens >= 1024 * 1024) return `${Math.round(tokens / (1024 * 1024))}M`
   return `${Math.round(tokens / 1024)}K`
@@ -80,8 +137,7 @@ function Cell({ children, className = '' }) {
   )
 }
 
-function ColumnHeader({ variant }) {
-  const v = VARIANTS[variant]
+function ColumnHeader({ v }) {
   return (
     <div
       className="grid gap-x-1.5 border-b border-outline-dim px-2 pb-1"
@@ -95,25 +151,25 @@ function ColumnHeader({ variant }) {
       ))}
       {/* Writing and Editing are bare numbers: "27.5 tok/s" in a 44px column
           truncates, and a second header line for the unit costs a row of height
-          on every table. What they are and what unit they carry is stated once,
-          under the section heading these tables sit beneath. */}
+          on every table. What they are and what unit they carry rides on the
+          heading itself, for whoever points at it. */}
       {v.fixedHeaders.map((h) => (
-        <span
+        <Hint
           key={h}
+          text={HEADER_HINTS[h]}
           className={`font-label text-[9px] font-semibold uppercase tracking-wider text-text-dim ${
             h === 'AA Index' ? 'text-center' : 'text-right'
-          }`}
+          } ${HEADER_HINTS[h] ? 'cursor-default underline decoration-dotted decoration-text-dim/60 underline-offset-2 outline-none' : ''}`}
         >
           {h}
-        </span>
+        </Hint>
       ))}
       <span />
     </div>
   )
 }
 
-function BuildRow({ recipe, variant, rank, highlight, onFrontier }) {
-  const v = VARIANTS[variant]
+function BuildRow({ recipe, variant, v, rank, highlight, onFrontier }) {
   const installing = useStore((s) => s.installing)
   const updating = useStore((s) => s.updating)
   const installRecipe = useStore((s) => s.installRecipe)
@@ -186,16 +242,23 @@ function BuildRow({ recipe, variant, rank, highlight, onFrontier }) {
             className="h-4 w-4 shrink-0 rounded object-contain"
           />
         )}
-        <span
-          className={`min-w-0 flex-1 font-label text-[11px] font-bold text-text ${
-            // Standalone rows carry a full model name and get a second line.
-            // Cutting the tail off "Nemotron-3 Nano Omni 30B-A3B Reasoning" is
-            // what makes two builds look like the same one.
-            v.wrap ? 'line-clamp-2 leading-tight' : 'truncate'
-          }`}
-          title={recipe.name}
-        >
-          {label}
+        <span className="flex min-w-0 flex-1 flex-col">
+          <span
+            className={`min-w-0 font-label text-[11px] font-bold text-text ${
+              // Standalone rows carry a full model name and get a second line.
+              // Cutting the tail off "Nemotron-3 Nano Omni 30B-A3B Reasoning" is
+              // what makes two builds look like the same one.
+              v.wrap ? 'line-clamp-2 leading-tight' : 'truncate'
+            }`}
+            title={recipe.name}
+          >
+            {label}
+          </span>
+          {v.sub && (
+            <span className="truncate font-label text-[9px] text-text-dim">
+              {[variant === 'ranked' && buildLabel(recipe), recipe.engine].filter(Boolean).join(' · ')}
+            </span>
+          )}
         </span>
         {/* Marks a build no other one in the catalog beats on both axes that
             actually trade off: nothing writes faster AND scores higher on
@@ -211,7 +274,9 @@ function BuildRow({ recipe, variant, rank, highlight, onFrontier }) {
         )}
       </span>
 
-      <Cell className={`text-text-muted ${v.wrap ? '' : 'text-[10px]'}`}>{recipe.engine}</Cell>
+      {v.headers.includes('Engine') && (
+        <Cell className={`text-text-muted ${v.wrap ? '' : 'text-[10px]'}`}>{recipe.engine}</Cell>
+      )}
       {v.headers.includes('Quant') && <Cell className="text-text-muted">{recipe.quantization}</Cell>}
 
       {/* Speed leads: it is the number that decides whether a build is usable. */}
@@ -235,13 +300,19 @@ function BuildRow({ recipe, variant, rank, highlight, onFrontier }) {
       >
         {recipe.tokens_per_second_editing ?? '—'}
       </span>
-      <Cell className={`text-right ${highlight === 'params' ? 'text-secondary font-bold' : 'text-text-muted'}`}>
-        {recipe.params_b != null ? formatParams(recipe) : null}
-      </Cell>
-      <Cell className={`text-right ${highlight === 'size' ? 'text-secondary font-bold' : 'text-text-muted'}`}>
-        {recipe.weights_gb != null ? `${recipe.weights_gb} GB` : null}
-      </Cell>
-      <Cell className="text-right text-text-muted">{formatContext(recipe.context_tokens)}</Cell>
+      {v.fixedHeaders.includes('Params') && (
+        <Cell className={`text-right ${highlight === 'params' ? 'text-secondary font-bold' : 'text-text-muted'}`}>
+          {recipe.params_b != null ? formatParams(recipe) : null}
+        </Cell>
+      )}
+      {v.fixedHeaders.includes('On disk') && (
+        <Cell className={`text-right ${highlight === 'size' ? 'text-secondary font-bold' : 'text-text-muted'}`}>
+          {recipe.weights_gb != null ? `${recipe.weights_gb} GB` : null}
+        </Cell>
+      )}
+      {v.fixedHeaders.includes('Ctx') && (
+        <Cell className="text-right text-text-muted">{formatContext(recipe.context_tokens)}</Cell>
+      )}
       {/* A capability score, not a speed one — published per base model by
           Artificial Analysis, so it does not vary with quantization or
           drafter the way Writing/Editing do. Grouped "build" tables already
@@ -303,6 +374,7 @@ function chunk(items, n) {
 
 export default function ModelList({ items, variant = 'ranked', highlight = null, frontier = null }) {
   const ref = useRef(null)
+  const v = variantFor(variant, useNarrow(), highlight)
   const splittable = variant === 'ranked' && items.length >= SPLIT_THRESHOLD
   const fits = useColumnCount(ref, splittable)
   // Never so many columns that each holds a row or two — a table needs enough
@@ -323,13 +395,14 @@ export default function ModelList({ items, variant = 'ranked', highlight = null,
     >
       {halves.map((half, i) => (
         <section key={i} className="rounded-2xl bg-surface p-3 ring-1 ring-glass-border">
-          <ColumnHeader variant={variant} />
+          <ColumnHeader v={v} />
           <div className="mt-0.5">
             {half.map((r, j) => (
               <BuildRow
                 key={r.slug}
                 recipe={r}
                 variant={variant}
+                v={v}
                 rank={offsets[i] + j + 1}
                 highlight={highlight}
                 onFrontier={frontier?.has(r.slug)}
@@ -342,103 +415,6 @@ export default function ModelList({ items, variant = 'ranked', highlight = null,
   )
 }
 
-// "Jump back in": short access to everything on this Spark.
-//
-// This shelf is recall, not choosing — you already installed these and want
-// back into one. So it is sized for a glance, not for comparison: a wrapping
-// grid of one-glance chips, models and apps together, the whole thing about
-// two rows tall. Full table rows were legible but turned a strip you skim
-// into two sections you scroll past to reach the catalog, and posters before
-// them were illegible: three of twelve tiles were the same picture.
-//
-// Each chip carries only what tells two installed builds apart — the engine,
-// the quantization, the speed — plus the one control you came for.
-export function InstalledStrip({ items }) {
-  return (
-    <div className="flex flex-wrap gap-2 px-6">
-      {items.map((r) => <InstalledChip key={r.slug} recipe={r} />)}
-    </div>
-  )
-}
-
-function InstalledChip({ recipe }) {
-  const installing = useStore((s) => s.installing)
-  const updating = useStore((s) => s.updating)
-  const requestLaunch = useStore((s) => s.requestLaunch)
-  const [logoFailed, setLogoFailed] = useState(false)
-  const logoUrl = useThemedLogo(recipe.logo)
-
-  const isBusy = !!installing[recipe.slug] || !!updating[recipe.slug]
-  const state = runState(recipe, isBusy)
-  const running = recipe.running && recipe.ready
-  const openUrl = openUrlFor(recipe)
-
-  // Models are told apart by how they were built; apps by their name alone.
-  const spec = [recipe.engine, recipe.quantization].filter(Boolean).join(' · ')
-
-  return (
-    <Link
-      to={`/app/${recipe.slug}`}
-      title={recipe.name}
-      className={`flex w-[272px] items-center gap-2 rounded-xl bg-surface p-2 no-underline text-inherit ring-1 transition-all hover:ring-text-dim ${
-        running ? 'ring-primary/60' : 'ring-glass-border'
-      }`}
-    >
-      {logoUrl && !logoFailed ? (
-        <img
-          src={logoUrl}
-          alt=""
-          loading="lazy"
-          onError={() => setLogoFailed(true)}
-          className="h-7 w-7 shrink-0 rounded-lg bg-surface-high object-contain p-1"
-        />
-      ) : (
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-surface-high text-sm">
-          {recipe.icon || '◻'}
-        </span>
-      )}
-
-      <span className="flex min-w-0 flex-1 flex-col">
-        <span className="flex items-center gap-1">
-          {state && state.label !== 'Installed' && (
-            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${state.dot}`} title={state.label} />
-          )}
-          <span className="truncate font-label text-[11px] font-bold text-text">
-            {displayName(recipe)}
-          </span>
-        </span>
-        <span className="truncate font-label text-[9px] text-text-dim">
-          {spec || recipe.author}
-          {recipe.tokens_per_second != null && (
-            <span className="ml-1 font-bold text-primary">{speedLabel(recipe)}</span>
-          )}
-        </span>
-      </span>
-
-      {running ? (
-        <a
-          href={openUrl}
-          target="_blank"
-          rel="noreferrer"
-          onClick={(e) => e.stopPropagation()}
-          className="btn-primary shrink-0 px-2 py-1 text-[10px] font-bold no-underline"
-        >
-          Open ↗
-        </a>
-      ) : isBusy || recipe.starting ? (
-        <span className="shrink-0 font-label text-[9px] text-text-muted">{state?.label}…</span>
-      ) : (
-        <button
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); requestLaunch(recipe.slug) }}
-          className="shrink-0 cursor-pointer rounded-lg border border-outline-dim bg-transparent px-2 py-1 font-label text-[10px] font-bold text-text-muted transition-colors hover:border-primary hover:text-primary"
-        >
-          Launch
-        </button>
-      )}
-    </Link>
-  )
-}
-
 // One model with every build it has, all on screen.
 //
 // Nothing here collapses. An earlier version showed only the best build and
@@ -446,6 +422,7 @@ function InstalledChip({ recipe }) {
 // catalog behind a control readers never found, and expanding it reflowed the
 // page so you lost your place.
 export function ModelBlock({ group, frontier = null }) {
+  const v = variantFor('build', useNarrow(), null)
   const [logoFailed, setLogoFailed] = useState(false)
   const logoUrl = useThemedLogo(group.lead.logo)
 
@@ -482,7 +459,7 @@ export function ModelBlock({ group, frontier = null }) {
 
       {/* Every block gets the column key, single-build ones included: without
           it those rows were a line of unlabelled numbers. */}
-      <ColumnHeader variant="build" />
+      <ColumnHeader v={v} />
 
       <div className="mt-0.5">
         {group.items.map((r) => (
@@ -490,6 +467,7 @@ export function ModelBlock({ group, frontier = null }) {
             key={r.slug}
             recipe={r}
             variant="build"
+            v={v}
             onFrontier={frontier?.has(r.slug)}
           />
         ))}
