@@ -446,9 +446,43 @@ def read_json(path: Path) -> dict:
     if not path.is_file():
         return {}
     try:
-        return json.loads(path.read_text()) or {}
+        return json.loads(strip_jsonc(path.read_text())) or {}
     except json.JSONDecodeError:
         return {}
+
+
+def strip_jsonc(text: str) -> str:
+    """JSON with comments and trailing commas -- the format of VS Code's and
+    Zed's settings, which Zed's own settings.json always starts with -- as
+    plain JSON. Plain JSON passes through unchanged. Comments are not kept
+    on rewrite; --restore puts the original file back byte for byte."""
+    out: list[str] = []
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c == '"':
+            j = i + 1
+            while j < n and text[j] != '"':
+                j += 2 if text[j] == "\\" else 1
+            out.append(text[i:j + 1])
+            i = j + 1
+        elif text.startswith("//", i):
+            end = text.find("\n", i)
+            i = n if end < 0 else end
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+        else:
+            out.append(c)
+            i += 1
+    # Trailing commas: drop a comma whose next non-blank piece closes a
+    # bracket. Strings are whole pieces of `out`, so their contents never match.
+    for k, piece in enumerate(out):
+        if piece == ",":
+            rest = next((p for p in out[k + 1:] if not p.isspace()), "")
+            if rest in ("}", "]"):
+                out[k] = ""
+    return "".join(out)
 
 
 def rfc3339_now() -> str:
@@ -711,6 +745,7 @@ class Integration:
     install_hint = ""
     launchable = True   # bare `sah <name>` runs the client
     writes_config = False   # has a plain-client config → --install/--restore
+    opens_folder = False   # an editor: `sah <name> .` opens the current folder
 
     # -- binary ---------------------------------------------------------------
 
@@ -2615,18 +2650,247 @@ class ClaudeDesktop(Integration):
         self.restart(skip=args.no_restart)
 
 
+# ---------------------------------------------------------------------- vscode
+
+
+class VSCode(Integration):
+    """Ollama's cmd/launch/vscode.go: one group in VS Code's
+    chatLanguageModels.json, then open VS Code. Ollama's group uses the
+    built-in `ollama` vendor, which speaks the Ollama native API; sah's uses
+    the built-in `customendpoint` vendor ("Custom Endpoint"), which takes an
+    OpenAI-compatible URL. VS Code now lists `ollama` as deprecated.
+
+    The key goes in each model's Authorization request header, which Custom
+    Endpoint sends in place of its own. A group's `apiKey` cannot carry it:
+    VS Code reads that field back only from its own encrypted secret store,
+    which nothing outside VS Code can write. The Hub's MCP server goes in the
+    user mcp.json, which VS Code shares between chat and agent mode."""
+    name, display, binary = "vscode", "Visual Studio Code", "code"
+    aliases = ("code",)
+    kind = "Desktop"
+    install_hint = "https://code.visualstudio.com"
+    writes_config = True
+    opens_folder = True
+
+    VENDOR = "customendpoint"
+
+    def find_binary(self) -> str | None:
+        """PATH first, then where the installers put it, as Ollama looks. The
+        macOS app does not add `code` to PATH until you run "Shell Command:
+        Install 'code' command in PATH", so the bundle's own CLI is used."""
+        if path := shutil.which("code"):
+            return path
+        if sys.platform == "darwin":
+            app = Path("Visual Studio Code.app") / "Contents/Resources/app/bin/code"
+            candidates = [Path("/Applications") / app, Path.home() / "Applications" / app]
+        elif sys.platform == "win32":
+            local = os.environ.get("LOCALAPPDATA") or ""
+            candidates = [Path(local) / "Programs/Microsoft VS Code/bin/code.cmd"] if local else []
+        else:
+            candidates = [Path("/usr/bin/code"), Path("/snap/bin/code")]
+        return next((str(c) for c in candidates if c.is_file()), None)
+
+    def user_dir(self) -> Path:
+        if sys.platform == "darwin":
+            return Path.home() / "Library" / "Application Support" / "Code" / "User"
+        if sys.platform == "win32":
+            return Path(os.environ.get("APPDATA") or Path.home()) / "Code" / "User"
+        return Path.home() / ".config" / "Code" / "User"
+
+    def files(self) -> dict[str, Path]:
+        return {
+            "vscode": self.user_dir() / "chatLanguageModels.json",
+            "vscode-mcp": self.user_dir() / "mcp.json",
+        }
+
+    def is_mine(self, group) -> bool:
+        return (isinstance(group, dict) and group.get("vendor") == self.VENDOR
+                and group.get("name") == PROVIDER_NAME)
+
+    @staticmethod
+    def entry(model: Model) -> dict:
+        return {
+            "id": model.name,
+            "name": model.name,
+            "url": api_base(),
+            "toolCalling": model.has("tools"),
+            "vision": model.has("vision"),
+            "thinking": model.has("thinking"),
+            "contextWindow": model.context(),
+            "maxOutputTokens": model.max_output(),
+            "requestHeaders": {"Authorization": f"Bearer {API_KEY}"},
+        }
+
+    def configure(self, model: Model) -> None:
+        paths = self.files()
+        groups = read_json(paths["vscode"])
+        groups = [g for g in groups if not self.is_mine(g)] if isinstance(groups, list) else []
+        groups.append({
+            "name": PROVIDER_NAME,
+            "vendor": self.VENDOR,
+            "models": [self.entry(m) for m in model.all],
+        })
+        write_json(paths["vscode"], groups)
+
+        mcp = read_json(paths["vscode-mcp"])
+        servers = mcp.get("servers") if isinstance(mcp.get("servers"), dict) else {}
+        servers[MCP_SERVER] = {"type": "http", "url": mcp_url(), "headers": mcp_headers()}
+        mcp["servers"] = servers
+        write_json(paths["vscode-mcp"], mcp)
+
+    def wired(self) -> bool:
+        groups = read_json(self.files()["vscode"])
+        return isinstance(groups, list) and any(
+            self.is_mine(g) and any(isinstance(m, dict) and m.get("url") == api_base()
+                                    for m in g.get("models") or [])
+            for g in groups
+        )
+
+    def launch(self, model: Model, extra: list[str]) -> None:
+        # Ollama's same warning: agent mode lists only tool-calling models.
+        if not model.has("tools"):
+            print(f"Note: the Hub does not report tool calling for {model.name}, "
+                  f"so it may not appear in VS Code's agent mode.", file=sys.stderr)
+        super().launch(model, extra)
+
+    def extras(self) -> tuple[tuple[str, str], ...]:
+        return (("Models", f"chat model picker → {PROVIDER_NAME} (Manage Models if hidden)"),)
+
+
+# ------------------------------------------------------------------------- zed
+
+
+ZED_KEY_ENV = re.sub(r"[^A-Za-z0-9]+", "_", PROVIDER_NAME).upper() + "_API_KEY"
+
+
+class Zed(Integration):
+    """No Ollama counterpart. Zed's own OpenAI-compatible provider, named
+    after the Hub, in settings.json, with the biggest model as the agent's
+    default and the Hub's MCP server under context_servers.
+
+    Zed never reads a provider's key from settings.json, only from the OS
+    keychain or from `<PROVIDER ID>_API_KEY` (here SPARK_AI_HUB_API_KEY) in
+    the environment it started with. On Linux and Windows the zed CLI starts
+    the app as its child, so `sah zed` passes the variable (a Zed that is
+    already open must be quit first). On macOS the CLI opens the app through
+    LaunchServices, which hands it none of the CLI's environment, so the key
+    goes in the login keychain instead, as the same internet password Zed
+    writes itself when you paste a key: server = the provider's api_url,
+    account = "Bearer"."""
+    name, display, binary = "zed", "Zed", "zed"
+    kind = "Desktop"
+    install_hint = "https://zed.dev/download"
+    writes_config = True
+    opens_folder = True
+
+    def app_bundle(self) -> Path | None:
+        for root in (Path("/Applications"), Path.home() / "Applications"):
+            for name in ("Zed.app", "Zed Preview.app"):
+                if (root / name / "Contents/MacOS/cli").is_file():
+                    return root / name
+        return None
+
+    def find_binary(self) -> str | None:
+        """PATH first (some Linux packages name the CLI zeditor), then where
+        the installers put it. The macOS app does not add `zed` to PATH until
+        you run "zed: install cli", so the bundle's own CLI is used."""
+        for name in ("zed", "zeditor"):
+            if path := shutil.which(name):
+                return path
+        if sys.platform == "darwin":
+            app = self.app_bundle()
+            return str(app / "Contents/MacOS/cli") if app else None
+        fallback = Path.home() / ".local/bin/zed"
+        return str(fallback) if fallback.is_file() else None
+
+    def keychain(self, action: str) -> bool:
+        """add/delete the macOS keychain entry Zed reads the key from."""
+        args = ["security", f"{action}-internet-password", "-s", api_base(), "-a", "Bearer"]
+        if action == "add":
+            # -T lets Zed itself read it; without it macOS asks on first use.
+            app = self.app_bundle()
+            args += ["-U", "-w", API_KEY, *(["-T", str(app)] if app else [])]
+        try:
+            done = subprocess.run(args, capture_output=True, text=True)
+        except OSError:
+            return False
+        return done.returncode == 0
+
+    def config_path(self) -> Path:
+        if sys.platform == "win32":
+            return Path(os.environ.get("APPDATA") or Path.home()) / "Zed" / "settings.json"
+        base = os.environ.get("XDG_CONFIG_HOME") if sys.platform.startswith("linux") else None
+        return (Path(base) if base else Path.home() / ".config") / "zed" / "settings.json"
+
+    def files(self) -> dict[str, Path]:
+        return {"zed": self.config_path()}
+
+    @staticmethod
+    def entry(model: Model) -> dict:
+        return {
+            "name": model.name,
+            "max_tokens": model.context(),
+            "max_output_tokens": model.max_output(),
+            "capabilities": {
+                "tools": model.has("tools"),
+                "images": model.has("vision"),
+                "parallel_tool_calls": False,
+                "prompt_cache_key": False,
+            },
+        }
+
+    def configure(self, model: Model) -> None:
+        cfg = read_json(self.config_path())
+        models = cfg.get("language_models") if isinstance(cfg.get("language_models"), dict) else {}
+        compatible = (models.get("openai_compatible")
+                      if isinstance(models.get("openai_compatible"), dict) else {})
+        compatible[PROVIDER_NAME] = {
+            "api_url": api_base(),
+            "available_models": [self.entry(m) for m in model.all],
+        }
+        models["openai_compatible"] = compatible
+        cfg["language_models"] = models
+        agent = cfg.get("agent") if isinstance(cfg.get("agent"), dict) else {}
+        agent["default_model"] = {"provider": PROVIDER_NAME, "model": model.name}
+        cfg["agent"] = agent
+        servers = cfg.get("context_servers") if isinstance(cfg.get("context_servers"), dict) else {}
+        servers[MCP_SERVER] = {"url": mcp_url(), "headers": mcp_headers()}
+        cfg["context_servers"] = servers
+        write_json(self.config_path(), cfg)
+        if sys.platform == "darwin" and not self.keychain("add"):
+            print("Note: could not save the key in your keychain; Zed will ask for it "
+                  f"(sah {self.name} --status shows it).", file=sys.stderr)
+
+    def restore(self) -> None:
+        super().restore()
+        if sys.platform == "darwin" and self.keychain("delete"):
+            print("  Key removed from your keychain.")
+
+    def wired(self) -> bool:
+        compatible = (read_json(self.config_path()).get("language_models") or {}).get("openai_compatible")
+        provider = compatible.get(PROVIDER_NAME) if isinstance(compatible, dict) else None
+        return isinstance(provider, dict) and provider.get("api_url") == api_base()
+
+    def env(self, model: Model) -> dict:
+        return {ZED_KEY_ENV: API_KEY}
+
+    def extras(self) -> tuple[tuple[str, str], ...]:
+        if sys.platform == "darwin":
+            return (("Key", f"login keychain, server {api_base()}, account Bearer"),)
+        return (("Key", f"{ZED_KEY_ENV}, set only when sah starts Zed: quit Zed, then run sah zed"),)
+
+
 # ------------------------------------------------------------------- registry
 #
-# Order mirrors Ollama's launcherIntegrationOrder, with the integrations it
-# marks Hidden at the end. Ollama's `vscode` is deliberately absent: it reaches
-# models only through Copilot Chat's built-in `ollama` vendor, which speaks the
-# Ollama native API (/api/tags, /api/chat) and cannot be pointed at an
-# OpenAI-compatible endpoint. Everything here talks to the Hub and nothing else.
+# Order mirrors Ollama's registry: launcherIntegrationOrder first, then the
+# integrations it marks Hidden in their registry order, then the ones Ollama
+# does not have. Everything here talks to the Hub and nothing else.
 
 INTEGRATIONS: list[Integration] = [
     Claude(), ChatGPT(), Hermes(), OpenClaw(), OpenCode(), OpenCodeDesktop(), HermesDesktop(), Codex(),
     Copilot(), OMP(), Cline(), Droid(), DeepSeekHarness(), Pi(), Pool(), Qwen(),
-    ClaudeDesktop(), Kimi(), Muse(),
+    ClaudeDesktop(), Kimi(), Muse(), VSCode(),
+    Zed(),
 ]
 
 BY_NAME: dict[str, Integration] = {}

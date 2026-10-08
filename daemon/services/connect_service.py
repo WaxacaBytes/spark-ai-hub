@@ -55,7 +55,8 @@ def supported_agents() -> list[dict]:
             "kind": item.kind,
             # Desktop apps are not launched from a shell: sah writes their
             # config once and the app picks it up on its next start.
-            "command": f"sah {item.name}" if item.launchable else f"sah {item.name} --install",
+            "command": (f"sah {item.name} ." if item.opens_folder else f"sah {item.name}")
+                       if item.launchable else f"sah {item.name} --install",
             "writes_config": item.writes_config,
         }
         for item in module.INTEGRATIONS

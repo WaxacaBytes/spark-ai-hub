@@ -531,7 +531,7 @@ function SahSteps({ agent, info, apiKey }) {
         title={installOnly ? `Connect ${agent.name}` : `Start ${agent.name}`}
         sub={installOnly
           ? `Run this once, then quit and reopen ${agent.name}.`
-          : `Run this whenever you want to use ${agent.name}${isDesktop ? '' : ' — in any folder you want it to work in'}.`}
+          : `Run this whenever you want to use ${agent.name}${isDesktop && !agent.command.endsWith(' .') ? '' : ' — in any folder you want it to work in'}.`}
       >
         <CopyCode text={agent.command} large />
       </BigStep>
@@ -577,6 +577,8 @@ const AGENT_LOGOS = {
   droid: { src: '/logos/agents/droid.png', fill: true },
   pi: { src: '/logos/agents/pi.png' },
   kimi: { src: '/logos/agents/kimi.png', fill: true },
+  vscode: { src: '/logos/agents/vscode.png' },
+  zed: { src: '/logos/agents/zed.png', fill: true },
 }
 
 function AgentLogo({ agent, size = 20 }) {
