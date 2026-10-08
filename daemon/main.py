@@ -1,10 +1,11 @@
 import asyncio
+import hashlib
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from daemon.config import settings
@@ -126,6 +127,14 @@ if SAH_DIR.is_dir():
         # the literal marker so a standalone run still detects "not injected".
         text = text.replace("@SAH_CANDIDATES@", candidates, 1)
         return Response(content=text, media_type="text/x-shellscript")
+
+    _SAH_CLI = SAH_DIR / "sah"
+
+    @app.get("/sah/version")
+    def sah_version():
+        # sah compares this with its own sha256 on every run and replaces
+        # itself with /sah/sah when they differ.
+        return PlainTextResponse(hashlib.sha256(_SAH_CLI.read_bytes()).hexdigest())
 
     app.mount("/sah", StaticFiles(directory=str(SAH_DIR)), name="sah")
 

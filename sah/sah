@@ -20,6 +20,7 @@ laptop that has come back onto the Hub's LAN — is picked up automatically.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -244,6 +245,43 @@ def hub_url() -> str:
 
 def api_base() -> str:
     return f"{hub_url()}/v1"
+
+
+# ----------------------------------------------------------------- self-update
+
+
+def self_update() -> None:
+    """Replace this script with the Hub's copy when they differ, then re-run.
+
+    The Hub serves the sah its own features expect, so a client that has
+    drifted behind it updates itself on the next run instead of waiting for
+    the installer to be run again. The check is one small request: the Hub
+    answers /sah/version with the sha256 of the sah it serves. Anything that
+    goes wrong — offline, an older Hub without that route, an install this
+    user cannot write — leaves the running copy as it is. SAH_NO_UPDATE=1
+    turns the check off.
+    """
+    if os.environ.get("SAH_NO_UPDATE"):
+        return
+    path = Path(__file__).resolve()
+    try:
+        with urllib.request.urlopen(f"{hub_url()}/sah/version", timeout=2) as r:
+            wanted = r.read().decode().strip()
+        if (not re.fullmatch(r"[0-9a-f]{64}", wanted)
+                or hashlib.sha256(path.read_bytes()).hexdigest() == wanted):
+            return
+        with urllib.request.urlopen(f"{hub_url()}/sah/sah", timeout=15) as r:
+            fresh = r.read()
+        if hashlib.sha256(fresh).hexdigest() != wanted:
+            return  # the Hub's copy changed mid-check; the next run gets it
+        tmp = path.with_name(f".{path.name}.new")
+        tmp.write_bytes(fresh)
+        tmp.chmod(path.stat().st_mode)
+        os.replace(tmp, path)
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError):
+        return
+    print("sah: updated to the Hub's current version", file=sys.stderr)
+    os.execv(sys.executable, [sys.executable, str(path), *sys.argv[1:]])
 
 
 # The Hub's MCP server: private web search, and images, video and music on the
@@ -3111,6 +3149,10 @@ def main() -> None:
         args.passthrough = [*extras, *args.passthrough]
     elif extras:
         parser.error(f"unrecognized arguments: {' '.join(extras)}")
+    # set-hub and set-key change how the Hub is reached; checking first would
+    # use the address or key being replaced.
+    if args.func not in (cmd_set_hub, cmd_set_key):
+        self_update()
     args.func(args)
 
 

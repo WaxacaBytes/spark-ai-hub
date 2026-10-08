@@ -22,6 +22,11 @@ The Hub serves this script with its own reachable addresses baked in — the one
 you fetched it from, plus its mDNS name, Tailscale name and LAN IP — and `sah`
 falls back through them, so a changed DHCP lease never breaks the client.
 
+Every run, `sah` checks its own copy against the one the Hub serves and, if
+they differ, replaces itself and carries on with the updated version, so it
+stays in step with the Hub without re-running the installer. Set
+`SAH_NO_UPDATE=1` to skip the check.
+
 Override the Hub URL:
 
 ```sh
