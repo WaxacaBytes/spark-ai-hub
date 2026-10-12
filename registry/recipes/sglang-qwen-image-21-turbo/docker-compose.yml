@@ -1,24 +1,19 @@
 services:
   sglang:
-    # Qwen-Image-2.1 distilled to 4 steps, served by SGLang Diffusion on the
-    # OpenAI images API. The text encoder, VAE and processor are
-    # Qwen/Qwen-Image-2.1's own; the transformer and scheduler config are
-    # Viggle/Qwen-Image-2.1-viggle-turbo's.
+    # Qwen-Image-2.1-Turbo, Qwen's own 8-step accelerated checkpoint of
+    # Qwen-Image-2.1, served by SGLang Diffusion on the OpenAI images API.
+    # Same 7B DiT architecture, Qwen3-VL text encoder and VAE as the base
+    # model; every file comes from the one Qwen repo.
     #
-    # The transformer is Viggle's full fine-tune (the student its card
-    # recommends and its demo runs), not its LoRA: same architecture and
-    # config as the stock DiT, one 14.2 GB BF16 file in place of Qwen's two
-    # shards, and nothing for SGLang to apply at runtime.
+    # The checkpoint carries its own 8-step sigma grid (sample_sigmas in
+    # model_index.json). SGLang reads that grid since #43391 (merged
+    # 2026-10-10), so every request runs exactly those 8 steps whatever
+    # num_inference_steps says, with CFG off.
     #
-    # The scheduler config is Qwen's with one change, shift_terminal 0.02 ->
-    # null. SGLang builds its FlowMatchEuler scheduler from this file, and the
-    # stock 0.02 stretch would wreck the last of the four steps.
-    #
-    # Image: lmsysorg/sglang:nightly-cu134-20260920-efa7be2, pinned by digest --
-    # the same native aarch64 image as sglang-qwen-image-21, and for the same
-    # reason: Qwen-Image-2.1 support landed in sglang main on 2026-09-20
-    # (#39983), after v0.5.20 was cut, so no released tag can serve it yet.
-    # lmsys prunes nightly tags within days; the digest is what is pulled.
+    # Image: lmsysorg/sglang:nightly-cu134-20261011-53295c6, pinned by digest --
+    # the native aarch64 cu134 nightly line sglang-qwen-image-21 also uses,
+    # and the first one carrying #43391; no released tag has it yet. lmsys
+    # prunes nightly tags within days; the digest is what is pulled.
     build:
       context: .
       dockerfile_inline: |
@@ -28,19 +23,13 @@ services:
         #
         # Downloaded to a plain directory, not the HF cache: SGLang resolves a
         # repo id through snapshot_download, and offline that refuses a cached
-        # snapshot with any file missing. A local path is loaded as-is. The
-        # directory name carries "qwen-image-2.1", which is what SGLang's
-        # diffusion registry matches on; --model-id below states it anyway.
-        #
-        # The stock transformer and scheduler are skipped rather than
-        # downloaded and overwritten, so the build fetches 14.2 GB less.
+        # snapshot with any file missing. A local path is loaded as-is.
         ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
         RUN pip install --no-cache-dir huggingface_hub
-        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen-Image-2.1', revision='b3179ad355be050328e483a9dfdd9e60cd62adfa', local_dir='/models/Qwen-Image-2.1-Turbo', ignore_patterns=['*.jpg', '*.png', '*.webp', 'assets/*', 'transformer/*', 'scheduler/*'], max_workers=8)"
-        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Viggle/Qwen-Image-2.1-viggle-turbo', revision='bafc91e4cc934f5fb1406b22496a0bed9b99c548', local_dir='/models/Qwen-Image-2.1-Turbo', allow_patterns=['transformer/*', 'scheduler/*'], max_workers=8)"
-        FROM lmsysorg/sglang@sha256:62162648f5bb518361cc346acc131c1c28515b79aa10e4c19c674665dc13b8cb
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Qwen/Qwen-Image-2.1-Turbo', revision='d65dbc9a7e8f6b5479e33dee6030eaab2a906509', local_dir='/models/Qwen-Image-2.1-Turbo', ignore_patterns=['*.jpg', '*.png', '*.webp', 'assets/*'], max_workers=8)"
+        FROM lmsysorg/sglang@sha256:3e79541d1e2a6818979c4aa9ca1fa63d6961d7bc50120867953ea6baaf1d8f62
         COPY --from=weights /models /models
-    image: spark-ai-hub/sglang-qwen-image-21-turbo:nightly-cu134-20260920
+    image: spark-ai-hub/sglang-qwen-image-21-turbo:nightly-cu134-20261011
     container_name: spark-ai-hub-sglang-qwen-image-21-turbo
     # No published port: the Hub reaches this container by name through its
     # front door at /run/sglang-qwen-image-21-turbo/, so it never collides
@@ -57,8 +46,10 @@ services:
       - serve
       - --model-path
       - /models/Qwen-Image-2.1-Turbo
+      # SGLang's registry knows the checkpoint by its repo id; the local
+      # directory alone would not tell it which pipeline config to use.
       - --model-id
-      - Qwen-Image-2.1
+      - Qwen/Qwen-Image-2.1-Turbo
       - --served-model-name
       - Qwen-Image-2.1-Turbo
       - --num-gpus
@@ -67,19 +58,16 @@ services:
       - 0.0.0.0
       - --port
       - "30000"
-      # "Resident": every component stays on the GPU. That is what the SGLang
-      # cookbook selects for any card with room for the whole pipeline (peak
-      # 38.4 GiB measured), and the Spark has 121 GB. On this box CPU and GPU
+      # "Resident": every component stays on the GPU. On this box CPU and GPU
       # share one pool, so an offload would only add copies back and forth.
       - --performance-mode
       - speed
       - --pin-cpu-memory
       - "false"
-      # The base model always returns RGBA, even for an opaque prompt, so every
-      # request must ask for PNG -- SGLang's disk copy of the result is JPEG
-      # by default and dies with "cannot write mode RGBA as JPEG". The Hub's
-      # image tools always send output_format=png, so this only bites someone
-      # calling the served API by hand.
+      # The model returns RGBA, so every request must ask for PNG -- SGLang's
+      # disk copy of the result is JPEG by default and dies with "cannot write
+      # mode RGBA as JPEG". The Hub's image tools always send
+      # output_format=png, so this only bites someone calling the API by hand.
       - --output-path
       - /tmp/sglang-outputs
     deploy:

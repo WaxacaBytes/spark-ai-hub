@@ -1,11 +1,11 @@
 name: "Qwen-Image-2.1 Turbo"
 slug: sglang-qwen-image-21-turbo
 version: "1.0.0"
-description: "Qwen-Image-2.1 in 4 steps: Viggle's DMD-distilled student of Qwen's 7B DiT, a full BF16 fine-tune that replaces the stock transformer, with Qwen's own Qwen3-VL 8B text encoder and VAE unchanged. 4 transformer passes instead of 40, with no classifier-free guidance. Viggle calls it a v0.1 preview: text-to-image is usable, but editing with several references, face swaps and edits that must keep a person's identity are clearly worse than the 40-step base — for those, use Qwen-Image-2.1. Served by SGLang Diffusion on the OpenAI images API; your coding agents reach it through the Hub's image tools (generate_image / edit_image). Everything stays resident on the GPU at BF16. Qwen Research License (non-commercial)."
-author: "Qwen (Alibaba) · 4-step distillation by Viggle"
+description: "Qwen-Image-2.1-Turbo, Qwen's own 8-step accelerated checkpoint of Qwen-Image-2.1: the same 7B DiT, Qwen3-VL 8B text encoder and VAE, sampled on the 8-step schedule shipped with the checkpoint instead of 40 steps, with no classifier-free guidance. Text-to-image, editing with one or several reference images, and transparent (RGBA) output, like the base model. Served by SGLang Diffusion on the OpenAI images API; your coding agents reach it through the Hub's image tools (generate_image / edit_image). Everything stays resident on the GPU at BF16. Qwen Research License (non-commercial)."
+author: "Qwen (Alibaba)"
 source: "community"
-website: "https://huggingface.co/Viggle/Qwen-Image-2.1-viggle-turbo"
-upstream: "https://huggingface.co/Qwen/Qwen-Image-2.1"
+website: "https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo"
+upstream: "https://github.com/QwenLM/Qwen-Image-2.1"
 category: image-gen
 categories:
   - image-gen
@@ -38,21 +38,21 @@ docker:
   build_time_minutes: 25
   gpu: true
 status: experimental
-release_date: "2026-09"
+release_date: "2026-10"
 engine: "SGLang"
 params_b: 7
 arch: dense
 quantization: "BF16"
-weights_gb: 30.9
+weights_gb: 32.5
 requires_hf_token: false
 # The Hub's image tools use these whenever an agent leaves them unset.
-# The student was distilled for exactly 4 steps with CFG off; Viggle's card
-# says more steps or CFG do not help.
+# The checkpoint ships its own 8-step sigma grid and SGLang always runs it, so
+# steps 8 only states what happens; CFG 1 (off) is the card's default.
 image_defaults:
-  steps: 4
+  steps: 8
   true_cfg_scale: 1.0
-  notes: "Distilled for exactly 4 steps at CFG 1 (off) with no negative prompt; more steps or CFG do not help. Editing was trained with 1-3 reference images. RGBA output is untested at 4 steps."
-  source: "https://huggingface.co/Viggle/Qwen-Image-2.1-viggle-turbo"
+  notes: "Always 8 steps on the schedule saved with the checkpoint (a different step count is ignored), CFG 1 (off). Same aspect ratios, editing (1 or more reference images) and transparent output as Qwen-Image-2.1; the card's examples render 2048x2048 edits and 1680x2512 posters."
+  source: "https://huggingface.co/Qwen/Qwen-Image-2.1-Turbo"
 integration:
   api_url: "<HUB>/v1"
   model_id: "Qwen-Image-2.1-Turbo"
