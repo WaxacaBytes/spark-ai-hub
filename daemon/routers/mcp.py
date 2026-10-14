@@ -72,7 +72,8 @@ INSTRUCTIONS = (
     "preview. Show the user the URL. To refine an image, pass its URL to edit_image. "
     "The URLs are private: they open for the user signed in to the Hub, not for you. "
     "Results are deleted after 30 days, so tell the user to download what they want to keep; "
-    "they can see and delete everything they made or uploaded at <Hub address>/files.\n\n"
+    "they can see and delete everything they made or uploaded at <Hub address>/files, "
+    "and delete_file removes one when they ask you to.\n\n"
     "Files in your own workspace: tools take URLs, never file paths or file contents, "
     "because the models run on the Spark. To use a file you have, call create_upload "
     "and run the curl command it returns; the JSON it prints has the `url` to pass to "
@@ -374,6 +375,22 @@ TOOLS = [
         },
     },
     {
+        "name": "delete_file",
+        "title": "Delete file",
+        "description": (
+            "Delete one of the user's Hub files for good: an image, video or song URL from "
+            "the other tools, or an upload. Only when the user asks for it; it cannot be undone."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"url": {"type": "string",
+                                   "description": "The Hub URL of the image, video, song or upload."}},
+            "required": ["url"],
+            "additionalProperties": False,
+        },
+        "annotations": {"destructiveHint": True, "idempotentHint": True},
+    },
+    {
         "name": "decide",
         "title": "Decide",
         "description": (
@@ -538,6 +555,11 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             return _text(json.dumps(await decision_service.list_models(), indent=2))
         if name in ("create_upload", "create_download"):
             return await _link_tool(name, args, origin, user)
+        if name == "delete_file":
+            file_name = await _own_file(args, user)
+            await media_store.delete(file_name, user)
+            return {"content": [{"type": "text", "text": f"Deleted {file_name}."}],
+                    "structuredContent": {"deleted": file_name}, "isError": False}
         if name == "decide":
             images, videos = args.get("images") or [], args.get("videos") or []
             if isinstance(images, str):
@@ -821,6 +843,20 @@ def _music_result(info: dict, origin: str) -> dict:
             "structuredContent": {**song, "url": url}, "isError": False}
 
 
+async def _own_file(args: dict, user: dict | None) -> str:
+    """The name of the caller's Hub file behind args['url'], or an ImageError."""
+    if user is None:
+        raise image_service.ImageError("Files need a signed-in Hub account behind this connection.")
+    file_name = media_store.name_in_url(str(args.get("url") or ""))
+    if not file_name:
+        raise image_service.ImageError("'url' must be a Hub image, video or song URL "
+                                       "(.../images/<id>.png, /videos/<id>.mp4 or /audio/<id>.wav).")
+    if media_store.find(file_name) is None or not await media_store.can_read(file_name, user):
+        raise image_service.ImageError(f"No Hub file {file_name} for this account "
+                                       "(it may have expired or been deleted).")
+    return file_name
+
+
 async def _link_tool(name: str, args: dict, origin: str, user: dict | None) -> dict:
     """create_upload / create_download: a key-less link for the caller's account."""
     if user is None:
@@ -840,13 +876,7 @@ async def _link_tool(name: str, args: dict, origin: str, user: dict | None) -> d
                 "structuredContent": {"upload_url": link, "method": "POST", "curl": curl,
                                       "expires_at": expires}}
 
-    file_name = media_store.name_in_url(str(args.get("url") or ""))
-    if not file_name:
-        raise image_service.ImageError("'url' must be a Hub image, video or song URL "
-                                       "(.../images/<id>.png, /videos/<id>.mp4 or /audio/<id>.wav).")
-    if media_store.find(file_name) is None or not await media_store.can_read(file_name, user):
-        raise image_service.ImageError(f"No Hub file {file_name} for this account "
-                                       "(it may have expired or been deleted).")
+    file_name = await _own_file(args, user)
     token, expires = await link_service.create("download", user["id"], file_name)
     link = f"{origin}{link_service.DOWNLOAD_PREFIX}{token}"
     curl = f"curl -sSfL -o {file_name} '{link}'"

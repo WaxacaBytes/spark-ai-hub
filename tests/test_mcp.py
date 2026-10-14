@@ -113,7 +113,7 @@ class McpProtocolTests(unittest.TestCase):
         self.assertEqual(names, {"generate_image", "edit_image", "get_image",
                                  "list_image_models", "generate_video", "get_video",
                                  "list_video_models", "generate_music", "get_music",
-                                 "create_upload", "create_download",
+                                 "create_upload", "create_download", "delete_file",
                                  "start_model", "stop_model", "web_search", "web_fetch",
                                  "decide", "list_decision_models"})
 
@@ -838,6 +838,19 @@ class LinkTests(_MediaDirsTest):
         link = urllib_path(self._tool("create_download", {"url": mine})["structuredContent"]["download_url"])
         self.client.delete(f"/api/media/{mine.rsplit('/', 1)[1]}")
         self.assertEqual(self.client.get(link).status_code, 404)
+
+    def test_delete_file_removes_only_the_callers_own(self):
+        mine = urllib_path(self.client.post(self._upload_link(), content=_png()).json()["url"])
+        name = mine.rsplit("/", 1)[1]
+        refused = self._tool("delete_file", {"url": mine}, who="other")
+        self.assertTrue(refused["isError"])
+        self.assertIsNotNone(media_store.find(name))
+        result = self._tool("delete_file", {"url": "http://spark.local:9000" + mine})
+        self.assertFalse(result["isError"], result)
+        self.assertEqual(result["structuredContent"], {"deleted": name})
+        self.assertIsNone(media_store.find(name))
+        self.assertTrue(self._tool("delete_file", {"url": mine})["isError"])
+        self.assertTrue(self._tool("delete_file", {"url": mine}, who="anon")["isError"])
 
     def test_links_need_an_account(self):
         self.assertTrue(self._tool("create_upload", who="anon")["isError"])
