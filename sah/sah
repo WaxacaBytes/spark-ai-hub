@@ -1083,6 +1083,22 @@ class OpenCodeDesktop(OpenCode):
     provider and MCP server into that file, backed up for --restore."""
     name, display = "opencode-desktop", "OpenCode Desktop"
     aliases = ("opencode-app",)
+    def argv(self, model: Model, extra: list[str]) -> list[str]:
+        """OpenCode 2 hands the work to a background service that outlives
+        every launch and was started with someone else's environment, so it
+        never sees OPENCODE_CONFIG_CONTENT and falls back to OpenCode's own
+        models. --standalone runs a private server that inherits ours. Only the
+        TUI (no subcommand, or a folder to open) and the commands that talk to
+        the server take it."""
+        if has_flag(extra, "--standalone", "--server"):
+            return list(extra)
+        first = extra[0] if extra else ""
+        if not first or first.startswith("-") or Path(first).exists():
+            return ["--standalone", *extra]
+        if first in ("run", "mini", "models"):
+            return [first, "--standalone", *extra[1:]]
+        return list(extra)
+
     kind = "Desktop"
     binary = None
     launchable = False

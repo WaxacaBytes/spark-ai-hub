@@ -229,6 +229,12 @@ def _user_content(parts: list[dict], has_image: bool) -> Any:
     return parts
 
 
+def _reasoning(msg: dict) -> str:
+    """A thinking model's reasoning: SGLang and older vLLM name the field
+    reasoning_content, current vLLM names it reasoning."""
+    return msg.get("reasoning_content") or msg.get("reasoning") or ""
+
+
 def _new_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:24]}"
 
@@ -237,6 +243,8 @@ def _openai_to_anthropic(resp: dict, requested_model: str) -> dict:
     choice = (resp.get("choices") or [{}])[0]
     msg = choice.get("message") or {}
     blocks: list[dict] = []
+    if thinking := _reasoning(msg):
+        blocks.append({"type": "thinking", "thinking": thinking})
     if text := msg.get("content"):
         blocks.append({"type": "text", "text": text})
     for tc in msg.get("tool_calls") or []:
@@ -297,6 +305,11 @@ async def _stream_translate(
     })
 
     text_idx: int | None = None
+    # A thinking model streams its reasoning before any text. Passing it on
+    # as thinking blocks is what keeps the stream alive meanwhile: Claude Code
+    # calls a stream with no bytes for 15 s a stall ("check your network") and
+    # gives up on it after 5 min.
+    thinking_idx: int | None = None
     tool_blocks: dict[int, dict] = {}
     next_idx = 0
     finish_reason: str | None = None
@@ -330,6 +343,24 @@ async def _stream_translate(
             delta = ch.get("delta") or {}
             if fr := ch.get("finish_reason"):
                 finish_reason = fr
+
+            if thinking := _reasoning(delta):
+                if thinking_idx is None:
+                    thinking_idx = next_idx
+                    next_idx += 1
+                    yield _sse("content_block_start", {
+                        "type": "content_block_start",
+                        "index": thinking_idx,
+                        "content_block": {"type": "thinking", "thinking": ""},
+                    })
+                yield _sse("content_block_delta", {
+                    "type": "content_block_delta",
+                    "index": thinking_idx,
+                    "delta": {"type": "thinking_delta", "thinking": thinking},
+                })
+            elif thinking_idx is not None and (delta.get("content") or delta.get("tool_calls")):
+                yield _sse("content_block_stop", {"type": "content_block_stop", "index": thinking_idx})
+                thinking_idx = None
 
             if text := delta.get("content"):
                 if text_idx is None:
@@ -374,6 +405,8 @@ async def _stream_translate(
                         "delta": {"type": "input_json_delta", "partial_json": args},
                     })
 
+    if thinking_idx is not None:
+        yield _sse("content_block_stop", {"type": "content_block_stop", "index": thinking_idx})
     if text_idx is not None:
         yield _sse("content_block_stop", {"type": "content_block_stop", "index": text_idx})
     for b in tool_blocks.values():
