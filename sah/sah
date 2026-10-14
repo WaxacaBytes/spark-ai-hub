@@ -1079,9 +1079,29 @@ class OpenCode(Integration):
         state["recent"] = [{"providerID": PROVIDER, "modelID": model.name}, *recent][:10]
         write_json(path, state)
 
+    def config_path(self) -> Path:
+        base = os.environ.get("XDG_CONFIG_HOME")
+        return (Path(base) if base else Path.home() / ".config") / "opencode" / "opencode.json"
+
     def env(self, model: Model) -> dict:
+        self.require_provider_allowed()
         self._touch_picker_state(model)
         return {"OPENCODE_CONFIG_CONTENT": self.inline_config(model)}
+
+    def require_provider_allowed(self) -> None:
+        """OpenCode merges disabled_providers from every config rather than
+        letting a later one replace it, and a disabled provider stays off even
+        when listed in enabled_providers. So one left in the user's own config
+        silently drops every Hub model, and OpenCode opens on one of its own."""
+        cfg = read_json(self.config_path())
+        disabled = cfg.get("disabled_providers") or []
+        enabled = cfg.get("enabled_providers")
+        if PROVIDER in disabled or (isinstance(enabled, list) and PROVIDER not in enabled):
+            key = "disabled_providers" if PROVIDER in disabled else "enabled_providers"
+            sys.exit(f"OpenCode has the {PROVIDER!r} provider turned off by {key} in\n"
+                     f"  {self.config_path()}\n"
+                     f"so it would open without any {PROVIDER_NAME} model. "
+                     f"Fix {key} there and run sah opencode again.")
 
     def argv(self, model: Model, extra: list[str]) -> list[str]:
         """OpenCode 2 hands the work to a background service that outlives
@@ -1116,10 +1136,6 @@ class OpenCodeDesktop(OpenCode):
     binary = None
     launchable = False
     writes_config = True
-
-    def config_path(self) -> Path:
-        base = os.environ.get("XDG_CONFIG_HOME")
-        return (Path(base) if base else Path.home() / ".config") / "opencode" / "opencode.json"
 
     def files(self) -> dict[str, Path]:
         return {"opencode-desktop": self.config_path()}
