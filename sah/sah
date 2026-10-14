@@ -265,12 +265,12 @@ def self_update() -> None:
         return
     path = Path(__file__).resolve()
     try:
-        with urllib.request.urlopen(f"{hub_url()}/sah/version", timeout=2) as r:
+        with urllib.request.urlopen(hub_request(f"{hub_url()}/sah/version"), timeout=2) as r:
             wanted = r.read().decode().strip()
         if (not re.fullmatch(r"[0-9a-f]{64}", wanted)
                 or hashlib.sha256(path.read_bytes()).hexdigest() == wanted):
             return
-        with urllib.request.urlopen(f"{hub_url()}/sah/sah", timeout=15) as r:
+        with urllib.request.urlopen(hub_request(f"{hub_url()}/sah/sah"), timeout=15) as r:
             fresh = r.read()
         if hashlib.sha256(fresh).hexdigest() != wanted:
             return  # the Hub's copy changed mid-check; the next run gets it
@@ -470,6 +470,14 @@ def print_table(rows: list[dict], columns: list[tuple[str, str]]) -> None:
 
 
 def write_text(path: Path, text: str) -> None:
+    # A client that is already open watches its config files and reloads on
+    # any write (VS Code re-registers its models, dropping the chat's pick),
+    # so a file that would not change is left alone.
+    try:
+        if path.read_text() == text:
+            return
+    except (OSError, UnicodeDecodeError):
+        pass
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
     tmp.write_text(text)
@@ -781,6 +789,8 @@ class Integration:
     kind = "CLI"
     binary: str | None = None
     install_hint = ""
+    description = ""   # the line under the name in the bare-`sah` menu
+    hidden = False   # left out of that menu, as Ollama's registry Hidden flag
     launchable = True   # bare `sah <name>` runs the client
     writes_config = False   # has a plain-client config → --install/--restore
     opens_folder = False   # an editor: `sah <name> .` opens the current folder
@@ -940,6 +950,7 @@ class Claude(Integration):
     does not, and the env vars alone are sufficient, so that is gone.
     """
     name, display, binary = "claude", "Claude Code", "claude"
+    description = "Anthropic's coding tool with subagents"
     install_hint = "https://code.claude.com/docs/en/quickstart"
 
     def find_binary(self) -> str | None:
@@ -1006,6 +1017,7 @@ class OpenCode(Integration):
     touched. Only the model-picker state file is written, so Hub models show up
     in the picker."""
     name, display, binary = "opencode", "OpenCode", "opencode"
+    description = "Anomaly's open-source coding agent"
     install_hint = "https://opencode.ai"
 
     def find_binary(self) -> str | None:
@@ -1071,18 +1083,6 @@ class OpenCode(Integration):
         self._touch_picker_state(model)
         return {"OPENCODE_CONFIG_CONTENT": self.inline_config(model)}
 
-    def extras(self) -> tuple[tuple[str, str], ...]:
-        return (("Picker state", str(self.state_path())),)
-
-
-class OpenCodeDesktop(OpenCode):
-    """OpenCode's desktop app runs OpenCode's own server inside itself, with
-    the environment of the login shell rather than of whoever opened it, so
-    the per-launch OPENCODE_CONFIG_CONTENT of `sah opencode` never reaches it.
-    It does read the global opencode.json, so --install merges the same
-    provider and MCP server into that file, backed up for --restore."""
-    name, display = "opencode-desktop", "OpenCode Desktop"
-    aliases = ("opencode-app",)
     def argv(self, model: Model, extra: list[str]) -> list[str]:
         """OpenCode 2 hands the work to a background service that outlives
         every launch and was started with someone else's environment, so it
@@ -1099,6 +1099,19 @@ class OpenCodeDesktop(OpenCode):
             return [first, "--standalone", *extra[1:]]
         return list(extra)
 
+    def extras(self) -> tuple[tuple[str, str], ...]:
+        return (("Picker state", str(self.state_path())),)
+
+
+class OpenCodeDesktop(OpenCode):
+    """OpenCode's desktop app runs OpenCode's own server inside itself, with
+    the environment of the login shell rather than of whoever opened it, so
+    the per-launch OPENCODE_CONFIG_CONTENT of `sah opencode` never reaches it.
+    It does read the global opencode.json, so --install merges the same
+    provider and MCP server into that file, backed up for --restore."""
+    name, display = "opencode-desktop", "OpenCode Desktop"
+    description = "Use Hub models in the OpenCode desktop app"
+    aliases = ("opencode-app",)
     kind = "Desktop"
     binary = None
     launchable = False
@@ -1147,6 +1160,7 @@ class Codex(Integration):
     made codex and chatgpt fight over the same file.
     """
     name, display, binary = "codex", "Codex", "codex"
+    description = "OpenAI's open-source coding agent"
     install_hint = "npm install -g @openai/codex"
 
     def codex_dir(self) -> Path:
@@ -1302,6 +1316,7 @@ class Qwen(Integration):
     """Ollama's cmd/launch/qwen.go: env + `--auth-type openai --model`, and a
     Configure() that writes ~/.qwen/settings.json."""
     name, display, binary = "qwen", "Qwen Code", "qwen"
+    description = "Qwen's AI coding agent with tool use"
     install_hint = "https://qwen.ai/qwencode"
     writes_config = True
 
@@ -1417,6 +1432,7 @@ class Hermes(Integration):
     preserves sibling keys but cannot merge inside the blocks it owns.
     """
     name, display, binary = "hermes", "Hermes Agent", "hermes"
+    description = "Self-improving AI agent built by Nous Research"
     install_hint = "https://hermes-agent.nousresearch.com/docs/getting-started/installation/"
     writes_config = True
 
@@ -1487,6 +1503,7 @@ class HermesDesktop(Hermes):
     `--skip-build` is added when a packaged desktop app already exists, exactly
     as Ollama's HermesDesktop.launchArgs does."""
     name, display = "hermes-desktop", "Hermes Desktop"
+    description = "Desktop app for Hermes Agent by Nous Research"
     kind = "Desktop"
 
     _BUILD_FLAGS = ("--skip-build", "--force-build", "--source", "--build-only", "--help", "-h")
@@ -1536,6 +1553,7 @@ class OpenClaw(Integration):
     the original back.
     """
     name, display, binary = "openclaw", "OpenClaw", "openclaw"
+    description = "Personal AI with 100+ skills"
     aliases = ("clawdbot", "moltbot")
     install_hint = "https://docs.openclaw.ai"
     writes_config = True
@@ -1719,6 +1737,7 @@ def _terminate(proc) -> None:
 class Copilot(Integration):
     """Ollama's cmd/launch/copilot.go: COPILOT_PROVIDER_* env vars only."""
     name, display, binary = "copilot", "Copilot CLI", "copilot"
+    description = "GitHub's AI coding agent for the terminal"
     aliases = ("copilot-cli",)
     install_hint = "https://github.com/features/copilot/cli/"
 
@@ -1746,6 +1765,7 @@ class Copilot(Integration):
 class Pool(Integration):
     """Ollama's cmd/launch/poolside.go: env vars plus `-m <model>`."""
     name, display, binary = "pool", "Pool", "pool"
+    description = "Poolside's software agent for enterprise development"
     install_hint = "https://downloads.poolside.ai/pool/install.sh"
 
     def supported(self) -> str | None:
@@ -1767,6 +1787,8 @@ class Kimi(Integration):
     """Ollama's cmd/launch/kimi.go: the entire provider/model config is passed
     inline as `--config <json>`, so ~/.kimi is never touched."""
     name, display, binary = "kimi", "Kimi Code CLI", "kimi"
+    description = "Moonshot's coding agent for terminal and IDEs"
+    hidden = True
     install_hint = "https://moonshotai.github.io/kimi-cli/en/guides/getting-started.html"
 
     def find_binary(self) -> str | None:
@@ -1816,6 +1838,8 @@ class Muse(Integration):
     repoint their whole Muse install. Both Ollama and sah therefore keep a
     private config root and pass it as XDG_CONFIG_HOME."""
     name, display, binary = "muse", "Muse Code", "muse"
+    description = "Meta's agentic coding CLI"
+    hidden = True
     aliases = ("muse-code",)
     install_hint = "https://dev.meta.ai/install.sh"
 
@@ -1928,6 +1952,7 @@ class DeepSeekHarness(Integration):
     --patch. The user's DSH_HOME, profiles, sessions and credentials are
     untouched."""
     name, display, binary = "dsh", "DeepSeek Harness", "dsh"
+    description = "DeepSeek's open-source agent harness"
     aliases = ("deepseek-harness",)
     install_hint = "npm install -g @deepseek-ai/dsh"
 
@@ -2008,6 +2033,7 @@ class OMP(Integration):
     """Ollama's cmd/launch/omp.go: providers.<id> in ~/.omp/agent/models.yml,
     a setupVersion marker in config.yml, then `omp --model <id>/<model>`."""
     name, display, binary = "omp", "OMP", "omp"
+    description = "AI coding agent with IDE integration"
     install_hint = "https://omp.sh"
     writes_config = True
 
@@ -2074,6 +2100,7 @@ class Pi(Integration):
     a `_launch` marker on the entries it owns, and defaults in settings.json.
     User-added models in the same file are preserved."""
     name, display, binary = "pi", "Pi Coding Agent", "pi"
+    description = "Minimal AI agent toolkit with plugin support"
     install_hint = "npm install -g @earendil-works/pi-coding-agent@latest"
     writes_config = True
 
@@ -2145,6 +2172,7 @@ class Cline(Integration):
     providers.json and the legacy globalState.json, which calls the same
     provider `openai`."""
     name, display, binary = "cline", "Cline", "cline"
+    description = "Autonomous coding agent with parallel execution"
     install_hint = "npm install -g cline@latest"
     writes_config = True
 
@@ -2217,6 +2245,7 @@ class Droid(Integration):
     """Ollama's cmd/launch/droid.go: customModels[] in ~/.factory/settings.json,
     marked as sah-owned by their apiKey, plus sessionDefaultSettings.model."""
     name, display, binary = "droid", "Droid", "droid"
+    description = "Factory's coding agent across terminal and IDEs"
     install_hint = "https://docs.factory.ai/cli/getting-started/quickstart"
     writes_config = True
 
@@ -2282,6 +2311,7 @@ class ChatGPT(Integration):
     persistent. It uses its own provider name and catalog file, and `sah codex`
     no longer touches the root table at all, so the two coexist."""
     name, display = "chatgpt", "ChatGPT"
+    description = "Use Hub models in ChatGPT"
     aliases = ("codex-app", "codex-desktop", "codex-gui")
     kind = "Desktop"
     binary = None
@@ -2504,6 +2534,8 @@ class ClaudeDesktop(Integration):
     Desktop at that.
     """
     name, display = "claude-desktop", "Claude Desktop"
+    description = "Use Hub models in Claude Desktop"
+    hidden = True
     aliases = ("claude-app",)
     kind = "Desktop"
     binary = None
@@ -2718,8 +2750,14 @@ class VSCode(Integration):
     Endpoint sends in place of its own. A group's `apiKey` cannot carry it:
     VS Code reads that field back only from its own encrypted secret store,
     which nothing outside VS Code can write. The Hub's MCP server goes in the
-    user mcp.json, which VS Code shares between chat and agent mode."""
+    user mcp.json, which VS Code shares between chat and agent mode.
+
+    `sah vscode` leaves the user's VS Code untouched: it runs VS Code with
+    --user-data-dir on a sah-owned folder whose User directory is built from
+    the user's own (read, never written) plus the Hub wiring. --install is the
+    deliberate, permanent version that edits the user's real files."""
     name, display, binary = "vscode", "Visual Studio Code", "code"
+    description = "Microsoft's open-source AI code editor"
     aliases = ("code",)
     kind = "Desktop"
     install_hint = "https://code.visualstudio.com"
@@ -2776,21 +2814,59 @@ class VSCode(Integration):
         }
 
     def configure(self, model: Model) -> None:
-        paths = self.files()
-        groups = read_json(paths["vscode"])
+        self.write_wiring(model, self.user_dir())
+
+    def write_wiring(self, model: Model, into: Path) -> None:
+        """The Hub's model group and MCP server, merged into the user's own
+        chatLanguageModels.json and mcp.json and written to `into`."""
+        src = self.user_dir()
+        groups = read_json(src / "chatLanguageModels.json")
         groups = [g for g in groups if not self.is_mine(g)] if isinstance(groups, list) else []
         groups.append({
             "name": PROVIDER_NAME,
             "vendor": self.VENDOR,
             "models": [self.entry(m) for m in model.all],
         })
-        write_json(paths["vscode"], groups)
+        write_json(into / "chatLanguageModels.json", groups)
 
-        mcp = read_json(paths["vscode-mcp"])
+        mcp = read_json(src / "mcp.json")
         servers = mcp.get("servers") if isinstance(mcp.get("servers"), dict) else {}
         servers[MCP_SERVER] = {"type": "http", "url": mcp_url(), "headers": mcp_headers()}
         mcp["servers"] = servers
-        write_json(paths["vscode-mcp"], mcp)
+        write_json(into / "mcp.json", mcp)
+
+    # -- launch: a sah-owned VS Code data folder -------------------------------
+
+    # Linked through from the user's User directory, so a sah window has their
+    # keybindings, snippets, tasks and prompt files. Everything else VS Code
+    # keeps there (state databases, history, workspace storage) stays separate:
+    # two running VS Codes must not share it.
+    SHARED = ("keybindings.json", "snippets", "tasks.json", "prompts")
+
+    def data_dir(self) -> Path:
+        return CONFIG_DIR / "vscode"
+
+    def prepare_data_dir(self, model: Model) -> Path:
+        user = self.data_dir() / "User"
+        user.mkdir(parents=True, exist_ok=True)
+        real = self.user_dir()
+        for name in self.SHARED:
+            link, target = user / name, real / name
+            if link.is_symlink() and (not target.exists() or Path(os.readlink(link)) != target):
+                link.unlink()
+            if target.exists() and not link.exists() and not link.is_symlink():
+                link.symlink_to(target)
+
+        self.write_wiring(model, user)
+        # The user's settings, plus chat starting on the Hub's model.
+        # `chat.defaultModel` matches on the model id. Copilot CLI sessions are
+        # left off as the default because they publish a Custom Endpoint model
+        # late and then fall back to Auto; the session picker still offers them.
+        settings = read_json(real / "settings.json")
+        settings["chat.defaultModel"] = model.name
+        settings["chat.defaultToCopilotHarness"] = False
+        write_json(user / "settings.json", settings)
+        return self.data_dir()
 
     def wired(self) -> bool:
         groups = read_json(self.files()["vscode"])
@@ -2805,7 +2881,10 @@ class VSCode(Integration):
         if not model.has("tools"):
             print(f"Note: the Hub does not report tool calling for {model.name}, "
                   f"so it may not appear in VS Code's agent mode.", file=sys.stderr)
-        super().launch(model, extra)
+        reject_managed_flags(extra, ("--user-data-dir", "--profile"), "sah vscode")
+        path = self.require_binary()
+        data = self.prepare_data_dir(model)
+        os.execve(path, [self.binary or path, "--user-data-dir", str(data), *extra], os.environ)
 
     def extras(self) -> tuple[tuple[str, str], ...]:
         return (("Models", f"chat model picker → {PROVIDER_NAME} (Manage Models if hidden)"),)
@@ -2832,6 +2911,7 @@ class Zed(Integration):
     writes itself when you paste a key: server = the provider's api_url,
     account = "Bearer"."""
     name, display, binary = "zed", "Zed", "zed"
+    description = "Use Hub models in the Zed editor"
     kind = "Desktop"
     install_hint = "https://zed.dev/download"
     writes_config = True
@@ -3072,6 +3152,145 @@ def cmd_set_key(args) -> None:
           "so clients pick up the new key.")
 
 
+# --------------------------------------------------------------- launcher menu
+
+# Bare `sah` opens this menu, as bare `ollama launch` does (cmd/tui/tui.go):
+# these four lead and the rest follow in registry order, installed clients sit
+# above missing ones, and only the first five show until the cursor reaches
+# "More...". The client picked last time starts under the cursor.
+MENU_LEAD = ("claude", "opencode", "hermes", "openclaw")
+MENU_LIMIT = 5
+LAST_FILE = CONFIG_DIR / "last"
+
+_BOLD, _GREY, _HELP, _ITALIC, _RESET = (
+    "\x1b[1m", "\x1b[38;5;245m", "\x1b[38;5;244m", "\x1b[3m", "\x1b[0m")
+
+
+def _menu_items() -> list[tuple[Integration, bool]]:
+    """(integration, installed) in menu order. Like Ollama, an integration that
+    cannot run on this system is not offered at all. A desktop app sah cannot
+    detect ("n/a") sits between the clients found and the ones missing."""
+    shown = [i for i in INTEGRATIONS if not i.hidden and i.supported() is None]
+    shown.sort(key=lambda i: MENU_LEAD.index(i.name) if i.name in MENU_LEAD else len(MENU_LEAD))
+    found = {i.name: i.availability() for i in shown}
+    shown.sort(key=lambda i: ("yes", "n/a", "missing").index(found[i.name]))
+    return [(i, found[i.name] != "missing") for i in shown]
+
+
+def _read_key() -> str:
+    """One keypress: "up", "down", "enter", "quit", or the character typed."""
+    if sys.platform == "win32":
+        import msvcrt
+        ch = msvcrt.getwch()
+        if ch in ("\x00", "\xe0"):
+            return {"H": "up", "P": "down"}.get(msvcrt.getwch(), "")
+    else:
+        import select
+        import termios
+        import tty
+        fd = sys.stdin.fileno()
+        saved = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = os.read(fd, 1).decode(errors="ignore")
+            # An arrow arrives as ESC [ A; a lone ESC is the user backing out.
+            if ch == "\x1b" and select.select([fd], [], [], 0.05)[0]:
+                seq = os.read(fd, 2).decode(errors="ignore")
+                return {"[A": "up", "[B": "down", "OA": "up", "OB": "down"}.get(seq, "")
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+    return {"\r": "enter", "\n": "enter", " ": "enter", "k": "up", "j": "down",
+            "\x1b": "quit", "q": "quit", "\x03": "quit", "\x04": "quit"}.get(ch, ch)
+
+
+def launcher_menu() -> list[str] | None:
+    """Let the user pick a client; returns the sah arguments that run it, or
+    None if they backed out. A desktop app that sah cannot start is wired with
+    --install instead, which is all `sah <app>` can do for it."""
+    items = _menu_items()
+    try:
+        last = LAST_FILE.read_text().strip()
+    except OSError:
+        last = ""
+    names = [i.name for i, _ in items]
+    cursor = names.index(last) if last in names else 0
+    expanded = cursor >= MENU_LIMIT
+    top = 0  # first item on screen when the list is taller than the terminal
+
+    info = current_model_info()
+    model = info["id"] if info else "no model running, launch one in the Hub"
+
+    if sys.platform == "win32":
+        os.system("")  # turns on ANSI escape handling in the Windows console
+    out = sys.stdout
+    drawn = 0
+    out.write("\x1b[?25l")  # hide the terminal cursor while the menu is up
+    try:
+        while True:
+            rows: list[tuple[Integration, bool] | None] = (
+                items if expanded or len(items) <= MENU_LIMIT
+                else [*items[:MENU_LIMIT], None])  # None is "More..."
+            cols, height = shutil.get_terminal_size()
+            fit = max(1, (height - 5) // 3)  # header 2, help 2, 3 lines a row
+            top = min(max(top, cursor - fit + 1), cursor)
+
+            def clip(text: str, indent: int = 0) -> str:
+                return text[:max(1, cols - 1 - indent)]
+
+            lines = [f"{_BOLD}{clip(PROVIDER_NAME)}{_RESET}  {_GREY}{clip(model, len(PROVIDER_NAME) + 2)}{_RESET}", ""]
+            for idx in range(top, min(len(rows), top + fit)):
+                row, here = rows[idx], idx == cursor
+                mark = "▸ " if here else "  "
+                if row is None:
+                    title, note, desc, style = "More...", "", "Show additional integrations", ""
+                else:
+                    integration, installed = row
+                    verb = "Launch" if integration.launchable else "Set up"
+                    title, style = f"{verb} {integration.display}", (_BOLD if here else "")
+                    desc, note = integration.description, ""
+                    if not installed:
+                        style, note = _GREY, " (not installed)"
+                        if here:
+                            desc = f"Install: {integration.install_hint}" if integration.install_hint else "not installed"
+                lines.append(f"{style}{clip(mark + title)}{_RESET}"
+                             + (f"{_GREY}{_ITALIC}{note}{_RESET}" if note else ""))
+                lines.append(f"    {_GREY}{clip(desc, 4)}{_RESET}")
+                lines.append("")
+            if not rows:
+                lines.append("No apps available.")
+            lines += ["", f"{_HELP}{clip('↑/↓ navigate • enter launch • esc quit')}{_RESET}"]
+
+            out.write((f"\x1b[{drawn}F" if drawn else "") + "\x1b[J" + "\n".join(lines) + "\n")
+            out.flush()
+            drawn = len(lines)
+
+            key = _read_key()
+            if key == "quit":
+                return None
+            if key == "up" and cursor > 0:
+                cursor -= 1
+                if expanded and cursor < MENU_LIMIT:
+                    expanded, top = False, 0
+            elif key == "down" and cursor < len(rows) - 1:
+                cursor += 1
+                # Reaching "More..." opens it, exactly as in Ollama's menu.
+                if rows[cursor] is None:
+                    expanded = True
+            elif key == "enter" and rows and rows[cursor] and rows[cursor][1]:
+                integration = rows[cursor][0]
+                try:
+                    write_text(LAST_FILE, integration.name + "\n")
+                except OSError:
+                    pass
+                if not integration.launchable:
+                    return [integration.name, "--install"]
+                # An editor opens the folder sah was run from, as `sah <name> .` does.
+                return [integration.name, *(["."] if integration.opens_folder else [])]
+    finally:
+        out.write((f"\x1b[{drawn}F" if drawn else "") + "\x1b[J\x1b[?25h")
+        out.flush()
+
+
 # ------------------------------------------------------------------ entrypoint
 
 
@@ -3104,11 +3323,21 @@ def _add_integration_parser(sub, integration: Integration):
 
 
 def main() -> None:
+    # Before parsing, so a sah too old to know the command just typed — bare
+    # `sah` included — still updates and then runs it. set-hub and set-key
+    # change how the Hub is reached; checking first would use the address or
+    # key being replaced.
+    if sys.argv[1:2] not in (["set-hub"], ["set-key"]):
+        self_update()
+
     parser = argparse.ArgumentParser(
         prog="sah",
         description=f"{PROVIDER_NAME} client launcher",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
+            "Menu:\n"
+            "  sah                       Pick a client from a menu and launch it\n"
+            "\n"
             "Lifecycle:\n"
             "  sah <client>              Configure the client for the Hub and launch it\n"
             "  sah <client> --install    Configure only, so the plain client uses the Hub\n"
@@ -3125,7 +3354,7 @@ def main() -> None:
             "  sah models                List every running model; sah <client> uses the biggest\n"
         ),
     )
-    sub = parser.add_subparsers(dest="cmd", required=True, title="commands", metavar="<command>")
+    sub = parser.add_subparsers(dest="cmd", title="commands", metavar="<command>")
 
     sp = sub.add_parser("info", help="Show Hub URL and current model")
     sp.set_defaults(func=cmd_info)
@@ -3161,14 +3390,18 @@ def main() -> None:
         _add_integration_parser(sub, integration)
 
     args, extras = parser.parse_known_args()
+    if args.cmd is None and not extras:
+        # Bare `sah` opens the launcher menu, as bare `ollama launch` does.
+        if not (sys.stdin.isatty() and sys.stdout.isatty()):
+            parser.print_help(sys.stderr)
+            sys.exit(2)
+        if not (picked := launcher_menu()):
+            return
+        args, extras = parser.parse_known_args(picked)
     if hasattr(args, "passthrough"):
         args.passthrough = [*extras, *args.passthrough]
-    elif extras:
+    elif extras or args.cmd is None:
         parser.error(f"unrecognized arguments: {' '.join(extras)}")
-    # set-hub and set-key change how the Hub is reached; checking first would
-    # use the address or key being replaced.
-    if args.func not in (cmd_set_hub, cmd_set_key):
-        self_update()
     args.func(args)
 
 

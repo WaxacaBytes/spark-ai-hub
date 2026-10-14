@@ -36,6 +36,7 @@ curl http://<hub>:9000/sah/install.sh | sh -s -- --hub http://other-host:9000
 ## Usage
 
 ```sh
+sah                     # pick a client from a menu and launch it
 sah info                # show Hub URL and current model
 sah models              # list every running model (sah <client> uses the biggest)
 sah integrations        # list integrations, support mode, and lifecycle commands
