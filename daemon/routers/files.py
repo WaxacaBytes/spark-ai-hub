@@ -2,8 +2,11 @@
 
 GET /api/media lists the caller's own files (media_store decides what is theirs), DELETE
 /api/media/{name} removes one, and /api/media/{name}/thumb is a small JPEG so
-the page does not pull a hundred full-size PNGs. The page itself is the Hub's
-My files screen (frontend/src/pages/Files.jsx).
+the page does not pull a hundred full-size PNGs. A 3D model's is a still of
+the model, which the page draws and PUTs to the same path the first time it
+lists the model (the daemon has no renderer); until then it is the picture the
+model was made from. The page itself is the Hub's My files screen
+(frontend/src/pages/Files.jsx).
 """
 from __future__ import annotations
 
@@ -50,20 +53,54 @@ async def delete_media(request: Request, name: str):
 
 def _make_thumb(path) -> bytes:
     with Image.open(path) as img:
-        img = img.convert("RGB")
+        # A cut-out (a 3D model's picture, a transparent upload) on light
+        # grey, not on whatever colour sits under its transparent pixels.
+        img = img.convert("RGBA")
+        flat = Image.new("RGB", img.size, (236, 236, 236))
+        flat.paste(img, mask=img.getchannel("A"))
+        img = flat
         img.thumbnail((THUMB_EDGE, THUMB_EDGE))
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=80)
         return buf.getvalue()
 
 
+MAX_RENDER_BYTES = 8 * 1024 * 1024
+MAX_RENDER_EDGE = 2048
+
+
+def _save_render(raw: bytes, path) -> None:
+    with Image.open(io.BytesIO(raw)) as img:
+        if max(img.size) > MAX_RENDER_EDGE:
+            raise ValueError("too large")
+        img.convert("RGBA").save(media_store.render_of(path), format="PNG")
+
+
+@router.put("/api/media/{name}/thumb")
+async def set_render(request: Request, name: str):
+    """A browser's still of one of its account's 3D models, to stand for it
+    instead of the picture it was made from (lib/mesh3d.js snapshot)."""
+    path = media_store.find(name) if name.endswith(".glb") else None
+    if path is None or not await media_store.can_read(name, _user(request)):
+        return Response(status_code=404)
+    raw = await request.body()
+    if not raw or len(raw) > MAX_RENDER_BYTES:
+        return JSONResponse({"detail": "Send one PNG of the model."}, status_code=400)
+    try:
+        await asyncio.to_thread(_save_render, raw, path)
+    except Exception:  # noqa: BLE001 - PIL raises many types
+        return JSONResponse({"detail": "Not a readable image of a sensible size."}, status_code=400)
+    _thumbs.pop(name, None)
+    return {"rendered": name}
+
+
 @router.get("/api/media/{name}/thumb")
 async def media_thumb(request: Request, name: str):
-    path = media_store.find(name) if name.endswith(".png") else None
+    path = media_store.find(name) if name.endswith((".png", ".glb")) else None
     if path is None or not await media_store.can_read(name, _user(request)):
         return Response(status_code=404)
     if (jpeg := _thumbs.get(name)) is None:
-        jpeg = await asyncio.to_thread(_make_thumb, path)
+        jpeg = await asyncio.to_thread(_make_thumb, media_store.picture(path))
         _thumbs[name] = jpeg
         while len(_thumbs) > MAX_THUMBS:
             _thumbs.popitem(last=False)

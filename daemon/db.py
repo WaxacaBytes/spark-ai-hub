@@ -88,15 +88,17 @@ CREATE TABLE IF NOT EXISTS oauth_tokens (
 );
 CREATE INDEX IF NOT EXISTS idx_oauth_tokens_user ON oauth_tokens(user_id);
 
--- Owner of each generated image/video/song and each upload, by file name
--- ('<32 hex>.png'), and the recipe slug of the model that made it (empty for
--- an upload, and for results from before this was recorded). Media is private
--- to its owner (daemon/services/media_store.py).
+-- Owner of each generated image/video/3D model/song and each upload, by file
+-- name ('<32 hex>.png'), the recipe slug of the model that made it (empty for
+-- an upload, and for results from before this was recorded), and how many
+-- seconds making it took (NULL for an upload and for older results). Media is
+-- private to its owner (daemon/services/media_store.py).
 CREATE TABLE IF NOT EXISTS media (
     name TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
-    model TEXT NOT NULL DEFAULT ''
+    model TEXT NOT NULL DEFAULT '',
+    seconds REAL
 );
 CREATE INDEX IF NOT EXISTS idx_media_user ON media(user_id);
 
@@ -124,6 +126,7 @@ async def get_db() -> aiosqlite.Connection:
 # ignores them in CREATE TABLE IF NOT EXISTS, so they are added here once.
 ADDED_COLUMNS = [
     ("media", "model", "TEXT NOT NULL DEFAULT ''"),
+    ("media", "seconds", "REAL"),
 ]
 
 

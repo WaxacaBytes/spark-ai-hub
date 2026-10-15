@@ -184,7 +184,12 @@ async def pick_backend(kind: str, model: str | None) -> Backend:
             raise ImageError(f"'{model}' is not an installed model that can {kind} images. "
                              f"Installed models that can: {names}.")
         candidates = [backend]
+    return await pick_ready(candidates, f"image model that can {kind}")
 
+
+async def pick_ready(candidates: list, what: str):
+    """The first of `candidates` (backends of any media kind) that is up and
+    ready; else an error that tells the agent what to start or install."""
     starting = []
     for backend in candidates:
         if await is_recipe_running(backend.slug):
@@ -195,10 +200,10 @@ async def pick_backend(kind: str, model: str | None) -> Backend:
         raise ImageError(f"{starting[0]} is still starting (loading weights). Call start_model "
                          f"with model {starting[0]} to wait until it is ready.")
     if not candidates:
-        raise ImageError(f"No image model that can {kind} is installed on the Spark. "
+        raise ImageError(f"No {what} is installed on the Spark. "
                          f"Install one from the Spark AI Hub first.")
     names = " or ".join(b.slug for b in candidates)
-    raise ImageError(f"No image model that can {kind} is running on the Spark. Start {names} "
+    raise ImageError(f"No {what} is running on the Spark. Start {names} "
                      f"with start_model first.")
 
 
@@ -521,6 +526,7 @@ def renders_on(slug: str) -> int:
 async def run(kind: str, params: Params, images: list[str], model: str | None,
               on_progress: Callable[[str], None] | None = None,
               user: dict | None = None) -> Result:
+    started = time.monotonic()
     backend = await pick_backend(kind, model)
     params = with_defaults(backend, params)
     # Seeded here rather than by the server, so the caller can always be told
@@ -534,7 +540,8 @@ async def run(kind: str, params: Params, images: list[str], model: str | None,
                 on_progress(f"rendering on {backend.slug}")
             raw = await _render(session, backend, kind, params, inputs, seed)
     result = await asyncio.to_thread(store, raw, backend.slug, seed)
-    await media_store.record(f"{result.image_id}.png", user and user["id"], backend.slug)
+    await media_store.record(f"{result.image_id}.png", user and user["id"], backend.slug,
+                             time.monotonic() - started)
     result.steps = params.steps
     result.preset = getattr(backend.defaults, "preset", None)
     return result

@@ -1,0 +1,102 @@
+services:
+  sglang:
+    # Tencent's Hunyuan3D-2, served by SGLang Diffusion on its OpenAI-style
+    # meshes API: POST /v1/meshes (a picture) queues a job, GET
+    # /v1/meshes/{id} reports it, GET /v1/meshes/{id}/content serves the GLB.
+    #
+    # One picture in, one textured mesh out, in three stages: the shape DiT
+    # (hunyuan3d-dit-v2-0) makes the geometry, the delight model takes the
+    # lighting out of the photo, and the paint model renders the texture
+    # (albedo, 2048 px) back onto the remeshed shape.
+    #
+    # SGLang reads the object's outline from the picture's alpha channel and
+    # does no background removal of its own; the Hub cuts the background out
+    # of a picture that has none before it sends it (mesh_service).
+    #
+    # Weights from the publisher only (tencent/Hunyuan3D-2, pinned), and only
+    # the files SGLang loads (13.1 GB of the repo's 75 GB): the shape model's
+    # single fp16 safetensors (it bundles the DiT, the shape VAE and the image
+    # conditioner), and the paint and delight pipelines' safetensors. Not the
+    # fast/turbo variants, the .ckpt/.bin duplicates or the paint text encoder,
+    # which SGLang's pipeline never loads.
+    #
+    # Image: lmsysorg/sglang:v0.5.19-cu130 -- a stable numbered release, arm64
+    # manifest present, Hunyuan3D-2 in its diffusion registry -- plus one
+    # patch, below.
+    #
+    # The patch: SGLang hands the paint stage the full-resolution shape (about
+    # 1.5M triangles at octree 384) and unwraps its UVs with xatlas on the CPU.
+    # On the Spark that took 679 s of a 781 s job and filled swap. Its config
+    # has paint_use_remesh, but nothing reads it (v0.5.19 and the 2026-10-11
+    # nightly alike); the fix, sgl-project/sglang#41822, was closed unmerged.
+    # Its one change is applied here: decimate to 40,000 faces before the
+    # unwrap (Tencent's own Hunyuan3D-2 pipeline reduces to 40,000 too), with
+    # trimesh's quadric decimation, which needs fast-simplification. Measured
+    # on the same mesh: 2.4 s to decimate, 0.4 s to unwrap.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('tencent/Hunyuan3D-2', revision='9cd649ba6913f7a852e3286bad86bfa9a2d83dcf', local_dir='/models/Hunyuan3D-2', allow_patterns=['config.json', 'LICENSE', 'NOTICE', 'hunyuan3d-dit-v2-0/config.yaml', 'hunyuan3d-dit-v2-0/model.fp16.safetensors', 'hunyuan3d-paint-v2-0/model_index.json', 'hunyuan3d-paint-v2-0/scheduler/*', 'hunyuan3d-paint-v2-0/unet/config.json', 'hunyuan3d-paint-v2-0/unet/diffusion_pytorch_model.safetensors', 'hunyuan3d-paint-v2-0/vae/config.json', 'hunyuan3d-paint-v2-0/vae/diffusion_pytorch_model.safetensors', 'hunyuan3d-paint-v2-0/feature_extractor/*', 'hunyuan3d-delight-v2-0/*'])"
+        FROM lmsysorg/sglang:v0.5.19-cu130
+        RUN pip install --no-cache-dir fast-simplification==0.2.0
+        RUN python3 -c "import pathlib; p = pathlib.Path('/sgl-workspace/sglang/python/sglang/multimodal_gen/runtime/pipelines_core/stages/model_specific_stages/hunyuan3d/paint.py'); s = p.read_text(); old = '        return mesh_uv_wrap(mesh)'; assert s.count(old) == 1, 'patch point moved'; p.write_text(s.replace(old, '        if len(mesh.faces) > 40000:\n            mesh = mesh.simplify_quadric_decimation(face_count=40000)\n' + old))"
+        COPY --from=weights /models /models
+    image: spark-ai-hub/sglang-hunyuan3d-2:v0.5.19-cu130
+    container_name: spark-ai-hub-sglang-hunyuan3d-2
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/sglang-hunyuan3d-2/, so it never collides with the
+    # LLM or with another media model.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    shm_size: 16gb
+    command:
+      - sglang
+      - serve
+      # The folder's name is what SGLang's registry matches ("hunyuan3d").
+      - --model-path
+      - /models/Hunyuan3D-2
+      - --host
+      - 0.0.0.0
+      - --port
+      - "30000"
+      # SGLang offloads components to CPU by default. On the Spark CPU and GPU
+      # share the same memory, so offload only adds copies back and forth.
+      - --dit-cpu-offload
+      - "false"
+      - --text-encoder-cpu-offload
+      - "false"
+      - --image-encoder-cpu-offload
+      - "false"
+      # Pinned too: with under ~40 GiB free, SGLang's auto memory policy
+      # would offload the shape VAE layer by layer.
+      - --vae-cpu-offload
+      - "false"
+      # Pinned host buffers are only for fast CPU<->GPU transfer, which
+      # unified memory never needs; pinning would lock memory for nothing.
+      - --pin-cpu-memory
+      - "false"
+      - --output-path
+      - /tmp/sglang-outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { copyText } from '../lib/clipboard'
 import { size } from '../lib/size'
 
-/* My files: the images, videos and songs this account made with the Hub's
+const MeshView = lazy(() => import('../components/MeshView'))
+
+/* My files: the images, videos, 3D models and songs this account made with the Hub's
  * media tools (/mcp), plus the files it uploaded for them to work on.
  *
  * Everything here is private to its owner (daemon/services/media_store.py);
@@ -16,11 +18,12 @@ const FILTERS = [
   { id: 'all', label: 'All', test: () => true },
   { id: 'image', label: 'Images', test: (f) => f.kind === 'image' },
   { id: 'video', label: 'Videos', test: (f) => f.kind === 'video' },
+  { id: 'mesh', label: '3D', test: (f) => f.kind === 'mesh' },
   { id: 'audio', label: 'Music', test: (f) => f.kind === 'audio' },
   { id: 'upload', label: 'Uploads', test: (f) => f.upload },
 ]
 
-const KIND_LABEL = { image: 'Image', video: 'Video', audio: 'Song' }
+const KIND_LABEL = { image: 'Image', video: 'Video', mesh: '3D model', audio: 'Song' }
 
 export default function Files() {
   const [data, setData] = useState(null)
@@ -45,6 +48,28 @@ export default function Files() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // A 3D model's card shows a still of the model itself. The daemon cannot
+  // draw one, so the first page to list a model without one draws it here,
+  // one model at a time, and hands it back; every later visit just shows it.
+  const drawing = useRef(new Set())
+  useEffect(() => {
+    const todo = (data?.files || []).filter((f) => f.kind === 'mesh' && !f.rendered && !drawing.current.has(f.name))
+    if (!todo.length) return
+    todo.forEach((f) => drawing.current.add(f.name))
+    ;(async () => {
+      const { snapshot } = await import('../lib/mesh3d')
+      for (const f of todo) {
+        try {
+          const res = await fetch(`/api/media/${f.name}/thumb`, { method: 'PUT', body: await snapshot(f.path) })
+          if (!res.ok) continue
+          setData((d) => ({ ...d, files: d.files.map((x) => (x.name === f.name ? { ...x, rendered: true } : x)) }))
+        } catch {
+          // No WebGL, or the model would not load: the card keeps its picture.
+        }
+      }
+    })()
+  }, [data])
 
   // A finished upload shows up as the first card (newest first), where its
   // link is; only a refused file needs a message of its own.
@@ -112,7 +137,7 @@ export default function Files() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight font-display m-0">My files</h1>
           <p className="text-sm text-text-dim m-0 mt-1">
-            Images, videos and songs you made with the Hub, and files you uploaded for it. Only you can
+            Images, videos, 3D models and songs you made with the Hub, and files you uploaded for it. Only you can
             open them. Upload a file to get a link you can give the image and video tools. What you make
             stays until you delete it; uploads are deleted after {data.uploads_days} days.
           </p>
@@ -285,6 +310,7 @@ function FileCard({ file, picked, selecting, onToggle, onDelete, onOpen }) {
           <div className="text-xs text-text-muted truncate" title={file.model}>{file.model}</div>
         )}
         <div className="text-xs text-text-dim">{when(file.created)}</div>
+        {file.seconds != null && <div className="text-xs text-text-dim">Took {took(file.seconds)}</div>}
         {file.expires_at && (
           <div className="text-[11px] text-text-dim font-label">{expiry(file.expires_at)}</div>
         )}
@@ -340,13 +366,18 @@ function Preview({ file, selecting, onToggle, onOpen }) {
   return (
     <a href={file.path} target="_blank" rel="noopener noreferrer" onClick={pick}
        className="relative block aspect-square overflow-hidden bg-surface-high">
-      {file.kind === 'image' ? (
-        <img src={`/api/media/${file.name}/thumb`} alt="" loading="lazy" className="w-full h-full object-cover block" />
-      ) : (
+      {file.kind === 'video' ? (
         <video src={`${file.path}#t=0.5`} preload="metadata" muted className="w-full h-full object-cover block" />
+      ) : (
+        // A 3D model's is a still of the model once one is drawn (above), and
+        // a fresh URL then, so the cached picture it was made from goes.
+        <img src={`/api/media/${file.name}/thumb${file.rendered ? '?render' : ''}`} alt="" loading="lazy"
+             className="w-full h-full object-cover block" />
       )}
-      {file.orbit && (
-        <span className="absolute bottom-2 left-2 text-xs font-semibold font-label text-white bg-black/60 px-2 py-0.5 rounded-full">360°</span>
+      {(file.orbit || file.kind === 'mesh') && (
+        <span className="absolute bottom-2 left-2 text-xs font-semibold font-label text-white bg-black/60 px-2 py-0.5 rounded-full">
+          {file.orbit ? '360°' : '3D'}
+        </span>
       )}
     </a>
   )
@@ -358,7 +389,7 @@ function Preview({ file, selecting, onToggle, onOpen }) {
  * beside it closes. */
 function Viewer({ files, index, onIndex, onClose, details, onDetails }) {
   const file = files[index]
-  const [shape, setShape] = useState(null)   // { name, width, height, seconds } once loaded
+  const [shape, setShape] = useState(null)   // { name, width, height, seconds } or { name, vertices, triangles } once loaded
   const step = useCallback((d) => onIndex((index + d + files.length) % files.length), [index, files.length, onIndex])
 
   useEffect(() => {
@@ -383,11 +414,16 @@ function Viewer({ files, index, onIndex, onClose, details, onDetails }) {
   const onImage = (e) => setShape({ name: file.name, width: e.target.naturalWidth, height: e.target.naturalHeight })
   const onVideo = (e) => setShape({ name: file.name, width: e.target.videoWidth, height: e.target.videoHeight,
                                     seconds: e.target.duration })
+  const onMesh = useCallback((counts) => setShape({ name: file.name, ...counts }), [file.name])
   const known = shape?.name === file.name ? shape : null
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 animate-fadeIn" onClick={onClose}>
       {file.kind === 'image' ? (
         <img key={file.name} src={file.path} alt="" onClick={stop} onLoad={onImage} className={fit} />
+      ) : file.kind === 'mesh' ? (
+        <Suspense fallback={<span className="text-sm font-semibold text-white/80">Opening the 3D model…</span>}>
+          <MeshView key={file.name} file={file} onLoaded={onMesh} />
+        </Suspense>
       ) : file.orbit ? (
         <Orbit key={file.name} file={file} onLoadedMetadata={onVideo} className={fit} />
       ) : (
@@ -428,11 +464,15 @@ function Viewer({ files, index, onIndex, onClose, details, onDetails }) {
           <Detail label="Type" value={`${KIND_LABEL[file.kind]}${file.orbit ? ' · 360° orbit' : ''}${file.upload ? ' · upload' : ''}`} />
           {file.model && <Detail label="Model" value={file.model} />}
           <Detail label="Made" value={when(file.created)} />
-          {known && (
+          {file.seconds != null && <Detail label="Took" value={took(file.seconds)} />}
+          {known?.width && (
             <Detail
               label="Size"
               value={`${known.width} × ${known.height}${known.seconds ? ` · ${known.seconds.toFixed(1)} s` : ''}`}
             />
+          )}
+          {known?.triangles && (
+            <Detail label="Mesh" value={`${fmtCount(known.triangles)} triangles · ${fmtCount(known.vertices)} vertices`} />
           )}
           <Detail label="File" value={size(file.bytes)} />
           {file.expires_at && <Detail label="Deleted" value={expiry(file.expires_at).replace('Deleted ', '')} />}
@@ -586,6 +626,18 @@ function TrashIcon() {
 }
 
 /* ── bits ────────────────────────────────────────────────────────────────── */
+
+function fmtCount(n) {
+  return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}K` : `${n}`
+}
+
+// How long making a file took: "9 s", "1 min 25 s", "1 h 5 min".
+function took(seconds) {
+  const s = Math.round(seconds)
+  if (s < 60) return `${s} s`
+  if (s < 3600) return `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ''}`
+  return `${Math.floor(s / 3600)} h${Math.round((s % 3600) / 60) ? ` ${Math.round((s % 3600) / 60)} min` : ''}`
+}
 
 function when(seconds) {
   return new Date(seconds * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })

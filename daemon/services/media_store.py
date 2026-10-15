@@ -27,15 +27,17 @@ DAY = 24 * 3600
 UPLOAD_TTL = 7 * DAY
 
 
-async def record(name: str, user_id: int | None, model: str = "") -> None:
+async def record(name: str, user_id: int | None, model: str = "",
+                 seconds: float | None = None) -> None:
     """Note that account `user_id` made the file <name> (e.g. '<32 hex>.png')
-    with the model `model` (a recipe slug; empty for an upload)."""
+    with the model `model` (a recipe slug; empty for an upload), and that
+    making it took `seconds`, from the request to the finished file."""
     if user_id is None:
         return
     db = await get_db()
     try:
-        await db.execute("INSERT OR REPLACE INTO media (name, user_id, model) VALUES (?, ?, ?)",
-                         (name, user_id, model))
+        await db.execute("INSERT OR REPLACE INTO media (name, user_id, model, seconds) VALUES (?, ?, ?, ?)",
+                         (name, user_id, model, seconds))
         await db.commit()
     finally:
         await db.close()
@@ -57,7 +59,7 @@ async def can_read(name: str, user: dict | None) -> bool:
 def _locations() -> list[tuple[Path, re.Pattern, str, str, bool]]:
     """(folder, name pattern, kind, public prefix, holds uploads) for every store."""
     # Imported here: image_service checks ownership through this module.
-    from daemon.services import audio_service, image_service, video_service
+    from daemon.services import audio_service, image_service, mesh_service, video_service
     return [
         (image_service.IMAGE_DIR, image_service.IMAGE_NAME_RE, "image", image_service.PUBLIC_PREFIX, False),
         (image_service.UPLOAD_DIR, image_service.IMAGE_NAME_RE, "image", image_service.PUBLIC_PREFIX, True),
@@ -65,6 +67,7 @@ def _locations() -> list[tuple[Path, re.Pattern, str, str, bool]]:
         (video_service.UPLOAD_DIR, video_service.VIDEO_NAME_RE, "video", video_service.PUBLIC_PREFIX, True),
         (audio_service.AUDIO_DIR, audio_service.AUDIO_NAME_RE, "audio", audio_service.PUBLIC_PREFIX, False),
         (audio_service.UPLOAD_DIR, audio_service.AUDIO_NAME_RE, "audio", audio_service.PUBLIC_PREFIX, True),
+        (mesh_service.MESH_DIR, mesh_service.MESH_NAME_RE, "mesh", mesh_service.PUBLIC_PREFIX, False),
     ]
 
 
@@ -93,10 +96,11 @@ def _entries() -> list[dict]:
     return entries
 
 
-MEDIA_TYPES = {".png": "image/png", ".mp4": "video/mp4", ".wav": "audio/wav"}
+MEDIA_TYPES = {".png": "image/png", ".mp4": "video/mp4", ".wav": "audio/wav",
+               ".glb": "model/gltf-binary"}
 # A Hub media URL from any address the Hub is reached on (LAN, Tailscale,
 # tunnel), so a file made through one can be used through another.
-_URL_NAME_RE = re.compile(r"/(?:images|videos|audio)/([0-9a-f]{32}\.(?:png|mp4|wav))(?:$|[?#])")
+_URL_NAME_RE = re.compile(r"/(?:images|videos|audio|meshes)/([0-9a-f]{32}\.(?:png|mp4|wav|glb))(?:$|[?#])")
 
 
 def name_in_url(url: str) -> str | None:
@@ -105,8 +109,23 @@ def name_in_url(url: str) -> str | None:
     return match.group(1) if match else None
 
 
+def render_of(path: Path) -> Path:
+    """Where a 3D model's render is kept: a still of the model itself, drawn by
+    the first browser to list it (My files), since the daemon cannot draw one."""
+    return path.with_suffix(".render.png")
+
+
+def picture(path: Path) -> Path:
+    """The still that stands for a file: itself, or for a 3D model its render,
+    or until there is one the cut-out picture it was made from (mesh_service)."""
+    if path.suffix != ".glb":
+        return path
+    render = render_of(path)
+    return render if render.is_file() else path.with_suffix(".png")
+
+
 def find(name: str) -> Path | None:
-    """The file behind a Hub media name ('<32 hex>.png' / .mp4 / .wav), result
+    """The file behind a Hub media name ('<32 hex>.png' / .mp4 / .wav / .glb), result
     or upload, if any. Only names shaped like the Hub's own ever match."""
     for folder, name_re, _kind, _prefix, _upload in _locations():
         if name_re.match(name) and (folder / name).is_file():
@@ -117,7 +136,7 @@ def find(name: str) -> Path | None:
 async def _rows() -> dict[str, dict]:
     db = await get_db()
     try:
-        rows = await (await db.execute("SELECT name, user_id, model FROM media")).fetchall()
+        rows = await (await db.execute("SELECT name, user_id, model, seconds FROM media")).fetchall()
     finally:
         await db.close()
     return {row["name"]: row for row in rows}
@@ -152,8 +171,11 @@ async def list_files(user: dict | None) -> list[dict]:
     for entry in entries:
         row = rows.get(entry["name"])
         if _visible(row["user_id"] if row else None, user):
-            entry.pop("_file")
+            path = entry.pop("_file")
             entry.update(_model_fields(row["model"] if row else ""))
+            entry["seconds"] = round(row["seconds"], 1) if row and row["seconds"] is not None else None
+            if entry["kind"] == "mesh":
+                entry["rendered"] = render_of(path).is_file()
             files.append(entry)
     return sorted(files, key=lambda e: e["created"], reverse=True)
 
@@ -177,6 +199,9 @@ async def delete(name: str, user: dict | None) -> bool:
     if path is None or not await can_read(name, user):
         return False
     path.unlink(missing_ok=True)
+    if path.suffix == ".glb":                   # its cut-out and its render
+        path.with_suffix(".png").unlink(missing_ok=True)
+        render_of(path).unlink(missing_ok=True)
     db = await get_db()
     try:
         await db.execute("DELETE FROM media WHERE name = ?", (name,))

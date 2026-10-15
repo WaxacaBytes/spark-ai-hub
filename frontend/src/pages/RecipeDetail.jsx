@@ -922,6 +922,7 @@ const MEDIA_LABELS = {
   'face-swap': 'Face swap',
   'video-with-audio': 'Video with sound',
   'orbit-360': '360° orbit',
+  'image-to-3d': 'Image to 3D',
   'music-generation': 'Music generation',
 }
 

@@ -185,7 +185,7 @@ export default function Agents({ search = '' }) {
           visible={mediaVisible}
           eyebrow="The tools · /mcp"
           title="Media models"
-          subtitle="Image, video, music and decision models. Agents call them through the Hub's MCP tools, and can start them on demand."
+          subtitle="Image, video, 3D, music and decision models. Agents call them through the Hub's MCP tools, and can start them on demand."
           sorts={['lab', 'release', 'params', 'size']}
         />
       </div>
@@ -249,7 +249,7 @@ function ServingPanel({ served, starting, tools, recipes, onBrowse }) {
   )
 }
 
-// Media models that are up, so an agent's image/video/music tool calls will
+// Media models that are up, so an agent's image/video/3D/music tool calls will
 // not have to wait for one to start.
 function ToolModels({ tools }) {
   const selectRecipe = useStore((s) => s.selectRecipe)

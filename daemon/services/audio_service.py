@@ -14,15 +14,16 @@ from __future__ import annotations
 import io
 import re
 import secrets
+import time
 import wave
 from dataclasses import dataclass
 
 import aiohttp
 
 from daemon.config import settings
-from daemon.services.docker_service import get_installed_slugs, is_ready, is_recipe_running
+from daemon.services.docker_service import get_installed_slugs
 from daemon.services import media_store, proxy_service
-from daemon.services.image_service import ImageError, rendering
+from daemon.services.image_service import ImageError, pick_ready, rendering
 from daemon.services.registry_service import get_recipes
 
 AUDIO_DIR = settings.data_dir / "audio"
@@ -65,21 +66,7 @@ async def pick_backend(model: str | None) -> Backend:
             raise ImageError(f"'{model}' is not an installed music model. "
                              f"Installed music models: {names}.")
         candidates = [backend]
-    starting = []
-    for backend in candidates:
-        if await is_recipe_running(backend.slug):
-            if is_ready(backend.slug):
-                return backend
-            starting.append(backend.slug)
-    if starting:
-        raise ImageError(f"{starting[0]} is still starting (loading weights). Call start_model "
-                         f"with model {starting[0]} to wait until it is ready.")
-    if not candidates:
-        raise ImageError("No music model is installed on the Spark. "
-                         "Install one from the Spark AI Hub first.")
-    names = " or ".join(b.slug for b in candidates)
-    raise ImageError(f"No music model is running on the Spark. Start {names} "
-                     f"with start_model first.")
+    return await pick_ready(candidates, "music model")
 
 
 def music_body(*, lyrics: str, style: str, seconds: int, seed: int) -> dict:
@@ -104,6 +91,7 @@ def wav_seconds(raw: bytes) -> float | None:
 
 async def generate(*, lyrics: str, style: str, seconds: int | None, seed: int | None,
                    model: str | None, user: dict | None = None) -> dict:
+    started = time.monotonic()
     backend = await pick_backend(model)
     seed = seed if seed is not None else secrets.randbelow(MAX_SEED)
     seconds = seconds or getattr(backend.defaults, "seconds", None) or DEFAULT_SECONDS
@@ -119,7 +107,8 @@ async def generate(*, lyrics: str, style: str, seconds: int | None, seed: int | 
     AUDIO_DIR.mkdir(parents=True, exist_ok=True)
     audio_id = secrets.token_hex(16)
     (AUDIO_DIR / f"{audio_id}.wav").write_bytes(raw)
-    await media_store.record(f"{audio_id}.wav", user and user["id"], backend.slug)
+    await media_store.record(f"{audio_id}.wav", user and user["id"], backend.slug,
+                             time.monotonic() - started)
     length = wav_seconds(raw)
     return {"audio_id": audio_id, "model": backend.slug,
             "seconds": round(length, 1) if length else seconds, "seed": seed}

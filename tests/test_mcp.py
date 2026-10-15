@@ -12,12 +12,12 @@ from unittest import mock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from daemon import db as db_module
 from daemon.routers import files, links, mcp, uploads
 from daemon.services import (
-    audio_service, decision_service, docker_service, image_service, link_service, media_store,
+    audio_service, decision_service, docker_service, image_service, link_service, media_store, mesh_service,
     upload_service, video_service, web_service,
 )
 
@@ -112,7 +112,8 @@ class McpProtocolTests(unittest.TestCase):
         names = {t["name"] for t in r.json()["result"]["tools"]}
         self.assertEqual(names, {"generate_image", "edit_image", "get_image",
                                  "list_image_models", "generate_video", "get_video",
-                                 "list_video_models", "generate_music", "get_music",
+                                 "list_video_models", "generate_3d", "get_3d", "list_3d_models",
+                                 "generate_music", "get_music",
                                  "create_upload", "create_download", "delete_file",
                                  "start_model", "stop_model", "web_search", "web_fetch",
                                  "decide", "list_decision_models"})
@@ -629,6 +630,7 @@ class _MediaDirsTest(unittest.TestCase):
             mock.patch.object(video_service, "UPLOAD_DIR", root / "videos" / "uploads"),
             mock.patch.object(audio_service, "AUDIO_DIR", root / "audio"),
             mock.patch.object(audio_service, "UPLOAD_DIR", root / "audio" / "uploads"),
+            mock.patch.object(mesh_service, "MESH_DIR", root / "meshes"),
         ]
         for patch in self.patches:
             patch.start()
@@ -796,6 +798,75 @@ class MyFilesTests(_MediaDirsTest):
         self.assertLessEqual(max(Image.open(io.BytesIO(r.content)).size), files.THUMB_EDGE)
         self.assertEqual(self.client.get(f"/api/media/{mine}/thumb",
                                          headers={"x-test-user": "other"}).status_code, 404)
+
+
+class MeshTests(_MediaDirsTest):
+    @staticmethod
+    def _picture(full_frame=False, mode="RGB") -> bytes:
+        img = Image.new(mode, (64, 64), (255, 255, 255, 0) if mode == "RGBA" else (250, 250, 250))
+        ImageDraw.Draw(img).rectangle((0, 0, 63, 63) if full_frame else (20, 20, 44, 44), fill=(200, 30, 30, 255))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
+    def test_plain_background_is_cut_away(self):
+        with Image.open(io.BytesIO(mesh_service.cut_out(self._picture()))) as cut:
+            self.assertEqual(cut.mode, "RGBA")
+            self.assertEqual(cut.getpixel((2, 2))[3], 0)
+            self.assertEqual(cut.getpixel((32, 32)), (200, 30, 30, 255))
+
+    def test_a_nearly_opaque_alpha_channel_is_still_cut(self):
+        with Image.open(io.BytesIO(self._picture())) as img:
+            rgba = img.convert("RGBA")
+        rgba.putalpha(254)
+        buf = io.BytesIO()
+        rgba.save(buf, format="PNG")
+        with Image.open(io.BytesIO(mesh_service.cut_out(buf.getvalue()))) as cut:
+            self.assertEqual(cut.getpixel((2, 2))[3], 0)
+
+    def test_a_cut_out_png_is_sent_as_it_is(self):
+        raw = self._picture(mode="RGBA")
+        with Image.open(io.BytesIO(mesh_service.cut_out(raw))) as cut, Image.open(io.BytesIO(raw)) as src:
+            self.assertEqual(list(cut.getdata()), list(src.getdata()))
+
+    def test_a_picture_with_no_plain_background_is_refused(self):
+        with self.assertRaisesRegex(image_service.ImageError, "plain background"):
+            mesh_service.cut_out(self._picture(full_frame=True))
+
+    def test_get_3d_returns_the_glb_and_the_cut_out(self):
+        info = {"job_id": "j", "status": "completed", "model": "h3d", "kind": "mesh", "error": None,
+                "elapsed": 90, "result": {"mesh_id": "c" * 32, "model": "h3d", "seed": 4, "steps": None,
+                                          "bytes": 2_500_000, "inference_time_s": 88.0, "preview": "AAAA"}}
+        with mock.patch.object(image_service, "check_job", mock.AsyncMock(return_value=info)):
+            r = self.client.post("/mcp", json=_rpc("tools/call", {"name": "get_3d", "arguments": {"job_id": "j"}}))
+        result = r.json()["result"]
+        self.assertFalse(result["isError"])
+        self.assertIn(f"/meshes/{'c' * 32}.glb", result["content"][0]["text"])
+        self.assertEqual(result["content"][1]["mimeType"], "image/jpeg")
+        self.assertNotIn("preview", result["structuredContent"])
+
+    def test_a_model_lists_with_its_picture_and_goes_with_it(self):
+        mesh_service.MESH_DIR.mkdir(parents=True)
+        glb, png = mesh_service.MESH_DIR / f"{'d' * 32}.glb", mesh_service.MESH_DIR / f"{'d' * 32}.png"
+        glb.write_bytes(b"glTF")
+        png.write_bytes(self._picture(mode="RGBA"))
+        asyncio.run(media_store.record(glb.name, OWNER["id"], "h3d", 84.96))
+        self.assertEqual(media_store.name_in_url(f"https://hub/meshes/{glb.name}"), glb.name)
+        (entry,) = self.client.get("/api/media").json()["files"]   # the picture is not a file of its own
+        self.assertEqual((entry["kind"], entry["path"], entry["seconds"]), ("mesh", f"/meshes/{glb.name}", 85.0))
+        self.assertEqual(self.client.get(f"/meshes/{glb.name}").headers["content-type"], "model/gltf-binary")
+        self.assertEqual(self.client.get(f"/api/media/{glb.name}/thumb").headers["content-type"], "image/jpeg")
+        # A browser hands back a render of the model; it stands for the model from then on.
+        self.assertEqual(self.client.put(f"/api/media/{glb.name}/thumb", content=b"not a picture").status_code, 400)
+        self.assertEqual(self.client.put(f"/api/media/{glb.name}/thumb", content=_png(),
+                                         headers={"x-test-user": "other"}).status_code, 404)
+        self.assertEqual(self.client.put(f"/api/media/{glb.name}/thumb", content=_png()).status_code, 200)
+        render = media_store.render_of(glb)
+        self.assertEqual(media_store.picture(glb), render)
+        (entry,) = self.client.get("/api/media").json()["files"]
+        self.assertTrue(entry["rendered"])
+        self.assertEqual(self.client.delete(f"/api/media/{glb.name}").status_code, 200)
+        self.assertFalse(glb.exists() or png.exists() or render.exists())
 
 
 class LinkTests(_MediaDirsTest):
@@ -1192,7 +1263,7 @@ class StartStopModelTests(unittest.TestCase):
             for slug in ("llm", "open-webui"):
                 result = self.call(name, model=slug)
                 self.assertTrue(result["isError"])
-                self.assertIn("not an installed image, video, music or decision model, or SearXNG",
+                self.assertIn("not an installed image, video, 3D, music or decision model, or SearXNG",
                               result["content"][0]["text"])
         self.launch.assert_not_called()
         self.stop.assert_not_called()

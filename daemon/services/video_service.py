@@ -35,7 +35,7 @@ import aiohttp
 from daemon.config import settings
 from daemon.services.docker_service import get_installed_slugs, is_ready, is_recipe_running
 from daemon.services import media_store, proxy_service
-from daemon.services.image_service import ImageError, load_input, owns_job, to_png
+from daemon.services.image_service import ImageError, load_input, owns_job, pick_ready, to_png
 from daemon.services.registry_service import get_recipes
 
 VIDEO_DIR = settings.data_dir / "videos"
@@ -150,21 +150,7 @@ async def pick_backend(needs: set[str], model: str | None) -> Backend:
             raise ImageError(f"'{model}' is not an installed model that can {label}. "
                              f"Installed models that can: {names}.")
         candidates = [backend]
-    starting = []
-    for backend in candidates:
-        if await is_recipe_running(backend.slug):
-            if is_ready(backend.slug):
-                return backend
-            starting.append(backend.slug)
-    if starting:
-        raise ImageError(f"{starting[0]} is still starting (loading weights). Call start_model "
-                         f"with model {starting[0]} to wait until it is ready.")
-    if not candidates:
-        raise ImageError(f"No video model that can {label} is installed on the Spark. "
-                         f"Install one from the Spark AI Hub first.")
-    names = " or ".join(b.slug for b in candidates)
-    raise ImageError(f"No video model that can {label} is running on the Spark. "
-                     f"Start {names} with start_model first.")
+    return await pick_ready(candidates, f"video model that can {label}")
 
 
 def video_fields(defaults, *, prompt: str, seconds: int | None, aspect_ratio: str,
@@ -488,7 +474,9 @@ async def check(job_id: str, wait: int = 0, on_progress=None, user: dict | None 
                         async for chunk in r.content.iter_chunked(1 << 20):
                             f.write(chunk)
                 job["video_id"] = video_id
-                await media_store.record(f"{video_id}.mp4", job.get("user_id"), job["slug"])
+                # Until the model finished, not until this poll noticed.
+                took = (remote.get("completed_at") or time.time()) - job["created"]
+                await media_store.record(f"{video_id}.mp4", job.get("user_id"), job["slug"], took)
                 recipe = get_recipes().get(job["slug"])
                 if recipe and ORBIT_TAG in recipe.tags:
                     await asyncio.to_thread(all_keyframes, path)

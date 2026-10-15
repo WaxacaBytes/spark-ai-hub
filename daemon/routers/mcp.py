@@ -1,4 +1,4 @@
-"""MCP server: web search, image, video and music generation, and typed decisions, for any agent.
+"""MCP server: web search, image, video, 3D and music generation, and typed decisions, for any agent.
 
 Speaks MCP's Streamable HTTP transport in its stateless form, at POST /mcp:
 one JSON-RPC request per POST, no session id, no server-initiated stream (GET
@@ -29,8 +29,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 
 from daemon.routers import containers
 from daemon.services import (
-    audio_service, decision_service, image_service, link_service, media_store, upload_service,
-    video_service, web_service,
+    audio_service, decision_service, image_service, link_service, media_store, mesh_service,
+    upload_service, video_service, web_service,
 )
 from daemon.config import settings
 from daemon.services.connect_service import request_origin
@@ -52,7 +52,7 @@ SERVER_INFO = {
                    "mimeType": "image/png", "sizes": ["128x128"]}]} if _ICON.is_file() else {}),
 }
 KEEPALIVE_SECONDS = 10
-# How long get_image / get_video / get_music / start_model hold a call open
+# How long get_image / get_video / get_3d / get_music / start_model hold a call open
 # before answering "not done yet". Short enough for any client's tool timeout,
 # long enough that polling needs no sleep and a render takes a handful of calls.
 # Fixed on purpose: renders have exactly one shape (start, then collect), with
@@ -65,9 +65,9 @@ INSTRUCTIONS = (
     "from the Spark). Use these for anything current or beyond your training data, and "
     "cite the URLs you rely on. If web_search says SearXNG is not running, start it with "
     "start_model (model \"searxng\") and search again.\n\n"
-    "Generates and edits images, generates and edits videos, and composes music, with open models running on "
-    "the user's DGX Spark. Call list_image_models / list_video_models to see which "
-    "are running. A stopped model can be started with start_model; when memory is short, "
+    "Generates and edits images, generates and edits videos, turns pictures into 3D models, and composes "
+    "music, with open models running on the user's DGX Spark. Call list_image_models / "
+    "list_video_models / list_3d_models to see which are running. A stopped model can be started with start_model; when memory is short, "
     "stop_model frees a media model that is not rendering. Every result is saved on the Hub and returned as a URL plus a "
     "preview. Show the user the URL. To refine an image, pass its URL to edit_image. "
     "The URLs are private: they open for the user signed in to the Hub, not for you. "
@@ -82,9 +82,9 @@ INSTRUCTIONS = (
     "and short-lived: ask for a new one each time. Uploads last 7 days. A picture "
     "attached to the chat is not a file you can upload; ask the user to add it at "
     "<Hub address>/files and paste the link.\n\n"
-    "Every render works the same way: generate_image, edit_image, generate_video and "
-    "generate_music start a job and return its job_id at once. Then call get_image, "
-    "get_video or get_music with that job_id. Each get call waits up to "
+    "Every render works the same way: generate_image, edit_image, generate_video, generate_3d "
+    "and generate_music start a job and return its job_id at once. Then call get_image, "
+    "get_video, get_3d or get_music with that job_id. Each get call waits up to "
     f"{CHECK_WAIT} seconds and returns either the result or \"Not done yet\"; call it "
     "again with the same job_id until it returns the result or an error. No sleep is "
     "needed between calls. Keep calling in the same turn instead of telling the user "
@@ -110,9 +110,9 @@ _STEPS_HINT = (
 )
 
 _MODEL_ARG = {"type": "string",
-              "description": ("A model id from list_image_models, list_video_models or "
-                              "list_decision_models, a music model, or \"searxng\" for the "
-                              "search engine web_search runs on.")}
+              "description": ("A model id from list_image_models, list_video_models, "
+                              "list_3d_models or list_decision_models, a music model, or "
+                              "\"searxng\" for the search engine web_search runs on.")}
 
 _IMAGE_REFS = (
     "Each item is a URL returned by generate_image or edit_image, an upload's URL "
@@ -307,6 +307,55 @@ TOOLS = [
         "annotations": {"readOnlyHint": True},
     },
     {
+        "name": "generate_3d",
+        "title": "Generate 3D model",
+        "description": (
+            "Start turning one picture of an object into a textured 3D model (GLB) on the "
+            "Spark. Use a picture of one whole object, centered, on a plain background: the "
+            "Hub cuts that background away before the model sees it (a PNG whose background "
+            "is already transparent is used as it is). Without a picture, make one first with "
+            "generate_image, asking for the object \"centered on a plain white background\". "
+            "Returns a job_id at once, not the model: then call get_3d with it until the model "
+            "arrives (it takes minutes). Do not start it again."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "image": {"type": "string", "description": "The picture to build from. " + _IMAGE_REFS},
+                "seed": {"type": "integer", "minimum": 0},
+                "steps": {"type": "integer", "minimum": 1, "maximum": 100,
+                          "description": "Leave this out: the model's own setting (50) is used."},
+                "model": {"type": "string",
+                          "description": "A model id from list_3d_models. Omit to use whichever is running."},
+            },
+            "required": ["image"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "get_3d",
+        "title": "Get 3D model",
+        "description": (
+            f"Collect the job that generate_3d started. Waits up to {CHECK_WAIT} s; returns "
+            "the GLB's URL and the cut-out picture it was built from when done, or \"Not done "
+            "yet\", in which case call get_3d again with the same job_id until it returns the "
+            "model or an error."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"job_id": {"type": "string"}},
+            "required": ["job_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "list_3d_models",
+        "title": "List 3D models",
+        "description": "List the Spark's 3D models: what each takes and makes, and whether it is running.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "annotations": {"readOnlyHint": True},
+    },
+    {
         "name": "generate_music",
         "title": "Generate music",
         "description": (
@@ -362,14 +411,14 @@ TOOLS = [
         "title": "Create download link",
         "description": (
             "Get a short-lived link to download one of the user's Hub files (an image, "
-            "video or song URL from the other tools, or an upload) into your workspace, "
+            "video, 3D model or song URL from the other tools, or an upload) into your workspace, "
             "without any key. Run the returned curl command. The link expires in "
             f"{link_service.LINK_TTL // 60} minutes; call this again whenever you need it."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {"url": {"type": "string",
-                                   "description": "The Hub URL of the image, video or song."}},
+                                   "description": "The Hub URL of the image, video, 3D model or song."}},
             "required": ["url"],
             "additionalProperties": False,
         },
@@ -378,13 +427,13 @@ TOOLS = [
         "name": "delete_file",
         "title": "Delete file",
         "description": (
-            "Delete one of the user's Hub files for good: an image, video or song URL from "
+            "Delete one of the user's Hub files for good: an image, video, 3D model or song URL from "
             "the other tools, or an upload. Only when the user asks for it; it cannot be undone."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {"url": {"type": "string",
-                                   "description": "The Hub URL of the image, video, song or upload."}},
+                                   "description": "The Hub URL of the image, video, 3D model, song or upload."}},
             "required": ["url"],
             "additionalProperties": False,
         },
@@ -449,7 +498,7 @@ TOOLS = [
         "name": "start_model",
         "title": "Start model",
         "description": (
-            "Start one of the Spark's stopped image, video, music or decision models, or "
+            "Start one of the Spark's stopped image, video, 3D, music or decision models, or "
             "SearXNG (model \"searxng\"), the search engine web_search runs on, so the other "
             "tools can use it. Loading takes from under a minute to about 15 minutes for "
             f"the largest. Waits up to {CHECK_WAIT} s; returns once the model is ready, or "
@@ -469,7 +518,7 @@ TOOLS = [
         "name": "stop_model",
         "title": "Stop model",
         "description": (
-            "Stop a running image, video, music or decision model, or SearXNG (model "
+            "Stop a running image, video, 3D, music or decision model, or SearXNG (model "
             "\"searxng\"), to free its memory, e.g. to start another with start_model. Refused "
             "while the model is rendering a job. Only these can be stopped here; LLMs and every "
             "other app are managed in the Hub."
@@ -590,6 +639,19 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             return _music_result(info, origin) if info["kind"] == "music" else _image_result(info, origin)
         if name == "list_video_models":
             return _text(json.dumps(await video_service.list_models(), indent=2))
+        if name == "list_3d_models":
+            return _text(json.dumps(await mesh_service.list_models(), indent=2))
+        if name == "generate_3d":
+            image = str(args.get("image") or "").strip()
+            if not image:
+                raise image_service.ImageError("'image' is required: the picture to build the model from.")
+            slug = (await mesh_service.pick_backend(str(args.get("model") or "").strip() or None)).slug
+            job_id = image_service.start_job("mesh", lambda: mesh_service.generate(
+                image=image, seed=_int(args, "seed"), steps=_int(args, "steps"), model=slug,
+                user=user), slug, user)
+            return _started("get_3d", job_id, slug)
+        if name == "get_3d":
+            return _mesh_result(await image_service.check_job(_job_id(args), CHECK_WAIT, user), origin)
         if name == "get_video":
             info = await video_service.check(_job_id(args), CHECK_WAIT, on_progress, user)
             return _video_result(info, origin)
@@ -682,7 +744,8 @@ MCP_APPS = {web_service.SEARXNG}
 
 def _startable_slugs() -> set[str]:
     return (set(image_service.backends()) | set(video_service.backends())
-            | set(audio_service.backends()) | decision_service.backends() | MCP_APPS)
+            | set(mesh_service.backends()) | set(audio_service.backends())
+            | decision_service.backends() | MCP_APPS)
 
 
 async def _startable(args: dict) -> str:
@@ -691,7 +754,7 @@ async def _startable(args: dict) -> str:
     installed = _startable_slugs() & await get_installed_slugs()
     if slug not in installed:
         raise image_service.ImageError(
-            f"'{slug}' is not an installed image, video, music or decision model, or "
+            f"'{slug}' is not an installed image, video, 3D, music or decision model, or "
             f"SearXNG. Installed: {', '.join(sorted(installed)) or 'none'}.")
     return slug
 
@@ -828,6 +891,27 @@ def _video_result(info: dict, origin: str) -> dict:
     return {"content": content, "structuredContent": {**structured, "url": url}, "isError": False}
 
 
+def _mesh_result(info: dict, origin: str) -> dict:
+    if info["status"] == "failed":
+        return _text(info.get("error") or f"3D job {info['job_id']} failed.", is_error=True)
+    if info["status"] != "completed":
+        return _not_done("get_3d", info["job_id"],
+                         f"still building on {info['model']} ({info['elapsed']}s so far)",
+                         {k: v for k, v in info.items() if k != "result"})
+    mesh = {k: v for k, v in info["result"].items() if k != "preview"}
+    url = f"{origin}{mesh_service.PUBLIC_PREFIX}/{mesh['mesh_id']}.glb"
+    lines = [f"3D model (GLB): {url}", f"Model: {mesh['model']}", f"Seed: {mesh['seed']}",
+             f"File size: {mesh['bytes'] / 1e6:.1f} MB"]
+    if mesh.get("inference_time_s"):
+        lines.append(f"Build time: {round(mesh['inference_time_s'])}s")
+    lines.append("The user can turn it around in the Hub's My files. To save it into your "
+                 "workspace, call create_download with this URL; the attached JPEG is the cut-out "
+                 "picture it was built from, not a render of the model.")
+    return {"content": [{"type": "text", "text": "\n".join(lines)},
+                        {"type": "image", "data": info["result"]["preview"], "mimeType": "image/jpeg"}],
+            "structuredContent": {**mesh, "url": url}, "isError": False}
+
+
 def _music_result(info: dict, origin: str) -> dict:
     if info["status"] == "failed":
         return _text(info.get("error") or f"Music job {info['job_id']} failed.", is_error=True)
@@ -849,8 +933,9 @@ async def _own_file(args: dict, user: dict | None) -> str:
         raise image_service.ImageError("Files need a signed-in Hub account behind this connection.")
     file_name = media_store.name_in_url(str(args.get("url") or ""))
     if not file_name:
-        raise image_service.ImageError("'url' must be a Hub image, video or song URL "
-                                       "(.../images/<id>.png, /videos/<id>.mp4 or /audio/<id>.wav).")
+        raise image_service.ImageError("'url' must be a Hub image, video, 3D model or song URL "
+                                       "(.../images/<id>.png, /videos/<id>.mp4, /meshes/<id>.glb "
+                                       "or /audio/<id>.wav).")
     if media_store.find(file_name) is None or not await media_store.can_read(file_name, user):
         raise image_service.ImageError(f"No Hub file {file_name} for this account "
                                        "(it may have expired or been deleted).")
@@ -1008,6 +1093,11 @@ async def _media_file(request: Request, name: str, suffix: str) -> Response:
     if path is None or not await media_store.can_read(name, user):
         return Response(status_code=404)
     return FileResponse(path, media_type=media_store.MEDIA_TYPES[suffix], headers=_cache_headers(path))
+
+
+@router.get("/meshes/{name}")
+async def mesh_file(request: Request, name: str):
+    return await _media_file(request, name, ".glb")
 
 
 @router.get("/audio/{name}")

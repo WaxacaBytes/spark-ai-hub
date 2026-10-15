@@ -37,6 +37,8 @@ MEDIA_CAPABILITIES = {
     # A full turn around a still subject, first frame = last; My files shows it
     # as something to drag around rather than a clip to play.
     "orbit-360": "orbit-360",
+    # One picture in, a textured 3D model (GLB) out.
+    "image-to-3d": "image-to-3d",
     "text-to-music": "music-generation",
 }
 

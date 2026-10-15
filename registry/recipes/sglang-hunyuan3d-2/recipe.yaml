@@ -1,0 +1,41 @@
+name: "Hunyuan3D-2"
+slug: sglang-hunyuan3d-2
+version: "1.0.0"
+description: "Turn one picture into a textured 3D model (GLB): Tencent's Hunyuan3D-2 builds the shape, removes the lighting baked into the photo and paints the texture back on. Works best with one object on a plain background; the Hub cuts the background out before sending the picture. Served by SGLang Diffusion (with its pending fix to simplify the mesh before texturing: about 1.5 minutes and a 4 MB model, instead of 13 minutes and 47 MB); your coding agents reach it through the Hub's 3D tools (generate_3d / get_3d), and the models open in My files to turn around. Tencent Hunyuan Community License (not licensed in the EU, UK or South Korea)."
+author: "Tencent Hunyuan"
+source: "spark-ai-hub"
+website: "https://github.com/Tencent-Hunyuan/Hunyuan3D-2"
+upstream: "https://huggingface.co/tencent/Hunyuan3D-2"
+category: 3d-gen
+categories:
+  - 3d-gen
+tags:
+  - openai-meshes
+  - image-to-3d
+  - hunyuan3d
+  - tencent
+  - sglang
+icon: "\U0001F9CA"
+requirements:
+  min_memory_gb: 32
+  recommended_memory_gb: 48
+  disk_gb: 60
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP 3D tools call its API. Proxied so
+  # the Hub reaches it at /run/sglang-hunyuan3d-2/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 20
+  gpu: true
+status: experimental
+release_date: "2025-01"
+engine: "SGLang"
+quantization: "FP16"
+weights_gb: 13.1
+requires_hf_token: false
