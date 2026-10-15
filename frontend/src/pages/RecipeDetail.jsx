@@ -923,6 +923,7 @@ const MEDIA_LABELS = {
   'video-with-audio': 'Video with sound',
   'orbit-360': '360° orbit',
   'image-to-3d': 'Image to 3D',
+  'multi-view': 'Multiple views',
   'music-generation': 'Music generation',
 }
 

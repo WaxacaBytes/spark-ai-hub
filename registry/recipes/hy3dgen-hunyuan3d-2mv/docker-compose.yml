@@ -1,0 +1,63 @@
+services:
+  hunyuan3d:
+    # Tencent's Hunyuan3D-2mv on its own code (hy3dgen), behind the Spark AI
+    # Hub's meshes engine: the same API as SGLang Diffusion's 3D models
+    # (POST /v1/meshes queues a job, GET /v1/meshes/{id} reports it, GET
+    # /v1/meshes/{id}/content serves the GLB), plus the `left`, `back` and
+    # `right` views next to the front `image`.
+    #
+    # SGLang serves only the single-picture Hunyuan3D-2, so this recipe uses
+    # the engine built from github.com/WaxacaBytes/hunyuan3d-2mv-spark-ai-hub:
+    # Tencent's code pinned to a commit, its two CUDA extensions compiled for
+    # the GB10, and a ~200-line server.
+    #
+    # The shape comes from the multi-view DiT; it is cleaned and reduced to
+    # 40,000 faces the way Tencent's own app does, then painted from the front
+    # view by Hunyuan3D-2's paint and delight models.
+    #
+    # Weights from the publisher only, pinned, and only what the engine loads
+    # (14.4 GB): the multi-view DiT's fp16 safetensors (it bundles the shape
+    # VAE and the image conditioner), and the paint and delight pipelines
+    # with one copy of each weight file: Tencent's paint UNet loader reads its
+    # .bin by name, the VAE loads from safetensors, and the paint text encoder
+    # ships only as .bin.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('tencent/Hunyuan3D-2mv', revision='3a761b539b29fe4ff64714813aa9560fd66f5de0', local_dir='/models/tencent/Hunyuan3D-2mv', allow_patterns=['config.json', 'LICENSE', 'NOTICE', 'hunyuan3d-dit-v2-mv/config.yaml', 'hunyuan3d-dit-v2-mv/model.fp16.safetensors'])"
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('tencent/Hunyuan3D-2', revision='9cd649ba6913f7a852e3286bad86bfa9a2d83dcf', local_dir='/models/tencent/Hunyuan3D-2', allow_patterns=['LICENSE', 'NOTICE', 'hunyuan3d-paint-v2-0/*', 'hunyuan3d-delight-v2-0/*'], ignore_patterns=['hunyuan3d-paint-v2-0/unet/diffusion_pytorch_model.safetensors', 'hunyuan3d-paint-v2-0/vae/diffusion_pytorch_model.bin'])"
+        FROM ghcr.io/waxacabytes/hunyuan3d-2mv-spark-ai-hub:latest
+        COPY --from=weights /models /models
+    image: spark-ai-hub/hy3dgen-hunyuan3d-2mv:latest
+    container_name: spark-ai-hub-hy3dgen-hunyuan3d-2mv
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/hy3dgen-hunyuan3d-2mv/, so it never collides with the
+    # LLM or with another media model.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - HY3DGEN_MODELS=/models
+      - PORT=30000
+    ipc: host
+    shm_size: 16gb
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

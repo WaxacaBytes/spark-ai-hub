@@ -1,0 +1,43 @@
+name: "Hunyuan3D-2mv"
+slug: hy3dgen-hunyuan3d-2mv
+version: "1.0.0"
+description: "Turn several pictures of one object into a textured 3D model (GLB): Tencent's multi-view Hunyuan3D-2mv builds the shape from a front view plus any of the left, back and right views, so the sides and back come out as they really are instead of being guessed; Hunyuan3D-2's paint and delight models then texture it from the front view. Works best with real photos of one object from several sides on a plain background; the Hub cuts the backgrounds out before sending them. Runs on Tencent's own code in a small Spark AI Hub engine; your coding agents reach it through the Hub's 3D tools (generate_3d with views / get_3d), and the models open in My files to turn around. Tencent Hunyuan Community License (not licensed in the EU, UK or South Korea)."
+author: "Tencent Hunyuan"
+source: "spark-ai-hub"
+website: "https://github.com/Tencent-Hunyuan/Hunyuan3D-2"
+upstream: "https://github.com/WaxacaBytes/hunyuan3d-2mv-spark-ai-hub"
+fork: "https://huggingface.co/tencent/Hunyuan3D-2mv"
+category: 3d-gen
+categories:
+  - 3d-gen
+tags:
+  - openai-meshes
+  - image-to-3d
+  - multi-view
+  - hunyuan3d
+  - tencent
+icon: "\U0001F9CA"
+logo: "/logos/hunyuan3d.png"
+requirements:
+  min_memory_gb: 32
+  recommended_memory_gb: 48
+  disk_gb: 60
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP 3D tools call its API. Proxied so
+  # the Hub reaches it at /run/hy3dgen-hunyuan3d-2mv/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 15
+  gpu: true
+status: experimental
+release_date: "2025-03"
+engine: "hy3dgen"
+quantization: "FP16"
+weights_gb: 14.4
+requires_hf_token: false

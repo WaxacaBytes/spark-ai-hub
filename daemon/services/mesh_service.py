@@ -3,17 +3,21 @@
 3D models are SGLang Diffusion's meshes API: POST /v1/meshes takes a picture
 and queues a job, GET /v1/meshes/{id} reports it, and GET
 /v1/meshes/{id}/content serves the textured GLB. A recipe opts in with the
-`openai-meshes` tag plus `image-to-3d`. A model takes minutes, so it runs as a
+`openai-meshes` tag plus `image-to-3d`; with `multi-view` it also takes the
+object's `left`, `back` and `right` views next to the front picture (the
+Hub's hy3dgen engine for Hunyuan3D-2mv speaks the same API with those fields). A model takes minutes, so it runs as a
 Hub job like a song (image_service.start_job): generate_3d starts it, get_3d
 collects it.
 
-The model reads the object's outline from the picture's alpha channel and cuts
-nothing itself: an opaque photo comes back as a slab with the photo painted on.
-So a picture with no transparency has its background cut away here first, by
-flood-filling the plain colour in from its edges. That fits what agents make
-for it -- one object on a plain background -- and a cut-out PNG is sent as it
-is. A picture whose background is not plain enough is refused with what to do
-instead.
+Most models read the object's outline from the picture's alpha channel and
+cut nothing themselves: an opaque photo comes back as a slab with the photo
+painted on. So a picture with no transparency has its background cut away
+here first, by flood-filling the plain colour in from its edges. That fits
+what agents make for them -- one object on a plain background -- and a
+cut-out PNG is sent as it is. A picture whose background is not plain enough
+is refused with what to do instead. A model tagged `background-removal`
+(Pixal3D, with BRIA's RMBG-2.0) cuts any background out itself and gets the
+picture as it is.
 
 Models are stored in the Hub's data dir and served at /meshes/<id>.glb, private
 to the account that made them (media_store). The cut-out picture is kept beside
@@ -36,7 +40,7 @@ from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
 from daemon.config import settings
 from daemon.services import media_store, proxy_service
 from daemon.services.docker_service import get_installed_slugs, is_ready, is_recipe_running
-from daemon.services.image_service import ImageError, load_input, pick_ready, rendering
+from daemon.services.image_service import ImageError, load_input, pick_ready, rendering, to_png
 from daemon.services.registry_service import get_recipes
 
 MESH_DIR = settings.data_dir / "meshes"
@@ -44,6 +48,9 @@ PUBLIC_PREFIX = "/meshes"
 MESH_NAME_RE = re.compile(r"^([0-9a-f]{32})\.glb$")
 
 OPENAI_MESHES_TAG = "openai-meshes"
+MULTI_VIEW_TAG = "multi-view"
+OWN_CUTOUT_TAG = "background-removal"
+VIEWS = ("left", "back", "right")        # besides the front `image`
 POLL_SECONDS = 3
 JOB_TIMEOUT = 30 * 60
 MAX_SEED = 2**31 - 1
@@ -61,11 +68,14 @@ MIN_BACKGROUND, MAX_BACKGROUND = 0.05, 0.97
 class Backend:
     slug: str
     summary: str
+    multi_view: bool = False
+    cuts_out: bool = False                   # removes backgrounds itself
 
 
 def backends() -> dict[str, Backend]:
     """Every 3D model the catalog offers: recipes tagged `openai-meshes` + `image-to-3d`."""
-    return {slug: Backend(slug=slug, summary=recipe.name)
+    return {slug: Backend(slug=slug, summary=recipe.name, multi_view=MULTI_VIEW_TAG in recipe.tags,
+                          cuts_out=OWN_CUTOUT_TAG in recipe.tags)
             for slug, recipe in sorted(get_recipes().items())
             if OPENAI_MESHES_TAG in recipe.tags and "image-to-3d" in recipe.tags}
 
@@ -78,12 +88,13 @@ async def installed_backends() -> dict[str, Backend]:
 async def list_models() -> list[dict]:
     recipes = get_recipes()
     out = []
-    for slug in await installed_backends():
+    for slug, backend in (await installed_backends()).items():
         running = await is_recipe_running(slug)
         out.append({
             "model": slug,
             "name": recipes[slug].name,
-            "accepts": ["image-to-3d"],
+            "accepts": ["image-to-3d"] + (["multi-view"] if backend.multi_view else []),
+            **({"views": ["front (image)", *VIEWS]} if backend.multi_view else {}),
             "output": "GLB with textures",
             "state": ("ready" if running and is_ready(slug)
                       else "starting" if running else "stopped"),
@@ -92,15 +103,17 @@ async def list_models() -> list[dict]:
     return out
 
 
-async def pick_backend(model: str | None) -> Backend:
+async def pick_backend(model: str | None, multi_view: bool = False) -> Backend:
     installed = await installed_backends()
-    candidates = list(installed.values())
+    what = "3D model that takes several views" if multi_view else "3D model"
+    candidates = [b for b in installed.values() if b.multi_view or not multi_view]
     if model:
-        if model not in installed:
-            names = ", ".join(installed) or "none installed"
-            raise ImageError(f"'{model}' is not an installed 3D model. Installed 3D models: {names}.")
-        candidates = [installed[model]]
-    return await pick_ready(candidates, "3D model")
+        backend = installed.get(model)
+        if backend is None or backend not in candidates:
+            names = ", ".join(b.slug for b in candidates) or "none installed"
+            raise ImageError(f"'{model}' is not an installed {what}. Installed: {names}.")
+        candidates = [backend]
+    return await pick_ready(candidates, what)
 
 
 def _png(img: Image.Image) -> bytes:
@@ -148,6 +161,7 @@ def cut_out(raw: bytes) -> bytes:
 def preview_jpeg_b64(cutout: bytes) -> str:
     """The cut-out on neutral grey, small, for agents that show pictures."""
     with Image.open(io.BytesIO(cutout)) as img:
+        img = img.convert("RGBA")
         img.thumbnail((PREVIEW_EDGE, PREVIEW_EDGE))
         canvas = Image.new("RGB", img.size, (128, 128, 128))
         canvas.paste(img, mask=img.getchannel("A"))
@@ -157,18 +171,27 @@ def preview_jpeg_b64(cutout: bytes) -> str:
 
 
 async def generate(*, image: str, seed: int | None, steps: int | None, model: str | None,
-                   user: dict | None = None) -> dict:
+                   views: dict[str, str] | None = None, user: dict | None = None) -> dict:
     started = time.monotonic()
-    backend = await pick_backend(model)
+    views = {k: v for k, v in (views or {}).items() if v}
+    if unknown := set(views) - set(VIEWS):
+        raise ImageError(f"Unknown view {', '.join(sorted(unknown))}: views are {', '.join(VIEWS)}.")
+    backend = await pick_backend(model, multi_view=bool(views))
     seed = seed if seed is not None else secrets.randbelow(MAX_SEED)
     base = f"{proxy_service.internal_url(backend.slug)}/v1/meshes"
     headers = proxy_service.probe_headers()
     timeout = aiohttp.ClientTimeout(total=JOB_TIMEOUT, sock_connect=10)
     with rendering(backend.slug):
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            cutout = await asyncio.to_thread(cut_out, await load_input(image, session, user))
+            # The picture as the model gets it: cut out here, or as it is for a
+            # model that removes backgrounds itself.
+            raw = await load_input(image, session, user)
+            cutout = await asyncio.to_thread(to_png if backend.cuts_out else cut_out, raw)
             form = aiohttp.FormData()
             form.add_field("image", cutout, filename="input.png", content_type="image/png")
+            for name, ref in views.items():
+                view = await asyncio.to_thread(cut_out, await load_input(ref, session, user))
+                form.add_field(name, view, filename=f"{name}.png", content_type="image/png")
             form.add_field("seed", str(seed))
             form.add_field("output_format", "glb")
             if steps:
@@ -201,5 +224,6 @@ async def generate(*, image: str, seed: int | None, steps: int | None, model: st
     await media_store.record(f"{mesh_id}.glb", user and user["id"], backend.slug,
                              time.monotonic() - started)
     return {"mesh_id": mesh_id, "model": backend.slug, "seed": seed, "steps": steps,
+            "views": ["front", *views],
             "bytes": len(glb), "inference_time_s": remote.get("inference_time_s"),
             "preview": await asyncio.to_thread(preview_jpeg_b64, cutout)}

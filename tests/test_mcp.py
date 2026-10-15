@@ -833,6 +833,18 @@ class MeshTests(_MediaDirsTest):
         with self.assertRaisesRegex(image_service.ImageError, "plain background"):
             mesh_service.cut_out(self._picture(full_frame=True))
 
+    def test_views_need_a_multi_view_model(self):
+        single = mesh_service.Backend(slug="h3d", summary="Single")
+        multi = mesh_service.Backend(slug="h3d-mv", summary="Multi", multi_view=True)
+        with mock.patch.object(mesh_service, "installed_backends",
+                               mock.AsyncMock(return_value={"h3d": single, "h3d-mv": multi})), \
+                mock.patch.object(mesh_service, "pick_ready", mock.AsyncMock(side_effect=lambda c, what: c[0])):
+            self.assertEqual(asyncio.run(mesh_service.pick_backend(None, multi_view=True)).slug, "h3d-mv")
+            with self.assertRaisesRegex(image_service.ImageError, "takes several views"):
+                asyncio.run(mesh_service.pick_backend("h3d", multi_view=True))
+        with self.assertRaisesRegex(image_service.ImageError, "Unknown view top"):
+            asyncio.run(mesh_service.generate(image="x", views={"top": "y"}, seed=None, steps=None, model=None))
+
     def test_get_3d_returns_the_glb_and_the_cut_out(self):
         info = {"job_id": "j", "status": "completed", "model": "h3d", "kind": "mesh", "error": None,
                 "elapsed": 90, "result": {"mesh_id": "c" * 32, "model": "h3d", "seed": 4, "steps": None,

@@ -39,6 +39,8 @@ MEDIA_CAPABILITIES = {
     "orbit-360": "orbit-360",
     # One picture in, a textured 3D model (GLB) out.
     "image-to-3d": "image-to-3d",
+    # Takes the object's left, back and right views besides the front one.
+    "multi-view": "multi-view",
     "text-to-music": "music-generation",
 }
 

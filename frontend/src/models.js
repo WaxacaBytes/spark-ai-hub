@@ -47,15 +47,12 @@ const BUILD_TOKENS = new Set([
 // models an agent talks to at /v1, and the media models it calls as tools
 // through /mcp.
 
+// A model has no interface of its own: the Hub serves it as an API (/v1 for
+// the language models, /mcp for the rest). Apps bring their own UI. This is
+// what the old list of engine slug prefixes approximated, so a new engine
+// needs no change here.
 export function isModel(recipe) {
-  return recipe.slug.startsWith('vllm-')
-    || recipe.slug.startsWith('sglang-')
-    || recipe.slug.startsWith('vllmomni-')
-    || recipe.slug.startsWith('hidream-')
-    || recipe.slug.startsWith('llamacpp-')
-    || recipe.slug.startsWith('exllamav3-')
-    || recipe.slug.startsWith('atlas-')
-    || recipe.slug.startsWith('tensorfold-')
+  return recipe.ui?.type === 'api-only'
 }
 
 // A model an agent drives: an OpenAI-compatible server the Hub's /v1 routes
@@ -70,7 +67,7 @@ export function isMediaModel(recipe) {
   return isModel(recipe) && !isAgentModel(recipe)
 }
 
-const ENGINE_PREFIX = /^(vllm|vllmomni|sglang|llamacpp|exllamav3|atlas|tensorfold)-/
+const ENGINE_PREFIX = /^(vllm|vllmomni|sglang|llamacpp|exllamav3|atlas|tensorfold|hy3dgen)-/
 
 function modelKey(recipe) {
   const parts = (recipe.slug || '').replace(ENGINE_PREFIX, '').split('-')

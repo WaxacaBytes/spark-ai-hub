@@ -315,13 +315,25 @@ TOOLS = [
             "Hub cuts that background away before the model sees it (a PNG whose background "
             "is already transparent is used as it is). Without a picture, make one first with "
             "generate_image, asking for the object \"centered on a plain white background\". "
+            "With more pictures of the same object from other sides (`views`; models that list "
+            "multi-view in list_3d_models), the sides and back are built from them instead of "
+            "guessed: real photos work best, as drawn views often disagree with each other. "
             "Returns a job_id at once, not the model: then call get_3d with it until the model "
             "arrives (it takes minutes). Do not start it again."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "image": {"type": "string", "description": "The picture to build from. " + _IMAGE_REFS},
+                "image": {"type": "string", "description": "The picture to build from: the front "
+                                                            "view. " + _IMAGE_REFS},
+                "views": {"type": "object",
+                          "properties": {v: {"type": "string"} for v in mesh_service.VIEWS},
+                          "additionalProperties": False,
+                          "description": ("Optional more views of the same object, for models that "
+                                          "list multi-view: `left` is the object turned to face the "
+                                          "picture's left (its left side to the camera), `back` its "
+                                          "back, `right` its right side. Same rules as image: one "
+                                          "object, plain background, a URL.")},
                 "seed": {"type": "integer", "minimum": 0},
                 "steps": {"type": "integer", "minimum": 1, "maximum": 100,
                           "description": "Leave this out: the model's own setting (50) is used."},
@@ -645,10 +657,15 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             image = str(args.get("image") or "").strip()
             if not image:
                 raise image_service.ImageError("'image' is required: the picture to build the model from.")
-            slug = (await mesh_service.pick_backend(str(args.get("model") or "").strip() or None)).slug
+            views = args.get("views") or {}
+            if not isinstance(views, dict):
+                raise image_service.ImageError("'views' must be an object: {\"left\": url, ...}.")
+            views = {str(k): str(v).strip() for k, v in views.items() if str(v).strip()}
+            slug = (await mesh_service.pick_backend(str(args.get("model") or "").strip() or None,
+                                                    multi_view=bool(views))).slug
             job_id = image_service.start_job("mesh", lambda: mesh_service.generate(
-                image=image, seed=_int(args, "seed"), steps=_int(args, "steps"), model=slug,
-                user=user), slug, user)
+                image=image, views=views, seed=_int(args, "seed"), steps=_int(args, "steps"),
+                model=slug, user=user), slug, user)
             return _started("get_3d", job_id, slug)
         if name == "get_3d":
             return _mesh_result(await image_service.check_job(_job_id(args), CHECK_WAIT, user), origin)
