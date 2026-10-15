@@ -19,6 +19,7 @@ tags:
   - vllm-omni
   - bf16
 icon: "\U0001F3AC"
+logo: "/logos/wan.png"
 requirements:
   min_memory_gb: 90
   recommended_memory_gb: 110

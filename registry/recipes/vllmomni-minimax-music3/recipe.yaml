@@ -17,6 +17,7 @@ tags:
   - vllm-omni
   - bf16
 icon: "\U0001F3B5"
+logo: "/logos/minimax.png"
 requirements:
   min_memory_gb: 70
   recommended_memory_gb: 90

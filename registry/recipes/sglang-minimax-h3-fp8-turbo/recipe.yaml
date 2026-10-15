@@ -20,6 +20,7 @@ tags:
   - fp8
   - turbo
 icon: "\U0001F3AC"
+logo: "/logos/minimax.png"
 requirements:
   min_memory_gb: 64
   recommended_memory_gb: 121

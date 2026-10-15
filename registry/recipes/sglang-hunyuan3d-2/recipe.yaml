@@ -16,6 +16,7 @@ tags:
   - tencent
   - sglang
 icon: "\U0001F9CA"
+logo: "/logos/hunyuan3d.png"
 requirements:
   min_memory_gb: 32
   recommended_memory_gb: 48

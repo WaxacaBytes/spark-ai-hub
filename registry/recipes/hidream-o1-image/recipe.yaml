@@ -18,6 +18,7 @@ tags:
   - diffusion
   - bf16
 icon: "\U0001F5BC️"
+logo: "/logos/hidream.png"
 requirements:
   min_memory_gb: 40
   recommended_memory_gb: 56

@@ -19,6 +19,7 @@ tags:
   - vllm-omni
   - fp8
 icon: "\U0001F3AC"
+logo: "/logos/minimax.png"
 requirements:
   min_memory_gb: 110
   recommended_memory_gb: 121

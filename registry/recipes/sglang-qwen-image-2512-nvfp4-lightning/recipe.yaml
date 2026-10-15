@@ -18,6 +18,7 @@ tags:
   - nvfp4
   - lightning
 icon: "\U0001F5BC️"
+logo: "/logos/qwen.png"
 requirements:
   min_memory_gb: 36
   recommended_memory_gb: 48

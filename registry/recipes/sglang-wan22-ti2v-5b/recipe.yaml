@@ -18,6 +18,7 @@ tags:
   - sglang
   - bf16
 icon: "\U0001F3AC"
+logo: "/logos/wan.png"
 requirements:
   min_memory_gb: 40
   recommended_memory_gb: 56

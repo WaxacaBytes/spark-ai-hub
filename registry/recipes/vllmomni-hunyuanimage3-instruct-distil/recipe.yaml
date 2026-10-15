@@ -17,6 +17,7 @@ tags:
   - vllm-omni
   - fp8
 icon: "\U0001F5BC️"
+logo: "/logos/hunyuan.png"
 requirements:
   min_memory_gb: 100
   recommended_memory_gb: 121
