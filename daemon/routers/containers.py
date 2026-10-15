@@ -28,6 +28,7 @@ from daemon.services.docker_service import (
     clear_startup_error,
     get_any_container_name,
     get_last_failure_logs,
+    is_recipe_running,
     memory_plan,
 )
 from daemon.routers.auth import current_user
@@ -93,7 +94,13 @@ async def update(slug: str, request: Request, user: dict = Depends(current_user)
             _builds[slug]["lines"].append(f"[error] {e}")
         finally:
             _builds[slug]["done"] = True
+            # `up -d` recreated the container at the end. The old one kept
+            # serving through the build and may have been marked ready
+            # meanwhile, so the new one must earn that afresh.
+            clear_ready(slug)
             clear_pending(slug)
+            if await is_recipe_running(slug):
+                await start_health_check(slug)
 
     asyncio.create_task(_run_update())
     return {"status": "building", "slug": slug}
