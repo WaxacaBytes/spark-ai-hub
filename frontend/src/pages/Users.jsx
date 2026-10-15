@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../auth'
 import { Avatar, Card, Field, Stat, fmt } from './Account'
+import { size } from '../lib/size'
 
 /* Admin-only: who has access to this Hub, and what they have been using.
  *
@@ -48,11 +49,12 @@ export default function Users() {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <Stat label="Users" value={fmt(data.totals.users)} />
         <Stat label="Awaiting approval" value={fmt(data.totals.pending)} />
         <Stat label="Requests" value={fmt(data.totals.requests)} />
         <Stat label="Tokens" value={fmt(data.totals.total_tokens)} />
+        <Stat label="Files" value={size(data.totals.storage_bytes)} />
       </div>
 
       {pending.length > 0 && (
@@ -139,18 +141,22 @@ function UserRow({ user, me, onChanged }) {
     <div className="bg-surface-low rounded-xl border border-outline-dim overflow-hidden">
       <div className="flex items-center gap-3 px-3 py-2.5 flex-wrap">
         <Avatar user={user} size={36} />
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[9rem] flex-1">
           <div className="text-sm font-semibold text-text truncate">
             {user.name || user.email}
             {isSelf && <span className="ml-2 text-[10px] text-text-dim font-label">you</span>}
           </div>
           <div className="text-[11px] text-text-dim truncate">{user.email}</div>
+          {user.storage.files > 0 && (
+            <div className="sm:hidden text-[11px] text-text-muted">{size(user.storage.bytes)} of files</div>
+          )}
         </div>
 
         <div className="hidden sm:flex items-center gap-4 text-right">
           <Metric label="requests" value={fmt(user.usage.requests)} />
           <Metric label="tokens" value={fmt(user.usage.total_tokens)} />
           <Metric label="30d" value={fmt(user.usage.tokens_30d)} />
+          <Metric label="files" value={user.storage.files ? size(user.storage.bytes) : '0'} />
         </div>
 
         <span className={`text-[10px] font-bold font-label uppercase tracking-wide px-2 py-1 rounded-md ${STATUS_STYLE[user.status]}`}>

@@ -10,9 +10,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from daemon.routers.auth import require_admin
-from daemon.services import auth_service
+from daemon.services import auth_service, media_store
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+EMPTY_STORAGE = {"bytes": 0, "files": 0}
 
 
 class CreateUserBody(BaseModel):
@@ -60,10 +62,12 @@ async def list_users(admin: dict = Depends(require_admin)):
         await db.close()
 
     usage = await auth_service.usage_summary()
+    space = await media_store.space_by_user()
     users = [
         {
             **auth_service.public_user(r),
             "usage": usage.get(r["id"], auth_service.EMPTY_USAGE),
+            "storage": space.get(r["id"], EMPTY_STORAGE),
         }
         for r in rows
     ]
@@ -81,6 +85,8 @@ async def list_users(admin: dict = Depends(require_admin)):
         "active": sum(1 for u in users if u["status"] == "active"),
         "requests": sum(u["usage"]["requests"] for u in users),
         "total_tokens": sum(u["usage"]["total_tokens"] for u in users),
+        # Every stored file, the ownerless ones included.
+        "storage_bytes": sum(s["bytes"] for s in space.values()),
     }
     return {"users": users, "totals": totals, "models": await auth_service.top_models()}
 
@@ -98,6 +104,7 @@ async def create_user(body: CreateUserBody, admin: dict = Depends(require_admin)
     return {
         **auth_service.public_user(user),
         "usage": auth_service.EMPTY_USAGE,
+        "storage": EMPTY_STORAGE,
     }
 
 

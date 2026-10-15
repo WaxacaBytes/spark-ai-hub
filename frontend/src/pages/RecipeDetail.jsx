@@ -921,6 +921,7 @@ const MEDIA_LABELS = {
   'video-editing': 'Video editing',
   'face-swap': 'Face swap',
   'video-with-audio': 'Video with sound',
+  'orbit-360': '360° orbit',
   'music-generation': 'Music generation',
 }
 

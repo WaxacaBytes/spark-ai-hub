@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { copyText } from '../lib/clipboard'
+import { size } from '../lib/size'
 
 /* My files: the images, videos and songs this account made with the Hub's
  * media tools (/mcp), plus the files it uploaded for them to work on.
  *
- * Everything here is private to its owner (daemon/services/media_store.py) and
- * expires on its own; this page is where people see what they have, download
+ * Everything here is private to its owner (daemon/services/media_store.py);
+ * results stay until deleted and uploads expire on their own. This page is where people see what they have, download
  * what they want to keep, delete the rest, and upload a local file to get a
  * link the tools accept. /upload lands here too. Only the signed-in account's
  * own files are ever listed, admins included. Each result carries the model
@@ -29,6 +30,8 @@ export default function Files() {
   const [sending, setSending] = useState(0)     // uploads in flight
   const [failures, setFailures] = useState([])  // the last batch's refused files
   const [dragging, setDragging] = useState(false)
+  const [viewing, setViewing] = useState(null)  // the file name open in the viewer
+  const [details, setDetails] = useState(false)  // the viewer's details panel, kept while on the page
   const picker = useRef(null)
 
   const load = useCallback(async () => {
@@ -95,6 +98,8 @@ export default function Files() {
   const shown = data.files.filter(test)
   const chosen = data.files.filter((f) => selected.has(f.name))
   const allShown = shown.length > 0 && shown.every((f) => selected.has(f.name))
+  const viewable = shown.filter((f) => f.kind !== 'audio')
+  const viewIndex = viewable.findIndex((f) => f.name === viewing)
 
   return (
     <div
@@ -108,9 +113,8 @@ export default function Files() {
           <h1 className="text-2xl font-bold tracking-tight font-display m-0">My files</h1>
           <p className="text-sm text-text-dim m-0 mt-1">
             Images, videos and songs you made with the Hub, and files you uploaded for it. Only you can
-            open them. Upload a file to get a link you can give the image and video tools. Results are
-            deleted after {data.results_days} days and uploads after {data.uploads_days}, so download
-            anything you want to keep.
+            open them. Upload a file to get a link you can give the image and video tools. What you make
+            stays until you delete it; uploads are deleted after {data.uploads_days} days.
           </p>
         </div>
         <input
@@ -166,6 +170,7 @@ export default function Files() {
           selected={selected}
           onToggle={toggle}
           onDelete={remove}
+          onOpen={setViewing}
           lead={filter !== 'audio' && (
             <UploadTile dragging={dragging} sending={sending} onPick={() => picker.current?.click()} />
           )}
@@ -188,11 +193,22 @@ export default function Files() {
           <button onClick={() => remove(chosen.map((f) => f.name))} className={btnReject}>Delete selected</button>
         </div>
       )}
+
+      {viewIndex >= 0 && (
+        <Viewer
+          files={viewable}
+          index={viewIndex}
+          onIndex={(i) => setViewing(viewable[i].name)}
+          onClose={() => setViewing(null)}
+          details={details}
+          onDetails={setDetails}
+        />
+      )}
     </div>
   )
 }
 
-function FileGrid({ files, selected, onToggle, onDelete, lead }) {
+function FileGrid({ files, selected, onToggle, onDelete, onOpen, lead }) {
   const selecting = selected.size > 0
   return (
     <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))' }}>
@@ -205,6 +221,7 @@ function FileGrid({ files, selected, onToggle, onDelete, lead }) {
           selecting={selecting}
           onToggle={onToggle}
           onDelete={onDelete}
+          onOpen={onOpen}
         />
       ))}
     </div>
@@ -217,7 +234,7 @@ function FileGrid({ files, selected, onToggle, onDelete, lead }) {
  * The footer always toggles the checkbox. */
 const onHover = 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity'
 
-function FileCard({ file, picked, selecting, onToggle, onDelete }) {
+function FileCard({ file, picked, selecting, onToggle, onDelete, onOpen }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
     if (await copyText(window.location.origin + file.path)) {
@@ -228,7 +245,7 @@ function FileCard({ file, picked, selecting, onToggle, onDelete }) {
 
   return (
     <div className={`group relative bg-surface rounded-2xl overflow-hidden flex flex-col card-hover ${picked ? 'outline-2 outline-primary' : ''}`}>
-      <Preview file={file} selecting={selecting} onToggle={onToggle} />
+      <Preview file={file} selecting={selecting} onToggle={onToggle} onOpen={onOpen} />
       <input
         type="checkbox"
         checked={picked}
@@ -237,6 +254,11 @@ function FileCard({ file, picked, selecting, onToggle, onDelete }) {
         className={`absolute top-2.5 left-2.5 w-4 h-4 cursor-pointer accent-[var(--primary)] ${picked || selecting ? '' : onHover}`}
       />
       <div className={`absolute top-2 right-2 flex gap-1 ${selecting ? 'hidden' : onHover}`}>
+        {file.kind !== 'audio' && (
+          <a href={file.path} target="_blank" rel="noopener noreferrer" title="Open in a new tab" className={iconBtn}>
+            <NewTabIcon />
+          </a>
+        )}
         <a href={file.path} download={file.name} title="Download" className={iconBtn}>
           <DownloadIcon />
         </a>
@@ -263,7 +285,9 @@ function FileCard({ file, picked, selecting, onToggle, onDelete }) {
           <div className="text-xs text-text-muted truncate" title={file.model}>{file.model}</div>
         )}
         <div className="text-xs text-text-dim">{when(file.created)}</div>
-        <div className="text-[11px] text-text-dim font-label">{expiry(file.expires_at)}</div>
+        {file.expires_at && (
+          <div className="text-[11px] text-text-dim font-label">{expiry(file.expires_at)}</div>
+        )}
       </div>
     </div>
   )
@@ -298,7 +322,7 @@ function UploadTile({ dragging, sending, onPick }) {
   )
 }
 
-function Preview({ file, selecting, onToggle }) {
+function Preview({ file, selecting, onToggle, onOpen }) {
   if (file.kind === 'audio') {
     return (
       <div className="aspect-square bg-surface-high flex flex-col items-center justify-center gap-4 px-4">
@@ -307,20 +331,192 @@ function Preview({ file, selecting, onToggle }) {
       </div>
     )
   }
+  // A plain click opens the viewer; Ctrl/Cmd/middle click still opens a new tab.
   const pick = (e) => {
-    if (!selecting) return
+    if (e.ctrlKey || e.metaKey || e.shiftKey) return
     e.preventDefault()
-    onToggle(file.name)
+    selecting ? onToggle(file.name) : onOpen(file.name)
   }
   return (
     <a href={file.path} target="_blank" rel="noopener noreferrer" onClick={pick}
-       className="block aspect-square overflow-hidden bg-surface-high">
+       className="relative block aspect-square overflow-hidden bg-surface-high">
       {file.kind === 'image' ? (
         <img src={`/api/media/${file.name}/thumb`} alt="" loading="lazy" className="w-full h-full object-cover block" />
       ) : (
         <video src={`${file.path}#t=0.5`} preload="metadata" muted className="w-full h-full object-cover block" />
       )}
+      {file.orbit && (
+        <span className="absolute bottom-2 left-2 text-xs font-semibold font-label text-white bg-black/60 px-2 py-0.5 rounded-full">360°</span>
+      )}
     </a>
+  )
+}
+
+/* The picture or clip at its own size, shrunk only to fit the screen, with
+ * arrows (and the ← → keys) through everything the filter shows. The (i)
+ * button (or the I key) shows and hides its details. Esc, the X or a click
+ * beside it closes. */
+function Viewer({ files, index, onIndex, onClose, details, onDetails }) {
+  const file = files[index]
+  const [shape, setShape] = useState(null)   // { name, width, height, seconds } once loaded
+  const step = useCallback((d) => onIndex((index + d + files.length) % files.length), [index, files.length, onIndex])
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose()
+      else if (e.key === 'ArrowLeft') step(-1)
+      else if (e.key === 'ArrowRight') step(1)
+      else if (e.key === 'i' || e.key === 'I') onDetails(!details)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [step, onClose, details, onDetails])
+
+  useEffect(() => {
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = overflow }
+  }, [])
+
+  const stop = (e) => e.stopPropagation()
+  const fit = 'block max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)]'
+  const onImage = (e) => setShape({ name: file.name, width: e.target.naturalWidth, height: e.target.naturalHeight })
+  const onVideo = (e) => setShape({ name: file.name, width: e.target.videoWidth, height: e.target.videoHeight,
+                                    seconds: e.target.duration })
+  const known = shape?.name === file.name ? shape : null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 animate-fadeIn" onClick={onClose}>
+      {file.kind === 'image' ? (
+        <img key={file.name} src={file.path} alt="" onClick={stop} onLoad={onImage} className={fit} />
+      ) : file.orbit ? (
+        <Orbit key={file.name} file={file} onLoadedMetadata={onVideo} className={fit} />
+      ) : (
+        <video key={file.name} src={file.path} controls autoPlay playsInline onClick={stop}
+               onLoadedMetadata={onVideo} className={fit} />
+      )}
+
+      <span className="absolute top-4 left-4 text-sm font-label text-white/80">{index + 1} / {files.length}</span>
+      <div className="absolute top-3 right-3 flex gap-2" onClick={stop}>
+        <button
+          onClick={() => onDetails(!details)}
+          title={details ? 'Hide details' : 'Show details'}
+          className={`${bigIconBtn} ${details ? '!bg-white !text-black' : ''}`}
+        >
+          <InfoIcon />
+        </button>
+        <a href={file.path} target="_blank" rel="noopener noreferrer" title="Open in a new tab" className={bigIconBtn}>
+          <NewTabIcon />
+        </a>
+        <button onClick={onClose} title="Close" className={bigIconBtn}><CloseIcon /></button>
+      </div>
+      {files.length > 1 && (
+        <>
+          <button onClick={(e) => { stop(e); step(-1) }} title="Previous" className={`${bigIconBtn} absolute left-3 top-1/2 -translate-y-1/2`}>
+            <ArrowIcon flip />
+          </button>
+          <button onClick={(e) => { stop(e); step(1) }} title="Next" className={`${bigIconBtn} absolute right-3 top-1/2 -translate-y-1/2`}>
+            <ArrowIcon />
+          </button>
+        </>
+      )}
+
+      {details && (
+        <dl
+          onClick={stop}
+          className="absolute bottom-4 left-4 m-0 max-w-[calc(100vw-2rem)] grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm text-white bg-black/75 backdrop-blur-sm rounded-xl px-4 py-3"
+        >
+          <Detail label="Type" value={`${KIND_LABEL[file.kind]}${file.orbit ? ' · 360° orbit' : ''}${file.upload ? ' · upload' : ''}`} />
+          {file.model && <Detail label="Model" value={file.model} />}
+          <Detail label="Made" value={when(file.created)} />
+          {known && (
+            <Detail
+              label="Size"
+              value={`${known.width} × ${known.height}${known.seconds ? ` · ${known.seconds.toFixed(1)} s` : ''}`}
+            />
+          )}
+          <Detail label="File" value={size(file.bytes)} />
+          {file.expires_at && <Detail label="Deleted" value={expiry(file.expires_at).replace('Deleted ', '')} />}
+        </dl>
+      )}
+    </div>
+  )
+}
+
+function Detail({ label, value }) {
+  return (
+    <>
+      <dt className="text-white/60">{label}</dt>
+      <dd className="m-0 min-w-0 break-words">{value}</dd>
+    </>
+  )
+}
+
+/* A 360° orbit (first frame = last): it turns by itself until it is first
+ * grabbed, then stays wherever the hand leaves it. A drag turns it one full
+ * turn across its width, the subject following the hand; each angle is a jump
+ * to its frame. The Hub stores these clips with every frame a keyframe
+ * (video_service.all_keyframes) so each jump is instant. One jump at a time:
+ * the next waits for the last to land, then goes straight to where the drag is. */
+function Orbit({ file, onLoadedMetadata, className }) {
+  const video = useRef(null)
+  const drag = useRef(null)                       // { x, t } where the drag began
+  const seek = useRef({ busy: false, at: 0, want: 0 })
+  const [turned, setTurned] = useState(false)
+
+  const seekTo = (t) => {
+    const s = seek.current
+    s.want = t
+    if (s.busy) return
+    s.busy = true
+    s.at = t
+    video.current.currentTime = t
+  }
+  const onSeeked = () => {
+    const s = seek.current
+    s.busy = false
+    if (s.want !== s.at) seekTo(s.want)
+  }
+
+  const down = (e) => {
+    e.preventDefault()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    video.current.pause()
+    drag.current = { x: e.clientX, t: video.current.currentTime }
+    setTurned(true)
+  }
+  const move = (e) => {
+    const d = video.current.duration
+    if (!drag.current || !d) return
+    // The camera circles one way, so the subject turns the other: playing
+    // backward is what turns it the way the hand moves.
+    const t = drag.current.t - ((e.clientX - drag.current.x) / e.currentTarget.clientWidth) * d
+    seekTo(((t % d) + d) % d)
+  }
+  const up = () => { drag.current = null }
+
+  return (
+    <div className="relative" onClick={(e) => e.stopPropagation()}>
+      <video
+        ref={video}
+        src={file.path}
+        autoPlay
+        loop
+        muted
+        playsInline
+        onSeeked={onSeeked}
+        onLoadedMetadata={onLoadedMetadata}
+        onPointerDown={down}
+        onPointerMove={move}
+        onPointerUp={up}
+        onPointerCancel={up}
+        className={`${className} cursor-grab active:cursor-grabbing touch-none select-none`}
+      />
+      {!turned && (
+        <span className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 text-sm font-semibold text-white bg-black/60 px-3 py-1.5 rounded-full">
+          Drag to turn it
+        </span>
+      )}
+    </div>
   )
 }
 
@@ -328,6 +524,38 @@ function DownloadIcon() {
   return (
     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 4v11" /><path d="m7 10 5 5 5-5" /><path d="M5 20h14" />
+    </svg>
+  )
+}
+
+function InfoIcon() {
+  return (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><path d="M12 8h.01" />
+    </svg>
+  )
+}
+
+function NewTabIcon() {
+  return (
+    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M14 4h6v6" /><path d="M20 4 11 13" /><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+    </svg>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+      <path d="M6 6l12 12" /><path d="M18 6 6 18" />
+    </svg>
+  )
+}
+
+function ArrowIcon({ flip }) {
+  return (
+    <svg className={`w-6 h-6 ${flip ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m9 5 7 7-7 7" />
     </svg>
   )
 }
@@ -359,12 +587,6 @@ function TrashIcon() {
 
 /* ── bits ────────────────────────────────────────────────────────────────── */
 
-function size(bytes) {
-  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`
-  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`
-  return `${Math.max(1, Math.round(bytes / 1e3))} KB`
-}
-
 function when(seconds) {
   return new Date(seconds * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
 }
@@ -376,4 +598,5 @@ function expiry(seconds) {
 
 const btnReject = 'px-3 py-1.5 rounded-lg bg-error-surface text-error border border-error/30 text-xs font-semibold cursor-pointer hover:bg-error/15 disabled:opacity-50 transition-colors whitespace-nowrap'
 const iconBtn = 'w-8 h-8 rounded-lg flex items-center justify-center bg-black/55 text-white backdrop-blur-sm border-none cursor-pointer no-underline hover:bg-black/75 transition-colors'
+const bigIconBtn = 'w-11 h-11 rounded-full flex items-center justify-center bg-black/55 text-white backdrop-blur-sm border-none cursor-pointer no-underline hover:bg-black/80 transition-colors'
 const btnQuiet = 'px-3 py-1.5 rounded-lg bg-surface-high text-text border border-outline-dim text-xs font-semibold cursor-pointer hover:bg-surface-highest transition-colors whitespace-nowrap'

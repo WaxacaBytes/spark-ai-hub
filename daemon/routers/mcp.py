@@ -71,7 +71,7 @@ INSTRUCTIONS = (
     "stop_model frees a media model that is not rendering. Every result is saved on the Hub and returned as a URL plus a "
     "preview. Show the user the URL. To refine an image, pass its URL to edit_image. "
     "The URLs are private: they open for the user signed in to the Hub, not for you. "
-    "Results are deleted after 30 days, so tell the user to download what they want to keep; "
+    "Results stay on the Hub until the user deletes them; "
     "they can see and delete everything they made or uploaded at <Hub address>/files, "
     "and delete_file removes one when they ask you to.\n\n"
     "Files in your own workspace: tools take URLs, never file paths or file contents, "

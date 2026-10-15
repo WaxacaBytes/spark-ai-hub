@@ -44,6 +44,7 @@ PUBLIC_PREFIX = "/videos"
 VIDEO_NAME_RE = re.compile(r"^([0-9a-f]{32})\.mp4$")
 
 OPENAI_VIDEOS_TAG = "openai-videos"
+ORBIT_TAG = "orbit-360"
 TAG_KINDS = {"text-to-video": "text", "image-to-video": "image", "video-edit": "video",
              "last-frame": "last_image", "multi-reference": "images",
              "audio-reference": "audio"}
@@ -434,6 +435,26 @@ def poster_jpeg_b64(path: Path) -> str | None:
         return base64.b64encode(out.read_bytes()).decode() if out.is_file() else None
 
 
+def all_keyframes(path: Path) -> None:
+    """Re-encode an orbit clip so every frame is a keyframe. My files turns it as
+    it is dragged by jumping straight to the frame for each angle; with the
+    model's single keyframe every jump first decodes the clip up to that frame
+    (up to a quarter second), so the turn stutters. The sound is copied as is;
+    if ffmpeg is missing or fails, the clip stays as the model made it."""
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        return
+    tmp = path.with_suffix(".keyframes.mp4")
+    try:
+        subprocess.run([ffmpeg, "-loglevel", "error", "-y", "-i", str(path), "-map", "0:v", "-map", "0:a?",
+                        "-c:v", "libx264", "-g", "1", "-crf", "18", "-preset", "fast", "-pix_fmt", "yuv420p",
+                        "-c:a", "copy", "-movflags", "+faststart", str(tmp)],
+                       check=True, timeout=300)
+        tmp.replace(path)
+    except (subprocess.SubprocessError, OSError):
+        tmp.unlink(missing_ok=True)
+
+
 async def check(job_id: str, wait: int = 0, on_progress=None, user: dict | None = None) -> dict:
     """The job's state, waiting up to `wait` seconds for it to finish."""
     job = _jobs.get(job_id)
@@ -468,6 +489,9 @@ async def check(job_id: str, wait: int = 0, on_progress=None, user: dict | None 
                             f.write(chunk)
                 job["video_id"] = video_id
                 await media_store.record(f"{video_id}.mp4", job.get("user_id"), job["slug"])
+                recipe = get_recipes().get(job["slug"])
+                if recipe and ORBIT_TAG in recipe.tags:
+                    await asyncio.to_thread(all_keyframes, path)
                 job["poster"] = await asyncio.to_thread(poster_jpeg_b64, path)
                 job["inference_time_s"] = remote.get("inference_time_s")
                 return {**base, "status": "completed", "video_id": video_id,

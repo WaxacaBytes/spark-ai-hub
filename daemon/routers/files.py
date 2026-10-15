@@ -36,7 +36,6 @@ async def list_media(request: Request):
         return JSONResponse({"detail": "Authentication required."}, status_code=401)
     return {
         "files": await media_store.list_files(user),
-        "results_days": media_store.RESULT_TTL // media_store.DAY,
         "uploads_days": media_store.UPLOAD_TTL // media_store.DAY,
     }
 

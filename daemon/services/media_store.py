@@ -1,5 +1,6 @@
-"""Who owns the media the Hub makes and stores, how long it keeps it, and the
-listing behind each user's "My files" page (daemon/routers/files.py).
+"""Who owns the media the Hub makes and stores, how long it keeps it, the
+listing behind each user's "My files" page (daemon/routers/files.py), and how
+much space each account takes (the admin's Users page).
 
 Results (/images/, /videos/, /audio/) and uploads are private to the account
 that made them: the file routes and the tools that take a Hub URL as input
@@ -8,10 +9,9 @@ answer 404 to anyone else, so another user's link reveals nothing. A file with
 no owner row (its account was deleted, or it predates owners being recorded)
 is the admins'.
 
-Nothing is kept for good. Results stay RESULT_TTL, long enough to come back to
-a chat and refine one (clients working on local files save them next to their
-files anyway); uploads are scratch inputs and go sooner. Age is the file's
-mtime; the daemon's hourly janitor calls purge_expired().
+Results stay until their owner (or an admin) deletes them. Uploads are scratch
+inputs and expire after UPLOAD_TTL; age is the file's mtime, and the daemon's
+hourly janitor calls purge_expired().
 """
 from __future__ import annotations
 
@@ -24,7 +24,6 @@ from daemon.config import settings
 from daemon.db import get_db
 
 DAY = 24 * 3600
-RESULT_TTL = 30 * DAY
 UPLOAD_TTL = 7 * DAY
 
 
@@ -88,7 +87,7 @@ def _entries() -> list[dict]:
             entries.append({
                 "name": path.name, "kind": kind, "upload": upload,
                 "path": f"{prefix}/{path.name}", "bytes": st.st_size, "created": created,
-                "expires_at": created + (UPLOAD_TTL if upload else RESULT_TTL),
+                "expires_at": created + UPLOAD_TTL if upload else None,
                 "_file": path,
             })
     return entries
@@ -124,15 +123,17 @@ async def _rows() -> dict[str, dict]:
     return {row["name"]: row for row in rows}
 
 
-def _model_label(slug: str) -> str:
-    """What the file's model is called on the page: the recipe's own name when
-    the catalog still has it, else the slug it was made with."""
+def _model_fields(slug: str) -> dict:
+    """What the page shows of the file's model: its name (the recipe's own when
+    the catalog still has it, else the slug it was made with), and whether its
+    videos are 360° orbits to drag around."""
     if not slug:
-        return ""
+        return {"model": "", "orbit": False}
     # Imported here: the registry loads the recipes at startup.
     from daemon.services.registry_service import get_recipe
+    from daemon.services.video_service import ORBIT_TAG
     recipe = get_recipe(slug)
-    return recipe.name if recipe else slug
+    return {"model": recipe.name if recipe else slug, "orbit": bool(recipe) and ORBIT_TAG in recipe.tags}
 
 
 def _visible(owner: int | None, user: dict | None) -> bool:
@@ -152,9 +153,22 @@ async def list_files(user: dict | None) -> list[dict]:
         row = rows.get(entry["name"])
         if _visible(row["user_id"] if row else None, user):
             entry.pop("_file")
-            entry["model"] = _model_label(row["model"] if row else "")
+            entry.update(_model_fields(row["model"] if row else ""))
             files.append(entry)
     return sorted(files, key=lambda e: e["created"], reverse=True)
+
+
+async def space_by_user() -> dict[int | None, dict]:
+    """{"bytes", "files"} each account's results and uploads take, keyed by
+    user id; None holds the ownerless files (the admins')."""
+    entries, rows = await asyncio.to_thread(_entries), await _rows()
+    space: dict[int | None, dict] = {}
+    for entry in entries:
+        row = rows.get(entry["name"])
+        used = space.setdefault(row["user_id"] if row else None, {"bytes": 0, "files": 0})
+        used["bytes"] += entry["bytes"]
+        used["files"] += 1
+    return space
 
 
 async def delete(name: str, user: dict | None) -> bool:
@@ -173,16 +187,16 @@ async def delete(name: str, user: dict | None) -> bool:
 
 
 def _delete_old_files() -> list[str]:
-    """Unlink results and uploads past their lifetime; returns their names."""
+    """Unlink uploads past their lifetime; returns their names."""
     now = time.time()
-    old = [e for e in _entries() if e["expires_at"] < now]
+    old = [e for e in _entries() if e["expires_at"] and e["expires_at"] < now]
     for entry in old:
         entry["_file"].unlink(missing_ok=True)
     return [e["name"] for e in old]
 
 
 async def purge_expired() -> int:
-    """Delete results and uploads past their lifetime. Returns how many went."""
+    """Delete uploads past their lifetime. Returns how many went."""
     removed = await asyncio.to_thread(_delete_old_files)
     if removed:
         db = await get_db()

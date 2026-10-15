@@ -34,6 +34,9 @@ MEDIA_CAPABILITIES = {
     "faceswap": "face-swap",
     # The clip comes with a soundtrack generated alongside it.
     "video-audio": "video-with-audio",
+    # A full turn around a still subject, first frame = last; My files shows it
+    # as something to drag around rather than a clip to play.
+    "orbit-360": "orbit-360",
     "text-to-music": "music-generation",
 }
 

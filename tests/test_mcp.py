@@ -686,7 +686,7 @@ class UploadTests(_MediaDirsTest):
         self.assertEqual(self.client.post("/api/uploads", content=b"not an image").status_code, 400)
         self.assertEqual(self.client.post("/api/uploads", content=b"").status_code, 400)
 
-    def test_purge_drops_uploads_after_a_week_and_results_after_a_month(self):
+    def test_purge_drops_uploads_after_a_week_and_keeps_results(self):
         import os
         import time as _time
         day = 24 * 3600
@@ -709,12 +709,21 @@ class UploadTests(_MediaDirsTest):
         stranger = put(image_service.IMAGE_DIR, "notes.txt", 400)
         asyncio.run(media_store.record(old_result.name, OWNER["id"]))
 
-        self.assertEqual(asyncio.run(media_store.purge_expired()), 5)
-        gone = [old_upload, old_video_upload, old_result, old_video, old_song]
-        self.assertEqual([p.exists() for p in gone], [False] * 5)
-        self.assertTrue(all(p.exists() for p in (new_upload, week_result, stranger)))
+        asyncio.run(media_store.record(old_upload.name, OWNER["id"]))
+
+        # Only uploads expire; results stay however old they are.
+        self.assertEqual(asyncio.run(media_store.purge_expired()), 2)
+        self.assertEqual([p.exists() for p in (old_upload, old_video_upload)], [False] * 2)
+        self.assertTrue(all(p.exists() for p in
+                            (new_upload, week_result, old_result, old_video, old_song, stranger)))
         # Its owner row went with it.
-        self.assertFalse(asyncio.run(media_store.can_read(old_result.name, OWNER)))
+        self.assertFalse(asyncio.run(media_store.can_read(old_upload.name, OWNER)))
+        self.assertTrue(asyncio.run(media_store.can_read(old_result.name, OWNER)))
+
+        # The space each account takes; files without an owner row are None's.
+        space = asyncio.run(media_store.space_by_user())
+        self.assertEqual(space[OWNER["id"]], {"bytes": 1, "files": 1})
+        self.assertEqual(space[None], {"bytes": 4, "files": 4})
 
 
 class MyFilesTests(_MediaDirsTest):
@@ -733,7 +742,8 @@ class MyFilesTests(_MediaDirsTest):
         self.assertEqual(names("admin"), [("8" * 32 + ".png", False)])   # plus the ownerless
         self.assertEqual(self.client.get("/api/media", headers={"x-test-user": "anon"}).status_code, 401)
         info = self.client.get("/api/media").json()
-        self.assertEqual((info["results_days"], info["uploads_days"]), (30, 7))
+        self.assertEqual(info["uploads_days"], 7)
+        self.assertNotIn("results_days", info)
 
     def test_delete_own_file_only(self):
         mine, theirs = self._upload("owner"), self._upload("other")
@@ -755,6 +765,29 @@ class MyFilesTests(_MediaDirsTest):
         self.assertEqual(self.client.delete(f"/api/media/{old.name}",
                                             headers={"x-test-user": "admin"}).status_code, 200)
         self.assertFalse(old.exists())
+
+    def test_orbit_videos_are_marked_and_stored_all_keyframes(self):
+        import shutil
+        import subprocess
+        from daemon.models.recipe import Recipe
+        if not shutil.which("ffmpeg"):
+            self.skipTest("needs ffmpeg")
+        video_service.VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+        clip = video_service.VIDEO_DIR / f"{'7' * 32}.mp4"
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i", "testsrc=size=64x64:rate=24:duration=1",
+                        "-c:v", "libx264", "-pix_fmt", "yuv420p", str(clip)], check=True)
+        keyframes = lambda: subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v", "-skip_frame", "nokey", "-show_entries",
+             "frame=pts", "-of", "csv=p=0", str(clip)], capture_output=True, text=True).stdout.split()
+        self.assertEqual(len(keyframes()), 1)
+        video_service.all_keyframes(clip)
+        self.assertEqual(len(keyframes()), 24)
+
+        asyncio.run(media_store.record(clip.name, OWNER["id"], "orb"))
+        orb = Recipe(name="Orbit", slug="orb", tags=["openai-videos", "orbit-360"])
+        with mock.patch("daemon.services.registry_service.get_recipe", return_value=orb):
+            (entry,) = self.client.get("/api/media").json()["files"]
+        self.assertEqual((entry["model"], entry["orbit"]), ("Orbit", True))
 
     def test_thumbnails_are_small_and_owner_only(self):
         mine = self._upload("owner")
