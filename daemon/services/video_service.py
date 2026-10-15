@@ -39,7 +39,7 @@ from daemon.services.image_service import ImageError, load_input, owns_job, pick
 from daemon.services.registry_service import get_recipes
 
 VIDEO_DIR = settings.data_dir / "videos"
-UPLOAD_DIR = VIDEO_DIR / "uploads"       # user uploads; they expire (upload_service)
+UPLOAD_DIR = VIDEO_DIR / "uploads"       # user uploads (upload_service)
 PUBLIC_PREFIX = "/videos"
 VIDEO_NAME_RE = re.compile(r"^([0-9a-f]{32})\.mp4$")
 

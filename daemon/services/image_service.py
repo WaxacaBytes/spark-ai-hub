@@ -40,7 +40,7 @@ from daemon.services.registry_service import get_recipes
 
 IMAGE_DIR = settings.data_dir / "images"
 # Pictures users upload to edit (upload_service). Same URL shape as a result,
-# so every tool takes them, but kept apart because they expire and results do not.
+# so every tool takes them, but kept apart so My files can mark them as uploads.
 UPLOAD_DIR = IMAGE_DIR / "uploads"
 PUBLIC_PREFIX = "/images"
 IMAGE_NAME_RE = re.compile(r"^([0-9a-f]{32})\.png$")
@@ -419,8 +419,7 @@ async def load_input(ref: str, session: aiohttp.ClientSession, user: dict | None
     if (name := media_store.name_in_url(ref)) and name.endswith(suffix):
         if (path := media_store.find(name)) and await media_store.can_read(name, user):
             return path.read_bytes()
-        raise ImageError(f"No Hub {noun} {name} for this account (it may have been deleted, "
-                         "or it was an upload that expired — upload it again).")
+        raise ImageError(f"No Hub {noun} {name} for this account (it may have been deleted).")
 
     if ref.startswith("data:"):
         raise ImageError("Inline file data isn't accepted: tools take URLs. Call create_upload, "

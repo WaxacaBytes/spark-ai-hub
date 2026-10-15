@@ -8,7 +8,7 @@ const MeshView = lazy(() => import('../components/MeshView'))
  * media tools (/mcp), plus the files it uploaded for them to work on.
  *
  * Everything here is private to its owner (daemon/services/media_store.py);
- * results stay until deleted and uploads expire on their own. This page is where people see what they have, download
+ * everything stays until deleted. This page is where people see what they have, download
  * what they want to keep, delete the rest, and upload a local file to get a
  * link the tools accept. /upload lands here too. Only the signed-in account's
  * own files are ever listed, admins included. Each result carries the model
@@ -138,8 +138,8 @@ export default function Files() {
           <h1 className="text-2xl font-bold tracking-tight font-display m-0">My files</h1>
           <p className="text-sm text-text-dim m-0 mt-1">
             Images, videos, 3D models and songs you made with the Hub, and files you uploaded for it. Only you can
-            open them. Upload a file to get a link you can give the image and video tools. What you make
-            stays until you delete it; uploads are deleted after {data.uploads_days} days.
+            open them. Upload a file to get a link you can give the image and video tools. Everything here
+            stays until you delete it.
           </p>
         </div>
         <input
@@ -311,9 +311,6 @@ function FileCard({ file, picked, selecting, onToggle, onDelete, onOpen }) {
         )}
         <div className="text-xs text-text-dim">{when(file.created)}</div>
         {file.seconds != null && <div className="text-xs text-text-dim">Took {took(file.seconds)}</div>}
-        {file.expires_at && (
-          <div className="text-[11px] text-text-dim font-label">{expiry(file.expires_at)}</div>
-        )}
       </div>
     </div>
   )
@@ -475,7 +472,6 @@ function Viewer({ files, index, onIndex, onClose, details, onDetails }) {
             <Detail label="Mesh" value={`${fmtCount(known.triangles)} triangles · ${fmtCount(known.vertices)} vertices`} />
           )}
           <Detail label="File" value={size(file.bytes)} />
-          {file.expires_at && <Detail label="Deleted" value={expiry(file.expires_at).replace('Deleted ', '')} />}
         </dl>
       )}
     </div>
@@ -641,11 +637,6 @@ function took(seconds) {
 
 function when(seconds) {
   return new Date(seconds * 1000).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
-}
-
-function expiry(seconds) {
-  const days = Math.ceil((seconds * 1000 - Date.now()) / 864e5)
-  return days <= 1 ? 'Deleted within a day' : `Deleted in ${days} days`
 }
 
 const btnReject = 'px-3 py-1.5 rounded-lg bg-error-surface text-error border border-error/30 text-xs font-semibold cursor-pointer hover:bg-error/15 disabled:opacity-50 transition-colors whitespace-nowrap'

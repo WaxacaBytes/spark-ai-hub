@@ -42,8 +42,8 @@ async def _check_running_readiness():
 
 
 async def _session_janitor():
-    """Hourly: drop expired sessions, so the table cannot grow without bound,
-    and generated media and uploads past their lifetime."""
+    """Hourly: drop expired sessions and links, so the tables cannot grow
+    without bound."""
     while True:
         try:
             await purge_expired_sessions()
@@ -51,7 +51,6 @@ async def _session_janitor():
         except Exception:
             pass
         try:
-            await media_store.purge_expired()
             await link_service.purge_expired()
         except Exception:
             pass

@@ -9,22 +9,16 @@ answer 404 to anyone else, so another user's link reveals nothing. A file with
 no owner row (its account was deleted, or it predates owners being recorded)
 is the admins'.
 
-Results stay until their owner (or an admin) deletes them. Uploads are scratch
-inputs and expire after UPLOAD_TTL; age is the file's mtime, and the daemon's
-hourly janitor calls purge_expired().
+Results and uploads stay until their owner (or an admin) deletes them.
 """
 from __future__ import annotations
 
 import asyncio
 import re
-import time
 from pathlib import Path
 
 from daemon.config import settings
 from daemon.db import get_db
-
-DAY = 24 * 3600
-UPLOAD_TTL = 7 * DAY
 
 
 async def record(name: str, user_id: int | None, model: str = "",
@@ -90,7 +84,6 @@ def _entries() -> list[dict]:
             entries.append({
                 "name": path.name, "kind": kind, "upload": upload,
                 "path": f"{prefix}/{path.name}", "bytes": st.st_size, "created": created,
-                "expires_at": created + UPLOAD_TTL if upload else None,
                 "_file": path,
             })
     return entries
@@ -210,24 +203,3 @@ async def delete(name: str, user: dict | None) -> bool:
         await db.close()
     return True
 
-
-def _delete_old_files() -> list[str]:
-    """Unlink uploads past their lifetime; returns their names."""
-    now = time.time()
-    old = [e for e in _entries() if e["expires_at"] and e["expires_at"] < now]
-    for entry in old:
-        entry["_file"].unlink(missing_ok=True)
-    return [e["name"] for e in old]
-
-
-async def purge_expired() -> int:
-    """Delete uploads past their lifetime. Returns how many went."""
-    removed = await asyncio.to_thread(_delete_old_files)
-    if removed:
-        db = await get_db()
-        try:
-            await db.executemany("DELETE FROM media WHERE name = ?", [(n,) for n in removed])
-            await db.commit()
-        finally:
-            await db.close()
-    return len(removed)

@@ -37,10 +37,7 @@ async def list_media(request: Request):
     user = _user(request)
     if user is None and settings.auth_enabled:     # AuthMiddleware guards /api too
         return JSONResponse({"detail": "Authentication required."}, status_code=401)
-    return {
-        "files": await media_store.list_files(user),
-        "uploads_days": media_store.UPLOAD_TTL // media_store.DAY,
-    }
+    return {"files": await media_store.list_files(user)}
 
 
 @router.delete("/api/media/{name}")

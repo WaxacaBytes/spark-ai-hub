@@ -688,44 +688,26 @@ class UploadTests(_MediaDirsTest):
         self.assertEqual(self.client.post("/api/uploads", content=b"not an image").status_code, 400)
         self.assertEqual(self.client.post("/api/uploads", content=b"").status_code, 400)
 
-    def test_purge_drops_uploads_after_a_week_and_keeps_results(self):
-        import os
-        import time as _time
-        day = 24 * 3600
-
-        def put(folder, name, age_days):
+    def test_space_by_user_counts_results_and_uploads(self):
+        def put(folder, name):
             folder.mkdir(parents=True, exist_ok=True)
             path = folder / name
             path.write_bytes(b"x")
-            then = _time.time() - age_days * day
-            os.utime(path, (then, then))
             return path
 
-        old_upload = put(image_service.UPLOAD_DIR, f"{'1' * 32}.png", 8)
-        new_upload = put(image_service.UPLOAD_DIR, f"{'2' * 32}.png", 6)
-        old_video_upload = put(video_service.UPLOAD_DIR, f"{'3' * 32}.mp4", 8)
-        week_result = put(image_service.IMAGE_DIR, f"{'4' * 32}.png", 8)
-        old_result = put(image_service.IMAGE_DIR, f"{'5' * 32}.png", 31)
-        old_video = put(video_service.VIDEO_DIR, f"{'6' * 32}.mp4", 31)
-        old_song = put(audio_service.AUDIO_DIR, f"{'7' * 32}.wav", 31)
-        stranger = put(image_service.IMAGE_DIR, "notes.txt", 400)
-        asyncio.run(media_store.record(old_result.name, OWNER["id"]))
+        upload = put(image_service.UPLOAD_DIR, f"{'1' * 32}.png")
+        put(video_service.UPLOAD_DIR, f"{'3' * 32}.mp4")
+        result = put(image_service.IMAGE_DIR, f"{'5' * 32}.png")
+        put(video_service.VIDEO_DIR, f"{'6' * 32}.mp4")
+        put(audio_service.AUDIO_DIR, f"{'7' * 32}.wav")
+        put(image_service.IMAGE_DIR, "notes.txt")
+        asyncio.run(media_store.record(result.name, OWNER["id"]))
+        asyncio.run(media_store.record(upload.name, OWNER["id"]))
 
-        asyncio.run(media_store.record(old_upload.name, OWNER["id"]))
-
-        # Only uploads expire; results stay however old they are.
-        self.assertEqual(asyncio.run(media_store.purge_expired()), 2)
-        self.assertEqual([p.exists() for p in (old_upload, old_video_upload)], [False] * 2)
-        self.assertTrue(all(p.exists() for p in
-                            (new_upload, week_result, old_result, old_video, old_song, stranger)))
-        # Its owner row went with it.
-        self.assertFalse(asyncio.run(media_store.can_read(old_upload.name, OWNER)))
-        self.assertTrue(asyncio.run(media_store.can_read(old_result.name, OWNER)))
-
-        # The space each account takes; files without an owner row are None's.
+        # Files without an owner row are None's; other names are not media.
         space = asyncio.run(media_store.space_by_user())
-        self.assertEqual(space[OWNER["id"]], {"bytes": 1, "files": 1})
-        self.assertEqual(space[None], {"bytes": 4, "files": 4})
+        self.assertEqual(space[OWNER["id"]], {"bytes": 2, "files": 2})
+        self.assertEqual(space[None], {"bytes": 3, "files": 3})
 
 
 class MyFilesTests(_MediaDirsTest):
@@ -744,8 +726,8 @@ class MyFilesTests(_MediaDirsTest):
         self.assertEqual(names("admin"), [("8" * 32 + ".png", False)])   # plus the ownerless
         self.assertEqual(self.client.get("/api/media", headers={"x-test-user": "anon"}).status_code, 401)
         info = self.client.get("/api/media").json()
-        self.assertEqual(info["uploads_days"], 7)
-        self.assertNotIn("results_days", info)
+        self.assertEqual(set(info), {"files"})
+        self.assertTrue(all("expires_at" not in f for f in info["files"]))
 
     def test_delete_own_file_only(self):
         mine, theirs = self._upload("owner"), self._upload("other")

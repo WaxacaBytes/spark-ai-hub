@@ -8,8 +8,7 @@ straight off its disk, so they work over plain http on the LAN — the
 public-https rule only applies to URLs it has to fetch from elsewhere. Like
 results, an upload is private to the account that sent it.
 
-Uploads expire after media_store.UPLOAD_TTL (7 days): they are scratch
-inputs, and whatever is made from one is a new result with its own lifetime.
+Uploads stay until their owner deletes them, like results.
 """
 from __future__ import annotations
 
@@ -17,13 +16,12 @@ import io
 import secrets
 import subprocess
 import tempfile
-import time
 from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 from pillow_heif import register_heif_opener
 
-from daemon.services import audio_service, image_service, media_store, video_service
+from daemon.services import audio_service, image_service, video_service
 
 MAX_IMAGE_BYTES = image_service.MAX_INPUT_BYTES
 MAX_VIDEO_BYTES = video_service.MAX_VIDEO_INPUT_BYTES
@@ -76,17 +74,16 @@ def _to_wav(raw: bytes) -> bytes:
 
 
 def save(raw: bytes) -> dict:
-    """Store an uploaded image, video or sound; returns its kind, public path and expiry."""
+    """Store an uploaded image, video or sound; returns its kind and public path."""
     if not raw:
         raise UploadError("The upload is empty.")
-    expires = int(time.time()) + media_store.UPLOAD_TTL
     if _is_audio(raw):
         if len(raw) > MAX_AUDIO_BYTES:
             raise UploadError(f"Sounds can be at most {MAX_AUDIO_BYTES // 2**20} MB.")
         audio_id = secrets.token_hex(16)
         audio_service.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         (audio_service.UPLOAD_DIR / f"{audio_id}.wav").write_bytes(_to_wav(raw))
-        return {"kind": "audio", "id": audio_id, "expires_at": expires,
+        return {"kind": "audio", "id": audio_id,
                 "path": f"{audio_service.PUBLIC_PREFIX}/{audio_id}.wav"}
     if _is_mp4(raw):
         if len(raw) > MAX_VIDEO_BYTES:
@@ -94,7 +91,7 @@ def save(raw: bytes) -> dict:
         video_id = secrets.token_hex(16)
         video_service.UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         (video_service.UPLOAD_DIR / f"{video_id}.mp4").write_bytes(raw)
-        return {"kind": "video", "id": video_id, "expires_at": expires,
+        return {"kind": "video", "id": video_id,
                 "path": f"{video_service.PUBLIC_PREFIX}/{video_id}.mp4"}
 
     if len(raw) > MAX_IMAGE_BYTES:
@@ -110,7 +107,7 @@ def save(raw: bytes) -> dict:
             width, height = img.size
     except (UnidentifiedImageError, OSError, Image.DecompressionBombError):
         raise UploadError("Not an image, MP4/MOV video or sound file the Hub can read.") from None
-    return {"kind": "image", "id": image_id, "expires_at": expires,
+    return {"kind": "image", "id": image_id,
             "width": width, "height": height,
             "path": f"{image_service.PUBLIC_PREFIX}/{image_id}.png"}
 

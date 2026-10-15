@@ -71,7 +71,7 @@ INSTRUCTIONS = (
     "stop_model frees a media model that is not rendering. Every result is saved on the Hub and returned as a URL plus a "
     "preview. Show the user the URL. To refine an image, pass its URL to edit_image. "
     "The URLs are private: they open for the user signed in to the Hub, not for you. "
-    "Results stay on the Hub until the user deletes them; "
+    "Results and uploads stay on the Hub until the user deletes them; "
     "they can see and delete everything they made or uploaded at <Hub address>/files, "
     "and delete_file removes one when they ask you to.\n\n"
     "Files in your own workspace: tools take URLs, never file paths or file contents, "
@@ -79,7 +79,7 @@ INSTRUCTIONS = (
     "and run the curl command it returns; the JSON it prints has the `url` to pass to "
     "edit_image or generate_video. To save a result into your workspace, call "
     "create_download with its URL and run that curl command. Both links are one-off "
-    "and short-lived: ask for a new one each time. Uploads last 7 days. A picture "
+    "and short-lived: ask for a new one each time. A picture "
     "attached to the chat is not a file you can upload; ask the user to add it at "
     "<Hub address>/files and paste the link.\n\n"
     "Every render works the same way: generate_image, edit_image, generate_video, generate_3d "
@@ -1083,7 +1083,7 @@ async def mcp_no_stream():
 
 
 def _cache_headers(path) -> dict:
-    # Private to one account, and deleted after a while (media_store): no
+    # Private to one account, who can delete it at any time: no
     # shared cache such as Cloudflare's may keep a copy.
     if upload_service.is_upload(path):
         return {"Cache-Control": "private, max-age=3600"}

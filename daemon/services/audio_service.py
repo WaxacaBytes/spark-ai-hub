@@ -27,7 +27,7 @@ from daemon.services.image_service import ImageError, pick_ready, rendering
 from daemon.services.registry_service import get_recipes
 
 AUDIO_DIR = settings.data_dir / "audio"
-UPLOAD_DIR = AUDIO_DIR / "uploads"       # user uploads; they expire (upload_service)
+UPLOAD_DIR = AUDIO_DIR / "uploads"       # user uploads (upload_service)
 PUBLIC_PREFIX = "/audio"
 AUDIO_NAME_RE = re.compile(r"^([0-9a-f]{32})\.wav$")
 
