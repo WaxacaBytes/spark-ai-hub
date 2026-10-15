@@ -96,6 +96,8 @@ async def list_models() -> list[dict]:
             "accepts": ["image-to-3d"] + (["multi-view"] if backend.multi_view else []),
             **({"views": ["front (image)", *VIEWS]} if backend.multi_view else {}),
             "output": "GLB with textures",
+            "background": ("any: the model cuts the object out itself" if backend.cuts_out
+                           else "plain: the Hub cuts it away first"),
             "state": ("ready" if running and is_ready(slug)
                       else "starting" if running else "stopped"),
             "min_memory_gb": recipes[slug].requirements.min_memory_gb,

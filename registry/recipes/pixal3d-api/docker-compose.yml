@@ -1,0 +1,68 @@
+services:
+  pixal3d:
+    # TencentARC's Pixal3D (one picture -> 3D model with PBR textures) behind
+    # the Spark AI Hub's meshes engine, the same API as SGLang Diffusion's 3D
+    # models: POST /v1/meshes queues a job, GET /v1/meshes/{id} reports it,
+    # GET /v1/meshes/{id}/content serves the GLB.
+    #
+    # The engine is built from github.com/WaxacaBytes/pixal3d-api-spark-ai-hub
+    # on top of the pixal3d-spark-ai-hub image (Pixal3D and its TRELLIS.2 CUDA
+    # stack compiled for the GB10), with a small server and no Gradio. The
+    # Pixal3D web app is its own recipe, pixal3d-spark, and is unaffected.
+    #
+    # Weights from their publishers only, pinned, into the Hugging Face cache
+    # Pixal3D loads from (27.5 GB): Pixal3D's single-picture checkpoints (not
+    # the *_mv multi-view ones), Meta's DINOv3 ViT-L/16, MoGe-2 ViT-L for the
+    # camera, and BRIA's RMBG-2.0 for the cut-out (safetensors and its code,
+    # not the ONNX exports). DINOv3 and RMBG-2.0 are gated: the build uses the
+    # Hub's Hugging Face token.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" python3 -c "from huggingface_hub import snapshot_download as get; get('TencentARC/Pixal3D', revision='b0cb2e1b794cab9aa0ac38a95d794a4d9337437f', ignore_patterns=['ckpts/*_mv.*', 'pipeline_mv.json']); get('facebook/dinov3-vitl16-pretrain-lvd1689m', revision='ea8dc2863c51be0a264bab82070e3e8836b02d51'); get('Ruicheng/moge-2-vitl', revision='39c4d5e957afe587e04eec59dc2bcc3be5ecd968'); get('briaai/RMBG-2.0', revision='5df4c9c76d8170882c34f6986e848ee07fd0ba43', allow_patterns=['*.py', '*.json', 'model.safetensors'])"
+        # Pixal3D loads every repo at its default revision, `main`; downloading a
+        # pinned commit does not record that `main` is it, so record it here.
+        RUN python3 -c "import pathlib; [(p.parent.mkdir(parents=True, exist_ok=True), p.write_text(sha)) for p, sha in [(pathlib.Path(f'/weights/hub/models--{repo}/refs/main'), sha) for repo, sha in [('TencentARC--Pixal3D', 'b0cb2e1b794cab9aa0ac38a95d794a4d9337437f'), ('facebook--dinov3-vitl16-pretrain-lvd1689m', 'ea8dc2863c51be0a264bab82070e3e8836b02d51'), ('Ruicheng--moge-2-vitl', '39c4d5e957afe587e04eec59dc2bcc3be5ecd968'), ('briaai--RMBG-2.0', '5df4c9c76d8170882c34f6986e848ee07fd0ba43')]]]"
+        FROM ghcr.io/waxacabytes/pixal3d-api-spark-ai-hub:latest
+        COPY --from=weights /weights /workspace/cache/huggingface
+    image: spark-ai-hub/pixal3d-api:latest
+    container_name: spark-ai-hub-pixal3d-api
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/pixal3d-api/, so it never collides with another model.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - HF_HOME=/workspace/cache/huggingface
+      - TORCH_HOME=/workspace/cache/torch
+      - ATTN_BACKEND=flash_attn
+      - PORT=30000
+    ipc: host
+    shm_size: 16gb
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

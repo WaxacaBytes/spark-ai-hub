@@ -311,10 +311,12 @@ TOOLS = [
         "title": "Generate 3D model",
         "description": (
             "Start turning one picture of an object into a textured 3D model (GLB) on the "
-            "Spark. Use a picture of one whole object, centered, on a plain background: the "
-            "Hub cuts that background away before the model sees it (a PNG whose background "
-            "is already transparent is used as it is). Without a picture, make one first with "
-            "generate_image, asking for the object \"centered on a plain white background\". "
+            "Spark. Use a picture of one whole object, centered. list_3d_models says what "
+            "background each model takes: models that cut the object out themselves take any "
+            "photo; for the others use a plain background, which the Hub cuts away first (a PNG "
+            "whose background is already transparent is used as it is). Without a picture, make "
+            "one first with generate_image, asking for the object \"centered on a plain white "
+            "background\". "
             "With more pictures of the same object from other sides (`views`; models that list "
             "multi-view in list_3d_models), the sides and back are built from them instead of "
             "guessed: real photos work best, as drawn views often disagree with each other. "
