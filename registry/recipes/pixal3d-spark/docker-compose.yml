@@ -12,7 +12,7 @@ services:
         RUN pip install --no-cache-dir huggingface_hub
         RUN --mount=type=secret,id=hf_token \
             HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
-            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('TencentARC/Pixal3D-T'); snapshot_download('Ruicheng/moge-2-vitl'); snapshot_download('briaai/RMBG-2.0'); snapshot_download('camenduru/dinov3-vitl16-pretrain-lvd1689m')"
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('TencentARC/Pixal3D'); snapshot_download('Ruicheng/moge-2-vitl'); snapshot_download('briaai/RMBG-2.0'); snapshot_download('facebook/dinov3-vitl16-pretrain-lvd1689m')"
         FROM ghcr.io/waxacabytes/pixal3d-spark-ai-hub:latest
         COPY --from=weights /weights /workspace/cache/huggingface
     image: spark-ai-hub/pixal3d-spark:latest
