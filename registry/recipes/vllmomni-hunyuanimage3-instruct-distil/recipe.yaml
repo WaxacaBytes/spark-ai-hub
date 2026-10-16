@@ -44,6 +44,9 @@ active_params_b: 13
 arch: moe
 quantization: "FP8"
 weights_gb: 157.1
+render_seconds: 38.6
+render_workload: "1024x1024, 8 steps"
+load_seconds: 827
 requires_hf_token: false
 # Tencent's guidance for this checkpoint: "We recommend using the model
 # HunyuanImage-3.0-Instruct-Distil with --diff-infer-steps 8, while keeping all

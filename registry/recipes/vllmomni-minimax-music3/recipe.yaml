@@ -41,6 +41,9 @@ engine: "vLLM-Omni"
 params_b: 8
 quantization: "BF16"
 weights_gb: 57.4
+render_seconds: 348.6
+render_workload: "one 60 s song with vocals, 32 kHz stereo"
+load_seconds: 309
 requires_hf_token: false
 audio_defaults:
   seconds: 30

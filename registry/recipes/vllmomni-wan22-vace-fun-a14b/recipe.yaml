@@ -45,6 +45,9 @@ active_params_b: 14
 arch: moe
 quantization: "BF16"
 weights_gb: 81.2
+render_seconds: 2957.7
+render_workload: "4.8 s 16:9 clip from a first frame, 832x480, 50 steps"
+load_seconds: 568
 requires_hf_token: false
 # From Alibaba PAI's own VideoX-Fun scripts for this model
 # (examples/wan2.2_vace_fun/predict_*.py): 832x480, 81 frames, 16 fps,

@@ -45,6 +45,9 @@ engine: "SGLang"
 params_b: 33
 quantization: "FP8"
 weights_gb: 44.4
+render_seconds: 3300.1
+render_workload: "5 s 16:9 clip from a first frame, 1344x768, 50 steps (server default)"
+load_seconds: 362
 requires_hf_token: false
 # SGLang's H3 request contract: timing and canvas come only from
 # extra_params.target (768 short edge, 4-15 s at 24 fps); fps, num_frames and

@@ -45,6 +45,9 @@ engine: "vLLM-Omni"
 params_b: 33
 quantization: "FP8"
 weights_gb: 144.1
+render_seconds: 1284.9
+render_workload: "5 s 16:9 clip from a first frame, 960x576, 50 steps (server default)"
+load_seconds: 632
 requires_hf_token: false
 # Canvas 960x576 is the size vLLM-Omni's GB10 recipe measured (97.7 GiB peak
 # for 8 s); 768p is untested on this build. It must be an explicit size:

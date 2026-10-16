@@ -43,6 +43,9 @@ params_b: 5
 arch: dense
 quantization: "BF16"
 weights_gb: 34.2
+render_seconds: 386.2
+render_workload: "5 s 16:9 clip from a first frame, 1280x704, 20 steps"
+load_seconds: 77
 requires_hf_token: false
 # From Comfy-Org's official ComfyUI template (video_wan2_2_5B_ti2v.json):
 # 20 steps, CFG 5, shift 8 with the UniPC sampler this server also uses. Wan-AI's

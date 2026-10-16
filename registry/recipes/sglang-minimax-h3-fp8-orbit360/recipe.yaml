@@ -48,6 +48,9 @@ engine: "SGLang"
 params_b: 33
 quantization: "FP8"
 weights_gb: 44.6
+render_seconds: 2363.7
+render_workload: "5 s 16:9 orbit, same picture first and last, 1344x768, 29 steps"
+load_seconds: 494
 requires_hf_token: false
 # The LoRA card's recommended settings: the same image as first and last
 # keyframe, 768x768, 28 steps, no CFG, strength 1.0, the prompt verbatim.

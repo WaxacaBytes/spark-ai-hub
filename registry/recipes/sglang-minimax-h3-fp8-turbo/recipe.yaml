@@ -46,6 +46,9 @@ engine: "SGLang"
 params_b: 33
 quantization: "FP8"
 weights_gb: 45.7
+render_seconds: 718.6
+render_workload: "5 s 16:9 clip from a first frame, 1344x768, 9 steps"
+load_seconds: 476
 requires_hf_token: false
 # From lightx2v's Minimax-H3-Turbo README for the FL2VA Turbo 8-step v1.0 768p
 # LoRA: 8 NFE at 1344x768, video shift 6, audio shift 3. SGLang's H3 request

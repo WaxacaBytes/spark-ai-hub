@@ -47,6 +47,9 @@ active_params_b: 14
 arch: moe
 quantization: "BF16"
 weights_gb: 82.4
+render_seconds: 191.1
+render_workload: "4.8 s 16:9 clip from a first frame, 832x480, 4 steps"
+load_seconds: 613
 requires_hf_token: false
 # From lightx2v's own config for these LoRAs (LightX2V
 # configs/distill/wan22/wan_moe_t2v_distill_lora.json): 4 steps, shift 5.0,
