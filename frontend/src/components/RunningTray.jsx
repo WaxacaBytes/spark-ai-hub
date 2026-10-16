@@ -169,17 +169,20 @@ function Pill({ recipe, building, isDefault, scroll }) {
   )
 }
 
+// What is left, not what is taken: the number a model's memory is held
+// against when deciding what else can launch.
 function MemoryGauge({ used, total }) {
   const pct = Math.min(100, Math.round((used / total) * 100))
+  const free = Math.max(0, total - used)
   const color = pct >= 90 ? 'var(--error)' : pct >= 75 ? 'var(--warning)' : 'var(--tertiary)'
   return (
     <Link
       to="/system"
-      title={`${used.toFixed(1)} of ${total.toFixed(0)} GB memory in use — open System Monitor`}
+      title={`${free.toFixed(1)} GB free of ${total.toFixed(0)} GB — open System Monitor`}
       className="ml-1 flex shrink-0 flex-col gap-1 rounded-xl px-2 py-1 no-underline hover:bg-surface-high"
     >
-      <span className="font-label text-[10px] tabular-nums text-text-muted">
-        <span className="font-bold text-text">{Math.round(used)}</span>/{Math.round(total)} GB
+      <span className="whitespace-nowrap font-label text-[11px] tabular-nums text-text-muted">
+        <span className="text-[13px] font-bold text-text">{Math.round(free)} GB</span> free
       </span>
       <span className="h-1 w-16 overflow-hidden rounded-full bg-surface-highest">
         <span className="block h-full rounded-full" style={{ width: `${pct}%`, background: color }} />

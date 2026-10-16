@@ -99,7 +99,7 @@ export default function System() {
         />
         <CircularGauge
           value={metrics.ram_used_gb} max={metrics.ram_total_gb}
-          label="RAM" sublabel={`of ${metrics.ram_total_gb} GB`}
+          label="RAM" sublabel={`of ${metrics.ram_total_gb} GB · ${Math.round(metrics.ram_total_gb - metrics.ram_used_gb)} GB free`}
           unit="GB" color="var(--tertiary)"
         />
         <CircularGauge

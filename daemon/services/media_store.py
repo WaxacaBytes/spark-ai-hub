@@ -14,7 +14,10 @@ Results and uploads stay until their owner (or an admin) deletes them.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 from daemon.config import settings
@@ -164,13 +167,49 @@ async def list_files(user: dict | None) -> list[dict]:
     for entry in entries:
         row = rows.get(entry["name"])
         if _visible(row["user_id"] if row else None, user):
-            path = entry.pop("_file")
+            path = entry["_file"]
             entry.update(_model_fields(row["model"] if row else ""))
             entry["seconds"] = round(row["seconds"], 1) if row and row["seconds"] is not None else None
             if entry["kind"] == "mesh":
                 entry["rendered"] = render_of(path).is_file()
             files.append(entry)
+    shapes = await asyncio.gather(*(asyncio.to_thread(_shape, f.pop("_file"), f["bytes"]) for f in files))
+    for entry, shape in zip(files, shapes):
+        entry.update(shape)
     return sorted(files, key=lambda e: e["created"], reverse=True)
+
+
+_shapes: dict[tuple[str, int], dict] = {}   # (path, bytes) -> shape; the files never change
+
+
+def _shape(path: Path, size: int) -> dict:
+    """What a file is, so the time it took reads against it: a picture's
+    `width` and `height`, a clip's too plus its `duration` in seconds, a
+    song's `duration`. Empty for a 3D model, or when it cannot be read."""
+    key = (str(path), size)
+    if key in _shapes:
+        return _shapes[key]
+    shape: dict = {}
+    try:
+        if path.suffix == ".png":
+            from PIL import Image
+            with Image.open(path) as img:
+                shape = {"width": img.width, "height": img.height}
+        elif path.suffix in (".mp4", ".wav") and (ffprobe := shutil.which("ffprobe")):
+            out = subprocess.run([ffprobe, "-v", "error", "-select_streams", "v:0",
+                                  "-show_entries", "stream=width,height:format=duration",
+                                  "-of", "json", str(path)],
+                                 capture_output=True, timeout=10, check=True).stdout
+            info = json.loads(out)
+            stream = (info.get("streams") or [{}])[0]
+            if stream.get("width"):
+                shape = {"width": stream["width"], "height": stream["height"]}
+            if duration := (info.get("format") or {}).get("duration"):
+                shape["duration"] = round(float(duration), 2)
+    except Exception:  # noqa: BLE001 - a broken file still lists, just without its shape
+        shape = {}
+    _shapes[key] = shape
+    return shape
 
 
 async def space_by_user() -> dict[int | None, dict]:

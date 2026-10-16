@@ -49,6 +49,13 @@ export default function App() {
   const metrics = useStore((s) => s.metrics)
   const user = useAuth((s) => s.user)
   const [search, setSearch] = useState('')
+  const [wide, setWide] = useState(() => {
+    try { return localStorage.getItem('spark-ai-hub-sidebar') === 'wide' } catch { return false }
+  })
+  const toggleWide = () => {
+    setWide(!wide)
+    try { localStorage.setItem('spark-ai-hub-sidebar', wide ? 'narrow' : 'wide') } catch { /* kept for this visit only */ }
+  }
   const location = useLocation()
   const navigate = useNavigate()
 
@@ -86,12 +93,14 @@ export default function App() {
   // running tray under the title instead of beside it.
   return (
     <div className="bg-bg text-text flex h-[100dvh] overflow-hidden transition-colors duration-300">
-      {/* ─── Sidebar (tablet and up) ─── */}
-      <aside className="hidden w-[72px] shrink-0 bg-sidebar-bg md:flex flex-col items-center py-4 border-r border-outline-dim">
+      {/* ─── Sidebar (tablet and up): icons, or icons with their names. The
+           names need a laptop-wide window (lg); on a tablet the page keeps
+           the room and the sidebar stays icons. ─── */}
+      <aside className={`hidden w-[72px] items-center ${wide ? 'lg:w-[200px] lg:items-stretch lg:px-3' : ''} shrink-0 bg-sidebar-bg md:flex flex-col py-4 border-r border-outline-dim transition-[width] duration-200`}>
         {/* Logo */}
         <Link
           to="/"
-          className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#152608] to-[#0A1404] flex items-center justify-center border-none cursor-pointer shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-shadow mb-6 p-1.5"
+          className="w-11 h-11 shrink-0 rounded-2xl bg-gradient-to-br from-[#152608] to-[#0A1404] flex items-center justify-center border-none cursor-pointer shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-shadow mb-6 p-1.5"
           title="Spark AI Hub"
         >
           <img src="/brand/spark-ai-hub-mark.svg" alt="Spark AI Hub" className="w-full h-full" />
@@ -107,42 +116,47 @@ export default function App() {
                 key={item.path}
                 to={item.path}
                 title={item.label}
-                className={`relative w-11 h-11 rounded-xl flex items-center justify-center border-none cursor-pointer no-underline sidebar-link ${
-                  isActive ? 'active' : 'bg-transparent text-text-dim hover:text-text'
-                }`}
+                className={`relative h-11 rounded-xl flex items-center border-none cursor-pointer no-underline sidebar-link ${
+                  wide ? 'w-11 justify-center lg:w-auto lg:justify-start lg:gap-3 lg:px-3' : 'w-11 justify-center'
+                } ${isActive ? 'active' : 'bg-transparent text-text-dim hover:text-text'}`}
               >
-                <Icon className="w-5 h-5" />
+                <Icon className="w-5 h-5 shrink-0" />
+                {wide && <span className="hidden lg:inline text-sm font-semibold whitespace-nowrap">{item.label}</span>}
               </Link>
             )
           })}
         </nav>
 
         {/* Bottom: Account + System gauges + Theme toggle */}
-        <div className="flex flex-col items-center gap-3 mt-auto">
+        <div className={`flex flex-col gap-3 mt-auto items-center ${wide ? 'lg:items-stretch' : ''}`}>
           {user && (
             <Link
               to="/account"
               title={`${user.name || user.email} — account & API key`}
-              className={`rounded-2xl no-underline transition-shadow ${
+              className={`flex min-w-0 items-center gap-3 rounded-2xl no-underline text-text transition-shadow ${wide ? 'lg:p-1 lg:pr-3' : ''} ${
                 location.pathname === '/account'
                   ? 'ring-2 ring-primary/60'
                   : 'hover:ring-2 hover:ring-outline-dim'
               }`}
             >
               <Avatar user={user} size={36} />
+              {wide && <span className="hidden lg:block truncate text-sm font-semibold">{user.name || user.email}</span>}
             </Link>
           )}
           {metrics && (
-            <div className="flex flex-col items-center gap-1">
+            <div className={`flex flex-col items-center gap-1 ${wide ? 'lg:flex-row lg:justify-between' : ''}`}>
               <MiniGauge
                 value={metrics.gpu_utilization}
                 label="GPU"
                 color="var(--tertiary)"
                 onClick={() => navigate('/system')}
               />
+              {/* The ring fills with what is taken; the number is what is left. */}
               <MiniGauge
                 value={metrics.ram_total_gb > 0 ? Math.round((metrics.ram_used_gb / metrics.ram_total_gb) * 100) : 0}
-                label="RAM"
+                text={`${Math.round(metrics.ram_total_gb - metrics.ram_used_gb)}G`}
+                title={`${Math.round(metrics.ram_total_gb - metrics.ram_used_gb)} GB free of ${Math.round(metrics.ram_total_gb)} GB`}
+                label="FREE"
                 color="var(--tertiary)"
                 onClick={() => navigate('/system')}
               />
@@ -161,7 +175,18 @@ export default function App() {
               />
             </div>
           )}
-          <ThemeToggle />
+          <div className={`flex flex-col items-center gap-2 ${wide ? 'lg:flex-row lg:justify-between' : ''}`}>
+            <ThemeToggle />
+            <button
+              type="button"
+              onClick={toggleWide}
+              title={wide ? undefined : 'Show section names'}
+              className={`hidden lg:flex h-9 shrink-0 rounded-xl bg-surface-high items-center justify-center gap-1.5 cursor-pointer border-none text-text-dim transition-colors hover:bg-surface-highest hover:text-text ${wide ? 'px-3' : 'w-9'}`}
+            >
+              <ChevronIcon className={`w-4 h-4 transition-transform ${wide ? 'rotate-180' : ''}`} />
+              {wide && <span className="text-xs font-semibold font-label whitespace-nowrap">Collapse</span>}
+            </button>
+          </div>
         </div>
       </aside>
 
@@ -319,13 +344,13 @@ function About() {
           </div>
         </div>
 
-        <div className="bg-surface rounded-2xl p-5">
-          <h3 className="font-semibold text-sm font-display m-0 mb-3">Made by</h3>
+        <div className="bg-surface rounded-2xl p-5 text-center text-sm text-text-muted">
+          Made with <span className="text-error" aria-label="love">♥</span> by{' '}
           <a
             href="https://github.com/WaxacaBytes"
             target="_blank"
             rel="noreferrer"
-            className="text-sm text-text-muted hover:text-primary transition-colors no-underline"
+            className="font-semibold text-text hover:text-primary transition-colors no-underline"
           >
             WaxacaBytes
           </a>
@@ -336,7 +361,7 @@ function About() {
 }
 
 /* ─── Mini Gauge for sidebar ─── */
-function MiniGauge({ value, label, color, displayUnit = '%', onClick }) {
+function MiniGauge({ value, label, color, displayUnit = '%', text, title, onClick }) {
   const radius = 14
   const stroke = 3
   const circ = 2 * Math.PI * radius
@@ -347,7 +372,7 @@ function MiniGauge({ value, label, color, displayUnit = '%', onClick }) {
     <button
       type="button"
       onClick={onClick}
-      title={`${label}: ${value}${displayUnit} — open System Monitor`}
+      title={`${title || `${label}: ${value}${displayUnit}`} — open System Monitor`}
       className="flex flex-col items-center bg-transparent border-none p-0 cursor-pointer hover:opacity-80 transition-opacity"
     >
       <svg width="36" height="36" viewBox="0 0 36 36">
@@ -361,7 +386,7 @@ function MiniGauge({ value, label, color, displayUnit = '%', onClick }) {
           className="gauge-ring"
         />
         <text x="18" y="19" textAnchor="middle" dominantBaseline="middle" fill="var(--text-muted)" fontSize="8" fontFamily="Space Grotesk" fontWeight="600">
-          {value}{displayUnit}
+          {text ?? `${value}${displayUnit}`}
         </text>
       </svg>
       <span className="text-[9px] text-text-dim font-label mt-0.5">{label}</span>
@@ -370,6 +395,14 @@ function MiniGauge({ value, label, color, displayUnit = '%', onClick }) {
 }
 
 /* ─── Icons ─── */
+function ChevronIcon({ className }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="9 6 15 12 9 18" />
+    </svg>
+  )
+}
+
 function StorefrontIcon({ className }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

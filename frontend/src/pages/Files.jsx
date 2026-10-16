@@ -310,7 +310,10 @@ function FileCard({ file, picked, selecting, onToggle, onDelete, onOpen }) {
           <div className="text-xs text-text-muted truncate" title={file.model}>{file.model}</div>
         )}
         <div className="text-xs text-text-dim">{when(file.created)}</div>
-        {file.seconds != null && <div className="text-xs text-text-dim">Took {took(file.seconds)}</div>}
+        {shapeOf(file) && (
+          <div className="text-sm font-semibold font-label text-text whitespace-nowrap truncate">{shapeOf(file)}</div>
+        )}
+        {file.seconds != null && <div className="text-xs text-text-dim whitespace-nowrap truncate">Took {took(file.seconds)}</div>}
       </div>
     </div>
   )
@@ -386,7 +389,7 @@ function Preview({ file, selecting, onToggle, onOpen }) {
  * beside it closes. */
 function Viewer({ files, index, onIndex, onClose, details, onDetails }) {
   const file = files[index]
-  const [shape, setShape] = useState(null)   // { name, width, height, seconds } or { name, vertices, triangles } once loaded
+  const [mesh, setMesh] = useState(null)   // { name, vertices, triangles } once a 3D model is loaded
   const step = useCallback((d) => onIndex((index + d + files.length) % files.length), [index, files.length, onIndex])
 
   useEffect(() => {
@@ -408,24 +411,21 @@ function Viewer({ files, index, onIndex, onClose, details, onDetails }) {
 
   const stop = (e) => e.stopPropagation()
   const fit = 'block max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)]'
-  const onImage = (e) => setShape({ name: file.name, width: e.target.naturalWidth, height: e.target.naturalHeight })
-  const onVideo = (e) => setShape({ name: file.name, width: e.target.videoWidth, height: e.target.videoHeight,
-                                    seconds: e.target.duration })
-  const onMesh = useCallback((counts) => setShape({ name: file.name, ...counts }), [file.name])
-  const known = shape?.name === file.name ? shape : null
+  const onMesh = useCallback((counts) => setMesh({ name: file.name, ...counts }), [file.name])
+  const known = mesh?.name === file.name ? mesh : null
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 animate-fadeIn" onClick={onClose}>
       {file.kind === 'image' ? (
-        <img key={file.name} src={file.path} alt="" onClick={stop} onLoad={onImage} className={fit} />
+        <img key={file.name} src={file.path} alt="" onClick={stop} className={fit} />
       ) : file.kind === 'mesh' ? (
         <Suspense fallback={<span className="text-sm font-semibold text-white/80">Opening the 3D model…</span>}>
           <MeshView key={file.name} file={file} onLoaded={onMesh} />
         </Suspense>
       ) : file.orbit ? (
-        <Orbit key={file.name} file={file} onLoadedMetadata={onVideo} className={fit} />
+        <Orbit key={file.name} file={file} className={fit} />
       ) : (
         <video key={file.name} src={file.path} controls autoPlay playsInline onClick={stop}
-               onLoadedMetadata={onVideo} className={fit} />
+               className={fit} />
       )}
 
       <span className="absolute top-4 left-4 text-sm font-label text-white/80">{index + 1} / {files.length}</span>
@@ -462,12 +462,7 @@ function Viewer({ files, index, onIndex, onClose, details, onDetails }) {
           {file.model && <Detail label="Model" value={file.model} />}
           <Detail label="Made" value={when(file.created)} />
           {file.seconds != null && <Detail label="Took" value={took(file.seconds)} />}
-          {known?.width && (
-            <Detail
-              label="Size"
-              value={`${known.width} × ${known.height}${known.seconds ? ` · ${known.seconds.toFixed(1)} s` : ''}`}
-            />
-          )}
+          {shapeOf(file) && <Detail label={file.duration ? 'Length' : 'Size'} value={shapeOf(file)} />}
           {known?.triangles && (
             <Detail label="Mesh" value={`${fmtCount(known.triangles)} triangles · ${fmtCount(known.vertices)} vertices`} />
           )}
@@ -493,7 +488,7 @@ function Detail({ label, value }) {
  * to its frame. The Hub stores these clips with every frame a keyframe
  * (video_service.all_keyframes) so each jump is instant. One jump at a time:
  * the next waits for the last to land, then goes straight to where the drag is. */
-function Orbit({ file, onLoadedMetadata, className }) {
+function Orbit({ file, className }) {
   const video = useRef(null)
   const drag = useRef(null)                       // { x, t } where the drag began
   const seek = useRef({ busy: false, at: 0, want: 0 })
@@ -540,7 +535,6 @@ function Orbit({ file, onLoadedMetadata, className }) {
         muted
         playsInline
         onSeeked={onSeeked}
-        onLoadedMetadata={onLoadedMetadata}
         onPointerDown={down}
         onPointerMove={move}
         onPointerUp={up}
@@ -625,6 +619,18 @@ function TrashIcon() {
 
 function fmtCount(n) {
   return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}K` : `${n}`
+}
+
+// What the file is, to read the time it took against: "1024 × 1024" for a
+// picture, "5.2 s · 1344 × 768" for a clip, "2 min 30 s" for a song.
+function shapeOf(file) {
+  const dims = file.width ? `${file.width} × ${file.height}` : null
+  const length = file.duration ? clipLength(file.duration) : null
+  return [length, dims].filter(Boolean).join(' · ') || null
+}
+
+function clipLength(seconds) {
+  return seconds < 10 ? `${seconds.toFixed(1)} s` : took(seconds)
 }
 
 // How long making a file took: "9 s", "1 min 25 s", "1 h 5 min".
