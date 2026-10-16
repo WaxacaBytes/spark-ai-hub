@@ -55,6 +55,12 @@ services:
       # Clear it in Admin Settings → Models → Default Metadata to go back to
       # per-chat toggling.
       - DEFAULT_MODEL_METADATA={"toolIds":["server:mcp:sah"]}
+      # Every model is visible to every user of this Open WebUI, with no need
+      # to make each one public. Open WebUI has no "public by default", and a
+      # model it discovers over a connection (every Hub model) has no row of
+      # its own, which it treats as admin-only. This turns access control off
+      # for models, so none can be restricted to some users while it is set.
+      - BYPASS_MODEL_ACCESS_CONTROL=true
     deploy:
       resources:
         reservations:
