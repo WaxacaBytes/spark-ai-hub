@@ -38,6 +38,11 @@ docker:
 status: experimental
 release_date: "2025-03"
 engine: "hy3dgen"
+# Tencent's model table: 1.1B shape DiT + 1.3B texture (Paint) model, both run per result.
+params_b: 2.4
 quantization: "FP16"
 weights_gb: 14.4
+render_seconds: 117.3
+render_workload: "one 1024x1024 picture, default steps, textured GLB (3.8 MB)"
+load_seconds: 43
 requires_hf_token: false

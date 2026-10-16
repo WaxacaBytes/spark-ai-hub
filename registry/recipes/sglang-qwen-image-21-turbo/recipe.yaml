@@ -44,6 +44,9 @@ params_b: 7
 arch: dense
 quantization: "BF16"
 weights_gb: 32.5
+render_seconds: 8.2
+render_workload: "1024x1024, 8 steps"
+load_seconds: 132
 requires_hf_token: false
 # The Hub's image tools use these whenever an agent leaves them unset.
 # The checkpoint ships its own 8-step sigma grid and SGLang always runs it, so

@@ -8,7 +8,7 @@ import { hasSecret, maskIn } from '../lib/secret'
 import { useApiKey } from '../hooks/useApiKey'
 import { useAuth } from '../auth'
 import { backdropFor, posterFor } from '../covers'
-import { speedLabel } from '../models'
+import { formatDuration, mediaKind, speedLabel } from '../models'
 import CoverInfoModal from '../components/CoverInfoModal'
 import YamlEditor from '../components/YamlEditor'
 
@@ -279,6 +279,15 @@ function RecipeDetailPage({ slug }) {
             <SpecBadge label="Disk" value={`${recipe.requirements?.disk_gb ?? 10} GB`} />
             {recipe.tokens_per_second != null && (
               <SpecBadge label="Speed" value={speedLabel(recipe)} />
+            )}
+            {recipe.render_seconds != null && (
+              <SpecBadge
+                label="Time"
+                value={`${formatDuration(recipe.render_seconds)} per ${mediaKind(recipe) || 'result'}${recipe.render_workload ? ` · ${recipe.render_workload}` : ''}`}
+              />
+            )}
+            {recipe.load_seconds != null && (
+              <SpecBadge label="Ready in" value={formatDuration(recipe.load_seconds)} />
             )}
           </div>
 

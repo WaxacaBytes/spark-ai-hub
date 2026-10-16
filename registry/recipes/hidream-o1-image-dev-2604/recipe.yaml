@@ -44,6 +44,9 @@ params_b: 8
 arch: dense
 quantization: "BF16"
 weights_gb: 32.8
+render_seconds: 51.0
+render_workload: "2048x2048, 28 steps"
+load_seconds: 19
 requires_hf_token: false
 # HiDream's server fixes the schedule per model type (app.py, dev branch): Dev
 # runs 28 steps, guidance 0, shift 1, "flash" sampler for text-to-image and

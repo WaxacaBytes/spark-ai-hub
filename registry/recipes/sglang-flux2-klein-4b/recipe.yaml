@@ -44,6 +44,9 @@ params_b: 4
 arch: dense
 quantization: "BF16"
 weights_gb: 14.9
+render_seconds: 2.9
+render_workload: "1024x1024, 4 steps"
+load_seconds: 108
 requires_hf_token: false
 # From the model card's example; the Hub's image tools use these whenever an
 # agent leaves them unset.

@@ -45,6 +45,9 @@ params_b: 7
 arch: dense
 quantization: "BF16"
 weights_gb: 30.9
+render_seconds: 39.1
+render_workload: "1024x1024, 40 steps"
+load_seconds: 101
 requires_hf_token: false
 # The encoder swap changes what the prompt is allowed to say, not how the DiT
 # samples, so the stock recipe's settings carry over unchanged.

@@ -17,6 +17,13 @@ TAG_CAPABILITIES = {
 # What an image or video model makes, from the same hand-written tags that tell
 # the Hub's MCP tools which recipes can answer which call. Shown on the detail
 # page so nobody has to read tags to learn a model generates but cannot edit.
+def media_timing(recipe) -> dict:
+    """A media model's render and load figures for the MCP model lists, so an
+    agent can say how long a result will take; {} where unmeasured."""
+    keys = ("render_seconds", "render_workload", "load_seconds")
+    return {k: v for k in keys if (v := getattr(recipe, k, None))}
+
+
 MEDIA_CAPABILITIES = {
     "text-to-image": "image-generation",
     "image-edit": "image-editing",
@@ -245,6 +252,16 @@ class Recipe(BaseModel):
     # benchmark snippet prints: code, explainer, prose, code-edit. Shown on the
     # detail page so a range can be checked rather than taken on faith.
     benchmarks: dict[str, float] = {}
+    # Media models have no token rate; what decides whether one is usable is
+    # how long a result takes. `render_seconds` is one result (picture, clip,
+    # 3D model) from a warm model at its own card settings, which
+    # `render_workload` names ("1024x1024, 8 steps"; "10 s 16:9 clip, 768p")
+    # because the figure means nothing without them. `load_seconds` is a
+    # stopped model to ready -- agents start media models on demand, so a
+    # 40 s render behind a 14 min load is a 14 min wait the first time.
+    render_seconds: float | None = None
+    render_workload: str = ""
+    load_seconds: float | None = None
     context_tokens: int | None = None     # served context window; read off the
                                           # compose command when not declared
     # vLLM and SGLang claim a fixed share of the whole memory pool at boot and

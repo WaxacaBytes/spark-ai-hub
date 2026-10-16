@@ -37,6 +37,11 @@ docker:
 status: experimental
 release_date: "2025-01"
 engine: "SGLang"
+# Tencent's model table: 1.1B shape DiT + 1.3B texture (Paint) model, both run per result.
+params_b: 2.4
 quantization: "FP16"
 weights_gb: 13.1
+render_seconds: 79.3
+render_workload: "one 1024x1024 picture, default steps, textured GLB (5.0 MB)"
+load_seconds: 171
 requires_hf_token: false

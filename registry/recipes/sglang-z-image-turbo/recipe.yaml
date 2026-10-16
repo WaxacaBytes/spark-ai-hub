@@ -42,6 +42,9 @@ params_b: 6
 arch: dense
 quantization: "BF16"
 weights_gb: 32.8
+render_seconds: 8.1
+render_workload: "1024x1024, 9 steps"
+load_seconds: 59
 requires_hf_token: false
 # From the model card's example: num_inference_steps=9 ("actually results in 8
 # DiT forwards") and guidance_scale=0.0 ("should be 0 for the Turbo models").

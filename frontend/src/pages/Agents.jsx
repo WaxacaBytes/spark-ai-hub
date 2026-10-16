@@ -5,7 +5,7 @@ import { useApiKey } from '../hooks/useApiKey'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { copyText } from '../lib/clipboard'
 import { hasSecret, maskIn } from '../lib/secret'
-import { hubOrigin } from '../lib/urls'
+import { hubOrigin, openUrl } from '../lib/urls'
 import { formatParams } from '../components/RecipeCard'
 import { groupModels, isAgentModel, isMediaModel, speedLabel } from '../models'
 import { formatContext } from '../components/ModelList'
@@ -186,7 +186,8 @@ export default function Agents({ search = '' }) {
           eyebrow="The tools · /mcp"
           title="Media models"
           subtitle="Image, video, 3D, music and decision models. Agents call them through the Hub's MCP tools, and can start them on demand."
-          sorts={['lab', 'release', 'params', 'size']}
+          sorts={['lab', 'time', 'release', 'params', 'size']}
+          media
         />
       </div>
     </div>
@@ -391,10 +392,16 @@ const OTHER = { id: 'other', name: 'Any other app', kind: 'Other' }
 const MCP = { id: 'mcp', name: 'MCP tools', kind: 'Other' }
 const EXTRAS = [OTHER, MCP]
 
+// Agents that are apps of this Hub: nothing to install on your computer, the
+// app's recipe already wires itself to /v1 and /mcp when it launches. They
+// stay in the Store too; this is the same recipe, reached from here.
+const HUB_APPS = [{ id: 'openwebui', name: 'Open WebUI', kind: 'Hub', slug: 'ollama-openwebui' }]
+
 function ConnectAgent({ info, apiKey, keyValue, modelId, hasModel }) {
   const agents = info?.agents || []
   const [picked, setPicked] = useState(savedAgent)
   const choice = EXTRAS.find((x) => x.id === picked)
+    || HUB_APPS.find((x) => x.id === picked)
     || agents.find((a) => a.id === picked) || agents.find((a) => a.id === 'claude') || agents[0]
   const stepsRef = useRef(null)
 
@@ -426,6 +433,7 @@ function ConnectAgent({ info, apiKey, keyValue, modelId, hasModel }) {
             {desktop.length > 0 && (
               <TileGroup label="Desktop apps" agents={desktop} selected={choice?.id} onPick={pick} />
             )}
+            <TileGroup label="On this Spark" agents={HUB_APPS} selected={choice?.id} onPick={pick} />
             <TileGroup label="Something else" agents={EXTRAS} selected={choice?.id} onPick={pick} />
           </div>
 
@@ -434,6 +442,8 @@ function ConnectAgent({ info, apiKey, keyValue, modelId, hasModel }) {
               <OtherAppSteps info={info} apiKey={apiKey} keyValue={keyValue} modelId={modelId} hasModel={hasModel} />
             ) : choice?.id === MCP.id ? (
               <McpSteps info={info} apiKey={apiKey} keyValue={keyValue} />
+            ) : choice?.kind === 'Hub' ? (
+              <HubAppSteps agent={choice} />
             ) : choice ? (
               <SahSteps agent={choice} info={info} apiKey={apiKey} />
             ) : null}
@@ -547,6 +557,54 @@ function SahSteps({ agent, info, apiKey }) {
   )
 }
 
+// A Hub app: install and launch it here, like from the Store, and it comes
+// up already connected. Each step turns into a check once it is done.
+function HubAppSteps({ agent }) {
+  const recipe = useStore((s) => s.recipes.find((r) => r.slug === agent.slug))
+  const building = useStore((s) => !!s.installing[agent.slug])
+  const installRecipe = useStore((s) => s.installRecipe)
+  const requestLaunch = useStore((s) => s.requestLaunch)
+  if (!recipe) return null
+  const installed = recipe.installed && !building
+  const up = recipe.running && recipe.ready
+  const button = 'inline-flex cursor-pointer items-center rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-primary-on transition-opacity hover:opacity-90 disabled:cursor-default disabled:opacity-60'
+  return (
+    <StepsCard agent={agent} title={`Use ${agent.name} with this Spark`}>
+      <BigStep
+        n={installed ? '✓' : '1'}
+        title={`Install ${agent.name}`}
+        sub={installed ? 'Installed.' : 'Only once. It runs here on the Spark, so there is nothing to put on your computer.'}
+      >
+        {!installed && (
+          <button type="button" className={button} disabled={building} onClick={() => installRecipe(agent.slug)}>
+            {building ? 'Installing…' : 'Install'}
+          </button>
+        )}
+      </BigStep>
+      <BigStep
+        n={up ? '✓' : '2'}
+        title={up ? `${agent.name} is running` : `Launch ${agent.name}`}
+        sub={up ? 'Open it in your browser.' : 'It starts already connected to this Spark.'}
+      >
+        {up ? (
+          <a href={openUrl(recipe)} target="_blank" rel="noopener noreferrer" className={`${button} no-underline`}>
+            Open {agent.name} ↗
+          </a>
+        ) : (
+          <button type="button" className={button} disabled={!installed || recipe.starting || recipe.running} onClick={() => requestLaunch(agent.slug)}>
+            {recipe.starting || recipe.running ? 'Starting…' : 'Launch'}
+          </button>
+        )}
+      </BigStep>
+      <BigStep
+        n="✓"
+        title="That's it"
+        sub={`Every running model shows up in ${agent.name}'s model menu, for everyone who signs in to it, with this Spark's image, video, music and web search tools switched on.`}
+      />
+    </StepsCard>
+  )
+}
+
 function agentNote(agent) {
   const restore = `sah ${agent.id} --restore`
   if (agent.command.endsWith('--install') || agent.writes_config) {
@@ -579,6 +637,7 @@ const AGENT_LOGOS = {
   kimi: { src: '/logos/agents/kimi.png', fill: true },
   vscode: { src: '/logos/agents/vscode.png' },
   zed: { src: '/logos/agents/zed.png', fill: true },
+  openwebui: { src: '/logos/openwebui.png', fill: true },
 }
 
 function AgentLogo({ agent, size = 20 }) {

@@ -39,8 +39,13 @@ docker:
 status: experimental
 release_date: "2026-05"
 engine: "Pixal3D"
+# Pixal3D's checkpoints: three 1.3B flow transformers (structure, shape, texture), TRELLIS.2's layout.
+params_b: 3.9
 quantization: "BF16"
 weights_gb: 27.5
+render_seconds: 67.9
+render_workload: "one 1024x1024 picture, default steps, textured GLB (8.9 MB)"
+load_seconds: 108
 requires_hf_token: true
 # Meta's DINOv3 (manual approval) and BRIA's RMBG-2.0: the token's account
 # must accept both on the web.

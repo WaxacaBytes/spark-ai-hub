@@ -67,6 +67,27 @@ export function isMediaModel(recipe) {
   return isModel(recipe) && !isAgentModel(recipe)
 }
 
+// What a media model makes, from the capabilities the daemon derives off its
+// tags. Render times only compare within one kind: 8 s is fast for a 3D model
+// and impossible for a 10 s clip.
+export function mediaKind(recipe) {
+  const caps = recipe.media_capabilities || []
+  if (caps.some((c) => c.endsWith('-to-video'))) return 'video'
+  if (caps.includes('image-to-3d')) return '3D model'
+  if (caps.includes('image-generation') || caps.includes('image-editing')) return 'image'
+  if (caps.includes('music-generation')) return 'song'
+  return null
+}
+
+// "2.9 s", "45 s", "2.2 min", "1.4 h" — one figure, its own unit, no range.
+export function formatDuration(seconds) {
+  if (seconds == null) return null
+  if (seconds < 10) return `${seconds.toFixed(1)} s`
+  if (seconds < 90) return `${Math.round(seconds)} s`
+  if (seconds < 5400) return `${(seconds / 60).toFixed(seconds < 600 ? 1 : 0)} min`
+  return `${(seconds / 3600).toFixed(1)} h`
+}
+
 const ENGINE_PREFIX = /^(vllm|vllmomni|sglang|llamacpp|exllamav3|atlas|tensorfold|hy3dgen)-/
 
 function modelKey(recipe) {

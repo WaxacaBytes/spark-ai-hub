@@ -43,6 +43,9 @@ params_b: 7
 arch: dense
 quantization: "BF16"
 weights_gb: 30.9
+render_seconds: 40.7
+render_workload: "1024x1024, 40 steps"
+load_seconds: 117
 requires_hf_token: false
 # The Hub's image tools use these whenever an agent leaves them unset.
 # 40 steps and CFG 1 are the model card's own quickstart values, which are

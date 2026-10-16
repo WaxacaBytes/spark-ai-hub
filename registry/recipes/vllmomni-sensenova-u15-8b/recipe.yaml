@@ -42,6 +42,9 @@ engine: "vLLM-Omni"
 params_b: 8
 quantization: "BF16"
 weights_gb: 35.1
+render_seconds: 31.0
+render_workload: "1024x1024, 50 steps"
+load_seconds: 254
 requires_hf_token: false
 # From SenseNova's own inference examples for U1.5 (examples/README.md on the
 # feat/u1.5 branch): --num_steps 50 --cfg_scale 4.0 --timestep_shift 3.0.

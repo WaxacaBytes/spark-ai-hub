@@ -42,6 +42,9 @@ params_b: 6
 arch: dense
 quantization: "BF16"
 weights_gb: 20.5
+render_seconds: 45.6
+render_workload: "1024x1024, 28 steps"
+load_seconds: 71
 requires_hf_token: false
 
 cover:

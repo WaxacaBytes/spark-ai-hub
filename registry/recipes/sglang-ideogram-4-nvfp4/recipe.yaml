@@ -42,6 +42,9 @@ params_b: 9.3
 arch: dense
 quantization: "NVFP4"
 weights_gb: 38.3
+render_seconds: 106.6
+render_workload: "1024x1024, V4_QUALITY_48 preset"
+load_seconds: 131
 requires_hf_token: true
 # Ideogram 4 Non-Commercial license: the token's account must accept it on the web.
 gated_repos:

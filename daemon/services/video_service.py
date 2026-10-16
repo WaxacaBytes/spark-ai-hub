@@ -33,6 +33,7 @@ from pathlib import Path
 import aiohttp
 
 from daemon.config import settings
+from daemon.models.recipe import media_timing
 from daemon.services.docker_service import get_installed_slugs, is_ready, is_recipe_running
 from daemon.services import media_store, proxy_service
 from daemon.services.image_service import ImageError, load_input, owns_job, pick_ready, to_png
@@ -134,6 +135,7 @@ async def list_models() -> list[dict]:
             "state": ("ready" if running and is_ready(slug)
                       else "starting" if running else "stopped"),
             "min_memory_gb": recipes[slug].requirements.min_memory_gb,
+            **media_timing(recipes[slug]),
             **({"recommended": rec} if (rec := recommended(backend)) else {}),
         })
     return out

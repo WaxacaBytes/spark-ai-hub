@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { formatParams } from './RecipeCard'
-import { buildLabel, displayName } from '../models'
+import { buildLabel, displayName, formatDuration } from '../models'
 import { openUrl as openUrlFor } from './RecipeCard'
 import Hint from './Hint'
 
@@ -60,23 +60,120 @@ const COMPACT = {
     lead: null,
     wrap: false,
   },
+  // A phone leaves a ranked row ~86px for the model name beside four
+  // columns, which cut most names. So the name, its build and engine take
+  // the whole first line (wrapping if they must) and the figures share the
+  // second line equally.
   ranked: {
-    columns: '16px minmax(0,1fr) 42px 42px 48px 54px',
+    columns: 'minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 54px',
     first: 'Model · build',
-    lead: 'rank',
+    lead: null,
     wrap: true,
+    stack: true,
   },
 }
 const COMPACT_THIRD = { params: 'Params', 'aa-index': 'AA Index' }
 
-function variantFor(variant, narrow, highlight) {
-  if (!narrow) return VARIANTS[variant]
+// Media models make pictures, clips and 3D models, not tokens: their two
+// figures are Time (one result, model loaded) and Ready in (stopped to
+// ready). Context and the AA Index mean nothing for them, so those go.
+const MEDIA_HEADERS = ['Time', 'Ready in', 'Params', 'On disk']
+const MEDIA = {
+  build: { columns: 'minmax(0,1fr) 56px 52px 52px 66px 50px 48px', fixedHeaders: MEDIA_HEADERS },
+  ranked: { columns: '26px minmax(200px,1fr) 56px 46px 56px 56px 74px 62px 62px', fixedHeaders: MEDIA_HEADERS, aaIndex: false },
+}
+
+// Grouped "build" rows: the Build and Engine columns are as wide as the
+// widest label the catalog actually has, measured in the font they render in.
+// A fixed share of a block left the Build column ~46px beside six figures,
+// and labels like "EXL3 3.0bpw DSpark" (109px) were cut to "EXL3 3.0bp…".
+// The block (see ModelShelves) is then sized to hold them, so a label is
+// always one whole line.
+const LABEL_CLASS = 'font-label text-[11px] font-bold'
+const CELL_CLASS = 'font-label text-[11px] tabular-nums'
+const ENGINE_SIZE = 'text-[10px]'
+const DOT = 12           // the state dot and its gap, reserved on every row
+const ROW_GAP = 6        // gap-x-1.5
+
+function widest(texts, className) {
+  const probe = document.createElement('span')
+  probe.className = className
+  probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap'
+  document.body.appendChild(probe)
+  let max = 0
+  for (const t of texts) {
+    probe.textContent = t
+    max = Math.max(max, probe.getBoundingClientRect().width)
+  }
+  probe.remove()
+  return Math.ceil(max) + 1
+}
+
+// Measured again once the web font has loaded: the fallback font is narrower.
+export function useBuildColumns(recipes) {
+  const [fontsReady, setFontsReady] = useState(() => document.fonts?.status === 'loaded')
+  useEffect(() => {
+    if (!fontsReady) document.fonts?.ready.then(() => setFontsReady(true))
+  }, [fontsReady])
+  return useMemo(() => ({
+    build: widest(recipes.map(buildLabel), LABEL_CLASS),
+    engine: widest(recipes.map((r) => r.engine || ''), `${CELL_CLASS} ${ENGINE_SIZE}`),
+    params: widest(recipes.filter((r) => r.params_b != null).map(formatParams), CELL_CLASS),
+    // Ranked rows print the engine at the cell's own 11px and add a quant column.
+    engineRanked: widest(recipes.map((r) => r.engine || ''), CELL_CLASS),
+    quant: widest(recipes.map((r) => r.quantization || ''), CELL_CLASS),
+  }), [recipes, fontsReady])
+}
+
+// Every track after the Build column, in px. Engine and Params are measured
+// ("117.6B-A8.5B" did not fit a fixed 66px); the figures are short by nature.
+// A media time ("2.8 min", bold) needs more than a tok/s figure ("61.1").
+function tracksAfterLabel(w, narrow, media, variant = 'build') {
+  if (narrow) return media ? [56, 52, 48, 54] : [42, 42, 48, 54]
+  const params = Math.max(44, w.params)
+  if (variant === 'ranked') {
+    const lead = [Math.max(40, w.engineRanked), Math.max(36, w.quant)]
+    return media
+      ? [...lead, 56, 56, params, 62, 62]          // Time, Ready in, Params, On disk, action
+      : [...lead, 50, 50, params, 62, 42, 44, 62]  // Writing, Editing, Params, On disk, Ctx, AA, action
+  }
+  return media
+    ? [w.engine, 52, 52, params, 50, 48]           // Time, Ready in, Params, On disk, action
+    : [w.engine, 44, 44, params, 50, 34, 48]       // Writing, Editing, Params, On disk, Ctx, action
+}
+
+// A ranked table splits into side-by-side columns only when each can still
+// give the model name 220px beside all its measured tracks.
+function rankedFit(w, media) {
+  const tracks = [26, 220, ...tracksAfterLabel(w, false, media, 'ranked')]
+  return sum(tracks) + (tracks.length - 1) * ROW_GAP + 16 + 24
+}
+
+const sum = (xs) => xs.reduce((a, b) => a + b, 0)
+
+// The narrowest block that shows every label whole: both label columns, the
+// fixed figures, the gaps between them, and the row and block padding.
+export function buildBlockWidth(w, narrow, media = false) {
+  const fixed = tracksAfterLabel(w, narrow, media)
+  return DOT + w.build + sum(fixed) + fixed.length * ROW_GAP + 16 + 24
+}
+
+function withWidths(v, w, narrow, variant = 'build') {
+  if (!w || v.stack) return v
+  const fixed = tracksAfterLabel(w, narrow, v.media, variant).map((x) => `${x}px`)
+  const lead = variant === 'ranked' ? ['26px', 'minmax(200px,1fr)'] : [`minmax(${DOT + w.build}px,1fr)`]
+  return { ...v, columns: [...lead, ...fixed].join(' ') }
+}
+
+function variantFor(variant, narrow, highlight, media = false) {
+  if (!narrow) return media ? { ...VARIANTS[variant], ...MEDIA[variant], media } : VARIANTS[variant]
   return {
     ...COMPACT[variant],
     headers: [],
-    fixedHeaders: ['Writing', 'Editing', COMPACT_THIRD[highlight] || 'On disk'],
-    aaIndex: highlight === 'aa-index',
+    fixedHeaders: [...(media ? ['Time', 'Ready in'] : ['Writing', 'Editing']), COMPACT_THIRD[highlight] || 'On disk'],
+    aaIndex: !media && highlight === 'aa-index',
     sub: true,
+    media,
   }
 }
 
@@ -111,6 +208,10 @@ const HEADER_HINTS = {
     + '3000 tokens). Most of the output is already in the prompt, so builds that draft '
     + 'speculatively (DFlash, DSpark, MTP) are far faster here than at writing — which is why '
     + 'one number cannot describe them.',
+  Time: 'How long one result takes once the model is loaded, at its model card\'s settings, '
+    + 'measured through the Hub\'s MCP tools the way agents call them: one picture (1024×1024 '
+    + 'unless the model only renders larger), one 3D model from a picture, one 10 s clip.',
+  'Ready in': 'From stopped to ready to render — the wait the first time an agent starts it.',
   'AA Index': 'Artificial Analysis Intelligence Index: a published capability score for the '
     + 'base model, the same for every build of it.',
 }
@@ -131,7 +232,7 @@ function runState(recipe, busy) {
 
 function Cell({ children, className = '' }) {
   return (
-    <span className={`truncate font-label text-[11px] tabular-nums ${className}`}>
+    <span className={`truncate ${CELL_CLASS} ${className}`}>
       {children ?? <span className="text-text-dim">—</span>}
     </span>
   )
@@ -144,7 +245,7 @@ function ColumnHeader({ v }) {
       style={{ gridTemplateColumns: v.columns }}
     >
       {v.lead && <span />}
-      {[v.first, ...v.headers].map((h) => (
+      {!v.stack && [v.first, ...v.headers].map((h) => (
         <span key={h} className="font-label text-[9px] font-semibold uppercase tracking-wider text-text-dim">
           {h}
         </span>
@@ -229,6 +330,17 @@ function BuildRow({ recipe, variant, v, rank, highlight, onFrontier }) {
       {v.lead === 'rank' && (
         <span className="text-right font-label text-[10px] tabular-nums text-text-dim">{rank}</span>
       )}
+      {v.stack ? (
+        <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 pb-0.5" style={{ gridColumn: '1 / -1' }}>
+          {rank != null && <span className="font-label text-[10px] tabular-nums text-text-dim">{rank}</span>}
+          {state && <span className={`h-1.5 w-1.5 shrink-0 self-center rounded-full ${state.dot}`} />}
+          <span className="font-label text-[11px] font-bold text-text">{label}</span>
+          <span className="font-label text-[9px] text-text-dim">
+            {[buildLabel(recipe), recipe.engine].filter(Boolean).join(' · ')}
+          </span>
+          {onFrontier && <span className="font-label text-[11px] font-bold leading-none text-success">★</span>}
+        </span>
+      ) : (
       <span className="flex min-w-0 items-center gap-1.5">
         {state && (
           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${state.dot}`} title={state.label} />
@@ -273,13 +385,24 @@ function BuildRow({ recipe, variant, v, rank, highlight, onFrontier }) {
           </span>
         )}
       </span>
+      )}
 
       {v.headers.includes('Engine') && (
-        <Cell className={`text-text-muted ${v.wrap ? '' : 'text-[10px]'}`}>{recipe.engine}</Cell>
+        <Cell className={`text-text-muted ${v.wrap ? '' : ENGINE_SIZE}`}>{recipe.engine}</Cell>
       )}
       {v.headers.includes('Quant') && <Cell className="text-text-muted">{recipe.quantization}</Cell>}
 
       {/* Speed leads: it is the number that decides whether a build is usable. */}
+      {v.media ? (
+        <>
+          <span className={`truncate text-right font-display text-[13px] font-extrabold tabular-nums ${
+            recipe.render_seconds != null ? 'text-primary' : 'text-text-dim'
+          }`}>
+            {formatDuration(recipe.render_seconds) ?? '—'}
+          </span>
+          <Cell className="text-right text-text-muted">{formatDuration(recipe.load_seconds)}</Cell>
+        </>
+      ) : (<>
       <span className={`truncate text-right font-display text-[13px] font-extrabold tabular-nums ${
         recipe.tokens_per_second != null ? 'text-primary' : 'text-text-dim'
       }`}>
@@ -300,6 +423,7 @@ function BuildRow({ recipe, variant, v, rank, highlight, onFrontier }) {
       >
         {recipe.tokens_per_second_editing ?? '—'}
       </span>
+      </>)}
       {v.fixedHeaders.includes('Params') && (
         <Cell className={`text-right ${highlight === 'params' ? 'text-secondary font-bold' : 'text-text-muted'}`}>
           {recipe.params_b != null ? formatParams(recipe) : null}
@@ -351,16 +475,16 @@ const COL_MAX = 900   // wider and the numbers drift too far from the name
 const COL_GAP = 12    // must match the grid's gap-3
 const MIN_ROWS_PER_COL = 4
 
-function useColumnCount(ref, enabled) {
+function useColumnCount(ref, enabled, fit = COL_FIT) {
   const [cols, setCols] = useState(1)
   useEffect(() => {
     if (!enabled || !ref.current) return undefined
-    const measure = (width) => setCols(Math.max(1, Math.floor((width + COL_GAP) / (COL_FIT + COL_GAP))))
+    const measure = (width) => setCols(Math.max(1, Math.floor((width + COL_GAP) / (fit + COL_GAP))))
     const ro = new ResizeObserver(([entry]) => measure(entry.contentRect.width))
     ro.observe(ref.current)
     measure(ref.current.getBoundingClientRect().width)
     return () => ro.disconnect()
-  }, [ref, enabled])
+  }, [ref, enabled, fit])
   return enabled ? cols : 1
 }
 
@@ -372,11 +496,12 @@ function chunk(items, n) {
   return out
 }
 
-export default function ModelList({ items, variant = 'ranked', highlight = null, frontier = null }) {
+export default function ModelList({ items, variant = 'ranked', highlight = null, frontier = null, media = false, widths = null }) {
   const ref = useRef(null)
-  const v = variantFor(variant, useNarrow(), highlight)
+  const narrow = useNarrow()
+  const v = withWidths(variantFor(variant, narrow, highlight, media), widths, narrow, variant)
   const splittable = variant === 'ranked' && items.length >= SPLIT_THRESHOLD
-  const fits = useColumnCount(ref, splittable)
+  const fits = useColumnCount(ref, splittable, widths ? Math.max(COL_FIT, rankedFit(widths, media)) : COL_FIT)
   // Never so many columns that each holds a row or two — a table needs enough
   // rows to be worth its header.
   const cols = splittable ? Math.max(1, Math.min(fits, Math.ceil(items.length / MIN_ROWS_PER_COL))) : 1
@@ -421,8 +546,9 @@ export default function ModelList({ items, variant = 'ranked', highlight = null,
 // put the rest behind a "+5 more builds" link; that hid two thirds of the
 // catalog behind a control readers never found, and expanding it reflowed the
 // page so you lost your place.
-export function ModelBlock({ group, frontier = null }) {
-  const v = variantFor('build', useNarrow(), null)
+export function ModelBlock({ group, frontier = null, widths = null, media = false }) {
+  const narrow = useNarrow()
+  const v = withWidths(variantFor('build', narrow, null, media), widths, narrow)
   const [logoFailed, setLogoFailed] = useState(false)
   const logoUrl = useThemedLogo(group.lead.logo)
 

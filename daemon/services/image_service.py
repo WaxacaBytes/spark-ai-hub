@@ -34,6 +34,7 @@ import aiohttp
 from PIL import Image, ImageOps
 
 from daemon.config import settings
+from daemon.models.recipe import media_timing
 from daemon.services import media_store, proxy_service, web_service
 from daemon.services.docker_service import get_installed_slugs, is_ready, is_recipe_running
 from daemon.services.registry_service import get_recipes
@@ -168,6 +169,7 @@ async def list_models() -> list[dict]:
             "state": ("ready" if running and is_ready(slug)
                       else "starting" if running else "stopped"),
             "min_memory_gb": recipe.requirements.min_memory_gb,
+            **media_timing(recipe),
             **({"recommended": rec} if (rec := recommended(backend)) else {}),
         })
     return out

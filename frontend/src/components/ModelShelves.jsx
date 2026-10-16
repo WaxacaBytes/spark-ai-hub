@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
 import CardRow from './CardRow'
 import Hint from './Hint'
-import ModelList, { ModelBlock } from './ModelList'
+import ModelList, { ModelBlock, buildBlockWidth, useBuildColumns, useNarrow } from './ModelList'
 import { vendorKey, vendorLabel } from '../covers'
-import { groupModels } from '../models'
+import { formatDuration, groupModels, mediaKind } from '../models'
 
 // The model catalog as shelves. The Agents page draws two of them: the LLMs
 // agents talk to at /v1, and the media models they call as tools through
@@ -97,6 +97,30 @@ const MODEL_SORTS = [
       [25, '25–50 tok/s editing'], [0, 'Under 25 tok/s editing']],
       'Not measured on an edit')(r.tokens_per_second_editing),
   },
+  // Media models: how long one result takes. Only comparable within a kind —
+  // 8 s is slow for a picture and fast for a 3D model — so the ranking runs
+  // pictures, then 3D models, then clips, each fastest first, and every band
+  // names its kind.
+  {
+    id: 'time',
+    label: 'Time',
+    key: (r) => r.render_seconds,
+    compare: (a, b) => (KIND_ORDER.indexOf(mediaKind(a)) - KIND_ORDER.indexOf(mediaKind(b)))
+      || ((a.render_seconds ?? Infinity) - (b.render_seconds ?? Infinity))
+      || byRelease(a, b),
+    note: 'Ranked on how long one result takes once the model is loaded, at its model card\'s '
+      + 'settings, measured through the Hub\'s MCP tools the way agents call them: a picture, '
+      + 'a 3D model from one picture, a 10 s clip. Pictures first, then 3D, then video — the '
+      + 'times only compare within a kind.',
+    band: (r) => {
+      const kind = mediaKind(r)
+      const label = kind ? `${kind[0].toUpperCase()}${kind.slice(1)}s` : 'Other'
+      if (r.render_seconds == null) return `${label} · not measured yet`
+      const s = r.render_seconds
+      const span = s < 10 ? 'under 10 s' : s < 60 ? '10–60 s' : s < 600 ? '1–10 min' : s < 3600 ? '10–60 min' : 'over 1 h'
+      return `${label} · ${span}`
+    },
+  },
   // A capability score, not a speed one — the only sort here that isn't
   // measured on this Spark. Published by Artificial Analysis per base model,
   // so every quant/drafter build of one model shares the same score; a
@@ -114,6 +138,8 @@ const MODEL_SORTS = [
   },
 ]
 
+const KIND_ORDER = ['image', '3D model', 'video', 'song', null]
+
 export function byRelease(a, b) {
   const dateOrder = (b.release_date || '').localeCompare(a.release_date || '')
   if (dateOrder !== 0) return dateOrder
@@ -127,6 +153,7 @@ export function byLab(a, b) {
 }
 
 function makeComparator(sort) {
+  if (sort?.compare) return sort.compare
   if (sort?.id === 'lab') return byLab
   if (!sort?.key) return byRelease
   return (a, b) => {
@@ -152,9 +179,14 @@ function shelfSubtitle(groups) {
 // whatever is being searched for.
 export default function ModelShelves({
   models, visible = models, eyebrow = null, title, subtitle, sorts = null, actions = null, id,
+  media = false,
 }) {
   const [sortId, setSortId] = useState('lab')
-  const offered = sorts ? MODEL_SORTS.filter((s) => sorts.includes(s.id)) : MODEL_SORTS
+  // Every block on the shelf gets the same Build/Engine widths, from all its
+  // models (not only those a search shows), so the layout does not jump.
+  const widths = useBuildColumns(models)
+  const narrow = useNarrow()
+  const offered = sorts ? MODEL_SORTS.filter((s) => sorts.includes(s.id)) : MODEL_SORTS.filter((s) => s.id !== 'time')
 
   // A build is on the Pareto frontier of speed vs. capability if no other
   // build both writes faster and scores higher on the AA Index — i.e. there
@@ -184,8 +216,8 @@ export default function ModelShelves({
   // "AI Lab" and "Newest" do not, and there the fastest build leads — that is
   // the one you would have picked anyway.
   const buildComparator = useMemo(
-    () => (sort.key ? comparator : makeComparator(MODEL_SORTS.find((s) => s.id === 'speed'))),
-    [sort, comparator],
+    () => (sort.key ? comparator : makeComparator(MODEL_SORTS.find((s) => s.id === (media ? 'time' : 'speed')))),
+    [sort, comparator, media],
   )
 
   const shelves = useMemo(() => {
@@ -278,10 +310,10 @@ export default function ModelShelves({
                   because models have different numbers of builds, and a grid
                   reserves the tallest block's height for its whole row —
                   leaving holes the size of a block. */}
-              <div className="w-full" style={{ columnWidth: '470px', columnGap: '12px' }}>
+              <div className="w-full" style={{ columnWidth: `${buildBlockWidth(widths, narrow, media)}px`, columnGap: '12px' }}>
                 {items.map((g) => (
                   <div key={g.key} className="mb-3 break-inside-avoid">
-                    <ModelBlock group={g} frontier={frontier} />
+                    <ModelBlock group={g} frontier={frontier} widths={widths} media={media} />
                   </div>
                 ))}
               </div>
@@ -295,7 +327,7 @@ export default function ModelShelves({
               wrap
             >
               <div className="w-full">
-                <ModelList items={items} variant="ranked" highlight={sort.id} frontier={frontier} />
+                <ModelList items={items} variant="ranked" highlight={sort.id} frontier={frontier} media={media} widths={widths} />
               </div>
             </CardRow>
           ))}
