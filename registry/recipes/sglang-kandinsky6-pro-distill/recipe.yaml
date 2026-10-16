@@ -1,0 +1,64 @@
+name: "Kandinsky-6.0 Pro Distill"
+slug: sglang-kandinsky6-pro-distill
+version: "1.0.0"
+description: "Generate a 5 s video with its own synchronized sound (speech with lip-sync, effects, music) from a text prompt or from a first frame, with Kandinsky Lab's Kandinsky-6.0 Pro, the 29B model distilled to 10 steps. Put spoken lines in <S>...<E> and sound descriptions in <AUDCAP>...<ENDAUDCAP>. Served by SGLang Diffusion; your coding agents reach it through the Hub's video tools (generate_video / get_video). MIT."
+author: "Kandinsky Lab"
+source: "community"
+website: "https://huggingface.co/kandinskylab/Kandinsky-6.0-Pro-distill-5s-Diffusers"
+upstream: "https://github.com/kandinskylab/kandinsky-6"
+category: video-gen
+categories:
+  - video-gen
+tags:
+  - openai-videos
+  - text-to-video
+  - image-to-video
+  - video-audio
+  - kandinsky
+  - diffusion
+  - sglang
+  - bf16
+icon: "\U0001F3AC"
+logo: "/logos/kandinsky.png"
+requirements:
+  min_memory_gb: 100
+  recommended_memory_gb: 121
+  disk_gb: 200
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP video tools call its API. Proxied so
+  # the Hub reaches it at /run/sglang-kandinsky6-pro-distill/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 60
+  gpu: true
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+# The model card's 29B; transformer/config.json: 60 visual blocks at width 4096.
+params_b: 29
+arch: dense
+quantization: "BF16"
+weights_gb: 80.6
+render_seconds: 709.6
+render_workload: "4.9 s 16:9 clip from a first frame, 864x480, 10 steps"
+load_seconds: 466
+requires_hf_token: false
+# kandinsky/configs/checkpoints/pro-distill.yaml in Kandinsky Lab's repo:
+# 864x480, 121 frames at 24 fps (5 s), 10 PiFlow steps, guidance 1 (the
+# distilled sampler has no CFG; SGLang rejects any other value).
+video_defaults:
+  steps: 10
+  guidance_scale: 1.0
+  fps: 24
+  seconds: 5
+  max_seconds: 5
+  num_frames: 121
+  size: "864x480"
+  notes: "5 s clips (the checkpoint is trained for 121 frames at 24 fps), 864x480 or 480x864, from text or from a first frame (image). Sound is generated with the picture: write spoken lines as <S>words<E> and sound descriptions as <AUDCAP>...<ENDAUDCAP> inside the prompt. Distilled to 10 steps with no guidance, per Kandinsky Lab's pro-distill config."
+  source: "https://github.com/kandinskylab/kandinsky-6/blob/main/kandinsky/configs/checkpoints/pro-distill.yaml"
