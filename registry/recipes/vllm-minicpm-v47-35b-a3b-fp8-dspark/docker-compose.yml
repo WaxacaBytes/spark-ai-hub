@@ -1,0 +1,104 @@
+services:
+  vllm:
+    # openbmb/MiniCPM-V-4.7-35B-A3B-FP8: OpenBMB's own FP8 build of MiniCPM-V
+    # 4.7 35B-A3B, a vision-language MoE on the Qwen3.5 backbone (35B total,
+    # ~3B active) with OCR, document and video understanding. 38 GB.
+    #
+    # Not OpenBMB's AWQ build: its configs still point at processor code the
+    # repo does not ship, so it cannot load. FP8 is also the faster of the
+    # two on this backbone here (Qwen3.5-35B-A3B: FP8 61.1 vs int4 55.4 tok/s).
+    #
+    # Paired with openbmb/MiniCPM-V-4.7-35B-A3B-DSpark (0.8 GB), OpenBMB's
+    # block drafter for it, at the drafter card's 15 tokens.
+    #
+    # vLLM serves MiniCPM-V 4.7 natively since PR #58674 (merged 2026-10-11),
+    # newer than every release, so this uses the same arm64 nightly as the
+    # Nemotron 3.5 recipes (3f1bcfd, 2026-10-15), pinned by digest.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('openbmb/MiniCPM-V-4.7-35B-A3B-FP8', revision='d5ea92c82d0d49c78bd7dd5cd58cc7a0e899a1d8'); snapshot_download('openbmb/MiniCPM-V-4.7-35B-A3B-DSpark', revision='55249d3e69315892ca07bc956228b404f2526f9a')"
+        # The FP8 repo's processor and tokenizer configs still point at
+        # processing_minicpmv4_7.py and friends (`auto_map`), files the repo
+        # does not ship, so transformers asks for remote code and then cannot
+        # find it. transformers >= 5.18 has MiniCPM-V 4.7 built in, and OpenBMB's
+        # base repo carries the configs for exactly that, so those three files
+        # are taken from it (same publisher, same model) over the FP8 copies.
+        RUN python3 -c "import glob, os, shutil; from huggingface_hub import hf_hub_download; snap = glob.glob('/weights/hub/models--openbmb--MiniCPM-V-4.7-35B-A3B-FP8/snapshots/*/')[0]; [(os.remove(snap + f), shutil.copy(hf_hub_download('openbmb/MiniCPM-V-4.7-35B-A3B', f, revision='0bbda78419a0b505a58234574ff40b1c344a86fc', local_dir='/base'), snap + f)) for f in ('preprocessor_config.json', 'processor_config.json', 'tokenizer_config.json')]"
+        FROM vllm/vllm-openai@sha256:fd33bec1578f312a01547cc6b9691a5154c3e8bcfb76d2b35acb657bfc4eee8f
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/vllm-minicpm-v47-35b-a3b-fp8-dspark:nightly-3f1bcfd
+    container_name: spark-ai-hub-vllm-minicpm-v47-35b-a3b-fp8-dspark
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Offline-first: both checkpoints are baked into the image above.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    # The DSpark drafter card's vLLM command, for one GPU (its tensor-parallel
+    # and all-reduce flags dropped).
+    command:
+      - --model
+      - openbmb/MiniCPM-V-4.7-35B-A3B-FP8
+      # The exact snapshot(s) baked in above. snapshot_download at a pinned
+      # revision writes no refs/main, so offline vLLM must be told which one.
+      - --revision
+      - d5ea92c82d0d49c78bd7dd5cd58cc7a0e899a1d8
+      - --served-model-name
+      - openbmb/MiniCPM-V-4.7-35B-A3B-FP8
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      # The model's full context.
+      - --max-model-len
+      - "262144"
+      - --max-num-seqs
+      - "8"
+      - --attention-backend
+      - FLASH_ATTN
+      - --mm-encoder-attn-backend
+      - FLASH_ATTN
+      # 4x visual-token compression, the card's higher-accuracy setting.
+      - --mm-processor-kwargs
+      - '{"downsample_mode":"4x"}'
+      - --trust-request-mm-kwargs
+      - --speculative-config
+      - '{"method":"dspark","model":"openbmb/MiniCPM-V-4.7-35B-A3B-DSpark","revision":"55249d3e69315892ca07bc956228b404f2526f9a","num_speculative_tokens":15,"enable_adaptive_verification":false}'
+      - --enable-prefix-caching
+      - --reasoning-parser
+      - qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --gpu-memory-utilization
+      - "0.50"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

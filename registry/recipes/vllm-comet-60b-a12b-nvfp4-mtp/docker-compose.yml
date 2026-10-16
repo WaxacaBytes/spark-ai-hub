@@ -1,0 +1,111 @@
+services:
+  vllm:
+    # MultiverseComputingCAI/Comet_60B_A12B_NVFP4, released 2026-10-15:
+    # Multiverse Computing's CompactifAI compression of NVIDIA Nemotron 3.5
+    # Super VL, made with NVIDIA -- half the parameters (61.1B total, 12.3B
+    # active: 256 instead of 512 routed experts per MoE layer), the same
+    # hybrid Mamba-2 / attention layers, vision encoder, tokenizer and MTP
+    # layer, healed by distilling the original on text, image and video.
+    # NVFP4 weights, 40.5 GB.
+    #
+    # Image: the same vLLM arm64 nightly as the Nemotron 3.5 recipes (3f1bcfd,
+    # 2026-10-15), pinned by digest because vLLM prunes dated nightly tags.
+    # The card validated an older nightly and says newer ones need MTP and
+    # prefix caching checked together, which is what this recipe was tested
+    # for.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('MultiverseComputingCAI/Comet_60B_A12B_NVFP4', revision='16aaedf9ec791fb77b0b0430c2a87631905763fd')"
+        FROM vllm/vllm-openai@sha256:fd33bec1578f312a01547cc6b9691a5154c3e8bcfb76d2b35acb657bfc4eee8f
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/vllm-comet-60b-a12b-nvfp4-mtp:nightly-3f1bcfd
+    container_name: spark-ai-hub-vllm-comet-60b-a12b-nvfp4-mtp
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Offline-first: the checkpoint is baked into the image above.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # The card: both are required for MTP speculative decoding on this
+      # hybrid model.
+      - VLLM_USE_V2_MODEL_RUNNER=0
+      - VLLM_SSM_CONV_STATE_LAYOUT=DS
+    ipc: host
+    # The card's serving command for one GPU (no tensor/expert parallel).
+    command:
+      - --model
+      - MultiverseComputingCAI/Comet_60B_A12B_NVFP4
+      # The exact snapshot(s) baked in above. snapshot_download at a pinned
+      # revision writes no refs/main, so offline vLLM must be told which one.
+      - --revision
+      - 16aaedf9ec791fb77b0b0430c2a87631905763fd
+      - --served-model-name
+      - MultiverseComputingCAI/Comet_60B_A12B_NVFP4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --max-model-len
+      - "262144"
+      - --kv-cache-dtype
+      - fp8
+      - --mamba-ssm-cache-dtype
+      - float32
+      - --enable-prefix-caching
+      - --no-disable-hybrid-kv-cache-manager
+      - --block-size
+      - "128"
+      - --mamba-cache-mode
+      - align
+      - --enable-chunked-prefill
+      - --async-scheduling
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - nemotron_v3
+      - --speculative-config
+      - '{"method": "mtp", "num_speculative_tokens": 3}'
+      - --limit-mm-per-prompt
+      - '{"image": 128, "video": 1}'
+      - --media-io-kwargs
+      - '{"video": {"fps": 2, "num_frames": 256}}'
+      # The card's 128 sequences are for a 4x H200 server; one Spark serves a
+      # handful of agents.
+      - --max-num-seqs
+      - "8"
+      # Right-sized for the Spark: at 0.50 vLLM reserved 16.3 GiB of KV,
+      # 7.3x concurrency at the full 262144 context. 0.44 keeps ~4x, inside
+      # the Hub's 1.5x-5x band, and hands the rest back to other apps.
+      - --gpu-memory-utilization
+      - "0.44"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

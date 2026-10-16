@@ -1,0 +1,71 @@
+name: "Comet 60B-A12B NVFP4 MTP"
+slug: vllm-comet-60b-a12b-nvfp4-mtp
+version: "1.0.0"
+description: "Multiverse Computing's Comet 60B, released 2026-10-15 in collaboration with NVIDIA: Nemotron 3.5 Super VL compressed with CompactifAI to half the parameters (61B total, 12B active) while keeping text, image and video input, and healed by distillation to within 5% of the original. NVFP4 weights (40.5 GB) on vLLM with the card's flags and its own MTP layer for speculative decoding, 256K context. OpenAI-compatible API with reasoning and tool calling."
+author: "Multiverse Computing"
+source: "official"
+website: "https://multiversecomputing.com/"
+upstream: "https://huggingface.co/MultiverseComputingCAI/Comet_60B_A12B_NVFP4"
+category: llm
+logo: "/logos/multiverse.png"
+tags:
+  - llm
+  - moe
+  - mamba
+  - vision
+  - video
+  - reasoning
+  - coding
+  - agentic
+  - tool-use
+  - vllm
+  - nvfp4
+  - speculative-decoding
+  - mtp
+requirements:
+  min_memory_gb: 61
+  recommended_memory_gb: 72
+  disk_gb: 60
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8000
+  proxy: true
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 20
+  gpu: true
+status: community-verified
+engine: "vLLM"
+params_b: 61
+active_params_b: 12
+arch: moe
+quantization: "NVFP4"
+speculative_method: "mtp"
+weights_gb: 40.5
+tokens_per_second: 36.3
+tokens_per_second_editing: 44.8
+editing_workload: "code-edit"
+benchmarks:
+  prose: 35.73
+  explainer: 35.55
+  code: 37.68
+  code-edit: 44.8
+release_date: "2026-10-15"
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-10-15"
+requires_hf_token: false
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "MultiverseComputingCAI/Comet_60B_A12B_NVFP4"
+  api_key: "<API_KEY>"
+  max_context: "262144"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"MultiverseComputingCAI/Comet_60B_A12B_NVFP4\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 4096}'"
+
+cover:
+  image: nvidia-dgx-spark.jpg
+  caption: "The NVIDIA DGX Spark itself — the machine this build is tuned for."
+  credit: "Nvidia DGX Spark oblique view dllu.jpg · Daniel Lu (User:dllu) · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ANvidia%20DGX%20Spark%20oblique%20view%20dllu.jpg"

@@ -61,7 +61,7 @@ const FAMILY = [
   ['inkling', 'thinking-machines'], ['minimax', 'minimax'], ['laguna', 'poolside'],
   ['ling3', 'inclusion'], ['seed-oss', 'bytedance'], ['minicpm', 'openbmb'],
   ['mistral', 'mistral'], ['mimo', 'xiaomi'], ['ornith', 'ornith'], ['clef', 'cloudflare'],
-  ['intern-decision', 'internlm'],
+  ['intern-decision', 'internlm'], ['comet', 'multiverse'],
 ]
 
 const BY_AUTHOR = {
@@ -71,6 +71,7 @@ const BY_AUTHOR = {
   'poolside': 'poolside', 'OpenBMB': 'openbmb', 'NVIDIA': 'nvidia',
   'Tencent': 'tencent', 'OpenAI': 'openai', 'Google': 'google', 'Meta': 'meta',
   'Qwen': 'alibaba', 'Z.AI': 'zai', 'Xiaomi': 'xiaomi', 'Ornith AI': 'ornith',
+  'Multiverse Computing': 'multiverse',
 }
 
 const AUTHOR_KEYS = Object.keys(BY_AUTHOR).sort((a, b) => b.length - a.length)
@@ -110,6 +111,7 @@ export const VENDOR_LABELS = {
   internlm: 'InternLM · Intern-Decision',
   inclusion: 'inclusionAI · Ling',
   openbmb: 'OpenBMB',
+  multiverse: 'Multiverse Computing · Comet',
   mistral: 'Mistral AI',
   xiaomi: 'Xiaomi · MiMo',
   ornith: 'Ornith AI',

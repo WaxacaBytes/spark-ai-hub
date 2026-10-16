@@ -1,0 +1,107 @@
+services:
+  vllm:
+    # nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4, released
+    # 2026-10-15: NVIDIA's flagship open vision-language model, a hybrid
+    # Mamba-2 / attention LatentMoE (120B total, 12B active) with a C-RADIO
+    # vision encoder (text, images and video in). NVFP4 weights, 75 GB.
+    #
+    # Paired with nvidia/...-NVFP4-LiLiCorr (1.3 GB), the drafter NVIDIA
+    # recommends "for DGX Spark deployments in all scenarios", on vLLM's
+    # DFlash path with 7 draft tokens.
+    #
+    # Image: the vLLM nightly the card names for DGX Spark (3f1bcfd,
+    # 2026-10-15; the alternative it names, v0.32.0, is not published yet),
+    # arm64, pinned by digest because vLLM prunes dated nightly tags.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4', revision='2e5cc3953bb1ea66b2fb7c831fee3aa317427e69'); snapshot_download('nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4-LiLiCorr', revision='7c7221aeb4cb3139307aa457f7dce11a8fb6ceb2')"
+        FROM vllm/vllm-openai@sha256:fd33bec1578f312a01547cc6b9691a5154c3e8bcfb76d2b35acb657bfc4eee8f
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/vllm-nemotron35-super-vl-120b-a12b-nvfp4-dflash:nightly-3f1bcfd
+    container_name: spark-ai-hub-vllm-nemotron35-super-vl-120b-a12b-nvfp4-dflash
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Offline-first: both checkpoints are baked into the image above.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    # The model card's "DGX Spark (GB10) only" vLLM command, flag for flag.
+    command:
+      - --model
+      - nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4
+      # The exact snapshot(s) baked in above. snapshot_download at a pinned
+      # revision writes no refs/main, so offline vLLM must be told which one.
+      - --revision
+      - 2e5cc3953bb1ea66b2fb7c831fee3aa317427e69
+      - --served-model-name
+      - nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --max-num-seqs
+      - "1"
+      - --gpu-memory-utilization
+      - "0.75"
+      - --max-num-batched-tokens
+      - "8192"
+      - --speculative_config.model
+      - nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4-LiLiCorr
+      - --speculative_config.revision
+      - 7c7221aeb4cb3139307aa457f7dce11a8fb6ceb2
+      - --speculative_config.num_speculative_tokens
+      - "7"
+      - --speculative_config.method
+      - dflash
+      - --mamba-backend
+      - flashinfer
+      - --mamba-ssm-cache-dtype
+      - float16
+      - --enable-mamba-cache-stochastic-rounding
+      - --mamba-cache-philox-rounds
+      - "5"
+      - --enable-mamba-shared-prefix-checkpoint
+      - --video-pruning-rate
+      - "0.5"
+      - --media-io-kwargs
+      - '{"video": {"fps": 2, "num_frames": 256}}'
+      - --block-size
+      - "64"
+      - --prefix-match-unit
+      - "64"
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser
+      - nemotron_v3
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

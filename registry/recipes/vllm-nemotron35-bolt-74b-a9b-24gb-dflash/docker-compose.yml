@@ -1,0 +1,136 @@
+services:
+  vllm:
+    # nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB: Nemotron 3.5 Super VL
+    # compressed by NVIDIA to 74B total / 9B active (expert top-k 9) and
+    # quantization-aware-distilled to 2 bits: every expert in IQ2_XXS, Mamba
+    # layers in NVFP4, embeddings and head in Q8_0 -- 24 GB packed. A
+    # vision-language model (C-RADIO v4-H encoder: text, images, video in).
+    #
+    # Paired with nvidia/...-24GB-LiLiCorr (~1 GB), NVIDIA's drafter for it,
+    # run through vLLM's DFlash path with 7 draft tokens as the card says.
+    #
+    # The card requires vLLM nightly 77154ca "or newer" plus the `b12x`
+    # kernels package and `vllm download-kernels`. Both run here at build
+    # time, so launch never touches the network. Image: exactly the nightly
+    # the card names, 77154ca (arm64), pinned by digest because vLLM prunes
+    # dated nightly tags. The newer 3f1bcfd the other Nemotron 3.5 recipes use
+    # segfaults here: a CUDA graph replay inside a b12x NVFP4 GEMM kills the
+    # engine on the first request.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        ENV HF_HUB_DISABLE_XET=1 HF_HOME=/weights
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB', revision='c6cc2e8ffa353403213d6b9b18aaf8eb684d705a'); snapshot_download('nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr', revision='4c6a5613b6d887194a3a5493e3a18a5b3930bb86')"
+        RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB', 'ultra_v3_reasoning_parser.py', revision='c6cc2e8ffa353403213d6b9b18aaf8eb684d705a', local_dir='/parsers')"
+        FROM vllm/vllm-openai@sha256:1ee85ca80e0fc110017d79ea2081a0cbef9a208a05d7f22724801bcf6a956620
+        # `vllm download-kernels` only installs FlashInfer's prebuilt kernels,
+        # but the CLI builds its serve parser first and that probes for a GPU,
+        # which a build has none of -- so call the same function directly.
+        RUN pip install --no-cache-dir b12x \
+         && python3 -c "import sys; from vllm.entrypoints.cli.download_kernels import _download_flashinfer_kernels as f; sys.exit(f(False))"
+        COPY --from=weights /parsers/ultra_v3_reasoning_parser.py /app/ultra_v3_reasoning_parser.py
+        COPY --from=weights /weights /root/.cache/huggingface
+    image: spark-ai-hub/vllm-nemotron35-bolt-74b-a9b-24gb-dflash:nightly-77154ca
+    container_name: spark-ai-hub-vllm-nemotron35-bolt-74b-a9b-24gb-dflash
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+      # Offline-first: both checkpoints are baked into the image above.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # The card serves Bolt on vLLM's V2 model runner.
+      - VLLM_USE_V2_MODEL_RUNNER=1
+    ipc: host
+    # NVIDIA's own serve command from the model card, flag for flag, except
+    # --gpu-memory-utilization (right-sized below) and the media path.
+    command:
+      - --model
+      - nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB
+      # The exact snapshots baked in above. snapshot_download at a pinned
+      # revision writes no refs/main, so offline vLLM must be told which one.
+      - --revision
+      - c6cc2e8ffa353403213d6b9b18aaf8eb684d705a
+      - --served-model-name
+      - nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --trust-remote-code
+      - --load-format
+      - auto
+      - --tensor-parallel-size
+      - "1"
+      # The card's full context.
+      - --max-model-len
+      - "262144"
+      # The card serves one sequence at a time.
+      - --max-num-seqs
+      - "1"
+      - --enable-chunked-prefill
+      - --kv-cache-dtype
+      - fp8
+      # b12x: the kernels for the IQ2 experts and NVFP4 Mamba layers.
+      - --linear-backend
+      - b12x
+      - --moe-backend
+      - b12x
+      - --attention-backend
+      - FLASHINFER
+      - --mamba-backend
+      - flashinfer
+      - --mamba-ssm-cache-dtype
+      - bfloat16
+      - --mamba-cache-dtype
+      - bfloat16
+      - --mamba-cache-mode
+      - align
+      - --seed
+      - "42"
+      - --limit-mm-per-prompt
+      - '{"video":1,"image":1}'
+      - --video-pruning-rate
+      - "0.5"
+      - --media-io-kwargs
+      - '{"video":{"fps":2,"num_frames":256}}'
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - qwen3_coder
+      - --reasoning-parser-plugin
+      - /app/ultra_v3_reasoning_parser.py
+      - --reasoning-parser
+      - ultra_v3
+      - --speculative-config
+      - '{"method":"dflash","model":"nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB-LiLiCorr","revision":"4c6a5613b6d887194a3a5493e3a18a5b3930bb86","num_speculative_tokens":7,"rejection_sample_method":"standard","attention_backend":"FLASHINFER","draft_load_config":{"load_format":"auto"}}'
+      # Right-sized for the Spark: the card serves one sequence, and at 0.40
+      # vLLM reserved 20 GiB of KV, 7.2x the full 262144 context; 0.28 left
+      # only 1.09x. 0.30 keeps ~1.9x and hands the rest back to other apps.
+      - --gpu-memory-utilization
+      - "0.30"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

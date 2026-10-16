@@ -1,0 +1,71 @@
+name: "Nemotron-3.5 Bolt 74B-A9B 24GB LiLiCorr"
+slug: vllm-nemotron35-bolt-74b-a9b-24gb-dflash
+version: "1.0.0"
+description: "NVIDIA Nemotron-3.5 Bolt (74B total / 9B active), released 2026-10-15: Nemotron 3.5 Super VL compressed and quantization-aware-distilled to native 2-bit (IQ2) so the whole model is 24 GB. A vision-language agent model (text, images and video in) that NVIDIA reports beating Qwen3.6-35B-A3B on Terminal-Bench, GPQA and BrowseComp. Served on vLLM exactly as the model card prescribes: b12x kernels, FP8 KV cache and NVIDIA's LiLiCorr drafter (DFlash, 7 draft tokens), 256K context. OpenAI-compatible API."
+author: "NVIDIA"
+source: "official"
+website: "https://research.nvidia.com/labs/nemotron/Nemotron-3.5-Bolt-24GB/"
+upstream: "https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB"
+category: llm
+logo: "/logos/nvidia.png"
+tags:
+  - llm
+  - moe
+  - mamba
+  - vision
+  - video
+  - reasoning
+  - coding
+  - agentic
+  - tool-use
+  - vllm
+  - speculative-decoding
+  - dflash
+  - nvidia-official
+requirements:
+  min_memory_gb: 40
+  recommended_memory_gb: 56
+  disk_gb: 50
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8000
+  proxy: true
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 15
+  gpu: true
+status: community-verified
+engine: "vLLM"
+params_b: 74
+active_params_b: 9
+arch: moe
+quantization: "IQ2"
+speculative_method: "dflash"
+weights_gb: 25.1
+tokens_per_second: 73.4
+tokens_per_second_editing: 73.4
+editing_workload: "code-edit"
+benchmarks:
+  prose: 72.09
+  explainer: 64.7
+  code: 86.53
+  code-edit: 73.4
+release_date: "2026-10-15"
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-10-15"
+requires_hf_token: false
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB"
+  api_key: "<API_KEY>"
+  max_context: "262144"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"nvidia/NVIDIA-Nemotron-3.5-Bolt-74B-A9B-24GB\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 4096, \"temperature\": 1.0, \"top_p\": 0.95}'"
+
+cover:
+  image: nvidia-dgx-spark.jpg
+  caption: "The NVIDIA DGX Spark itself — the machine this build is tuned for."
+  credit: "Nvidia DGX Spark oblique view dllu.jpg · Daniel Lu (User:dllu) · CC BY-SA 4.0"
+  source: "https://commons.wikimedia.org/wiki/File%3ANvidia%20DGX%20Spark%20oblique%20view%20dllu.jpg"

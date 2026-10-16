@@ -1,0 +1,70 @@
+name: "MiniCPM-V 4.7 35B-A3B FP8 DSpark"
+slug: vllm-minicpm-v47-35b-a3b-fp8-dspark
+version: "1.0.0"
+description: "OpenBMB MiniCPM-V 4.7 35B-A3B: a vision-language MoE (35B total, ~3B active) on the Qwen3.5 backbone, strong at OCR, documents, charts and video (OmniDocBench 94.2, OCRBench 91.2). OpenBMB's own FP8 build (38 GB) on vLLM with its DSpark block drafter, 256K context — compact enough to run as a vision companion beside a larger model. OpenAI-compatible API with reasoning and tool calling."
+author: "OpenBMB"
+source: "official"
+website: "https://github.com/OpenBMB/MiniCPM-o"
+upstream: "https://huggingface.co/openbmb/MiniCPM-V-4.7-35B-A3B-FP8"
+category: llm
+logo: "/logos/openbmb.png"
+tags:
+  - llm
+  - moe
+  - vision
+  - video
+  - ocr
+  - reasoning
+  - tool-use
+  - vllm
+  - fp8
+  - speculative-decoding
+  - dspark
+requirements:
+  min_memory_gb: 50
+  recommended_memory_gb: 60
+  disk_gb: 45
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8000
+  proxy: true
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 15
+  gpu: true
+status: community-verified
+engine: "vLLM"
+params_b: 35
+active_params_b: 3
+arch: moe
+quantization: "FP8"
+speculative_method: "dspark"
+weights_gb: 38.8
+tokens_per_second: 46.2
+tokens_per_second_editing: 150.4
+editing_workload: "code-edit"
+benchmarks:
+  prose: 34.07
+  explainer: 53.72
+  code: 58.82
+  code-edit: 150.4
+release_date: "2026-10-07"
+tested_on:
+  dgx_os: "7.2"
+  date: "2026-10-15"
+requires_hf_token: false
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "openbmb/MiniCPM-V-4.7-35B-A3B-FP8"
+  api_key: "<API_KEY>"
+  max_context: "262144"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"openbmb/MiniCPM-V-4.7-35B-A3B-FP8\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 4096}'"
+
+cover:
+  image: real-minicpm-o.jpg
+  caption: "A question MiniCPM answers by reading the photograph, from OpenBMB's demo."
+  grade: false
+  credit: "MiniCPM-o reasoning demo, OpenBMB"
+  source: "https://github.com/OpenBMB/MiniCPM-o/blob/main/assets/minicpmo4_5/en_cot.png"
