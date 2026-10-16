@@ -1405,9 +1405,12 @@ class DecisionToolTests(unittest.TestCase):
 
     def test_list_decision_models_names_each_model_and_what_it_reads(self):
         result = asyncio.run(mcp.call_tool("list_decision_models", {}, "http://h", user=OWNER))
-        self.assertEqual(json.loads(result["content"][0]["text"]), [{
+        listing = json.loads(result["content"][0]["text"])
+        self.assertEqual(listing["models"], [{
             "model": "clef", "name": "Clef-Flash", "author": "Cloudflare",
             "accepts": ["text", "images", "videos"], "state": "ready", "min_memory_gb": 20}])
+        self.assertIn("memory_free_gb", listing)
+        self.assertIn("memory_total_gb", listing)
 
     def test_media_go_as_base64_and_answers_come_back_in_the_call(self):
         result = self.call(state="Photos from Friday's show", questions=self.CATEGORY,

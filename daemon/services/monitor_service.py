@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import shutil
+from pathlib import Path
 from daemon.models.container import SystemMetrics
 
 
@@ -11,7 +12,9 @@ async def get_system_metrics() -> SystemMetrics:
     try:
         proc = await asyncio.create_subprocess_exec(
             "nvidia-smi",
-            "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,name",
+            "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu,name,"
+            "temperature.gpu.tlimit,clocks_event_reasons.sw_thermal_slowdown,"
+            "clocks_event_reasons.hw_thermal_slowdown",
             "--format=csv,noheader,nounits",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -32,8 +35,14 @@ async def get_system_metrics() -> SystemMetrics:
             metrics.gpu_memory_total_mb = safe_int(parts[2])
             metrics.gpu_temperature = safe_int(parts[3])
             metrics.gpu_name = parts[4] if len(parts) > 4 else ""
+            if len(parts) > 7:
+                if parts[5].isdigit():
+                    metrics.gpu_temp_headroom = int(parts[5])
+                metrics.gpu_thermal_slowdown = "Active" in (parts[6], parts[7])
     except Exception:
         pass
+
+    metrics.soc_temperature, metrics.soc_critical = _soc_temperature()
 
     # RAM via /proc/meminfo
     try:
@@ -59,3 +68,23 @@ async def get_system_metrics() -> SystemMetrics:
         pass
 
     return metrics
+
+
+def _soc_temperature() -> tuple[int | None, int | None]:
+    """The hottest ACPI thermal zone and its critical trip point, in °C.
+
+    On a DGX Spark these are the SoC zones (acpitz), which run hotter than
+    the GPU reading and are what the firmware powers off on.
+    """
+    hottest = critical = None
+    for zone in Path("/sys/class/thermal").glob("thermal_zone*"):
+        try:
+            temp = int((zone / "temp").read_text()) // 1000
+            for trip in zone.glob("trip_point_*_type"):
+                if trip.read_text().strip() == "critical":
+                    value = int(trip.with_name(trip.name.replace("_type", "_temp")).read_text()) // 1000
+                    critical = value if critical is None else min(critical, value)
+        except (OSError, ValueError):
+            continue
+        hottest = temp if hottest is None else max(hottest, temp)
+    return hottest, critical

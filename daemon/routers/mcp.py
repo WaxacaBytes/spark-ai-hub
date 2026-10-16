@@ -35,7 +35,8 @@ from daemon.services import (
 from daemon.config import settings
 from daemon.services.connect_service import request_origin
 from daemon.services.docker_service import (
-    get_installed_slugs, get_pending, is_ready, is_recipe_running, memory_plan, start_health_check,
+    available_memory_gb, get_installed_slugs, get_pending, is_ready, is_recipe_running, memory_plan,
+    start_health_check,
 )
 from daemon.services.registry_service import get_recipes
 
@@ -67,7 +68,8 @@ INSTRUCTIONS = (
     "start_model (model \"searxng\") and search again.\n\n"
     "Generates and edits images, generates and edits videos, turns pictures into 3D models, and composes "
     "music, with open models running on the user's DGX Spark. Call list_image_models / "
-    "list_video_models / list_3d_models to see which are running. A stopped model can be started with start_model; when memory is short, "
+    "list_video_models / list_3d_models to see which are running and how much memory is free "
+    "(memory_free_gb; a stopped model's fits_now says whether it would start now). A stopped model can be started with start_model; when memory is short, "
     "stop_model frees a media model that is not rendering. Every result is saved on the Hub and returned as a URL plus a "
     "preview. Show the user the URL. To refine an image, pass its URL to edit_image. "
     "The URLs are private: they open for the user signed in to the Hub, not for you. "
@@ -302,7 +304,8 @@ TOOLS = [
         "name": "list_video_models",
         "title": "List video models",
         "description": ("List the Spark's video models: what each accepts, whether it is "
-                        "running, and the settings its model card recommends."),
+                        "running, and the settings its model card recommends; plus the "
+                        "memory free to start one."),
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
         "annotations": {"readOnlyHint": True},
     },
@@ -365,7 +368,8 @@ TOOLS = [
     {
         "name": "list_3d_models",
         "title": "List 3D models",
-        "description": "List the Spark's 3D models: what each takes and makes, and whether it is running.",
+        "description": ("List the Spark's 3D models: what each takes and makes, and whether "
+                        "it is running; plus the memory free to start one."),
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
         "annotations": {"readOnlyHint": True},
     },
@@ -549,7 +553,8 @@ TOOLS = [
         "name": "list_decision_models",
         "title": "List decision models",
         "description": ("List the Spark's decision models, such as Cloudflare's Clef: what "
-                        "each reads (text, images, videos) and whether it is running."),
+                        "each reads (text, images, videos) and whether it is running; plus "
+                        "the memory free to start one."),
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
         "annotations": {"readOnlyHint": True},
     },
@@ -557,7 +562,8 @@ TOOLS = [
         "name": "list_image_models",
         "title": "List image models",
         "description": ("List the Spark's image models: what each does, whether it is "
-                        "running, and the settings its model card recommends."),
+                        "running, and the settings its model card recommends; plus the "
+                        "memory free to start one."),
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
         "annotations": {"readOnlyHint": True},
     },
@@ -613,9 +619,9 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
                 raise web_service.WebError("'url' is required.")
             return _text(await web_service.fetch(url, user))
         if name == "list_image_models":
-            return _text(json.dumps(await image_service.list_models(), indent=2))
+            return _text(await _with_memory(await image_service.list_models()))
         if name == "list_decision_models":
-            return _text(json.dumps(await decision_service.list_models(), indent=2))
+            return _text(await _with_memory(await decision_service.list_models()))
         if name in ("create_upload", "create_download"):
             return await _link_tool(name, args, origin, user)
         if name == "delete_file":
@@ -652,9 +658,9 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             info = await image_service.check_job(_job_id(args), CHECK_WAIT, user)
             return _music_result(info, origin) if info["kind"] == "music" else _image_result(info, origin)
         if name == "list_video_models":
-            return _text(json.dumps(await video_service.list_models(), indent=2))
+            return _text(await _with_memory(await video_service.list_models()))
         if name == "list_3d_models":
-            return _text(json.dumps(await mesh_service.list_models(), indent=2))
+            return _text(await _with_memory(await mesh_service.list_models()))
         if name == "generate_3d":
             image = str(args.get("image") or "").strip()
             if not image:
@@ -776,6 +782,19 @@ async def _startable(args: dict) -> str:
             f"'{slug}' is not an installed image, video, 3D, music or decision model, or "
             f"SearXNG. Installed: {', '.join(sorted(installed)) or 'none'}.")
     return slug
+
+
+async def _with_memory(models: list[dict]) -> str:
+    """A list_*_models answer: the models, and the memory free for starting
+    one right now (CPU and GPU share it on the Spark), so an agent can tell
+    which stopped model start_model would accept without trying."""
+    _, free, _ = await memory_plan()
+    free = max(free, 0)
+    for model in models:
+        if model.get("state") == "stopped" and model.get("min_memory_gb") is not None:
+            model["fits_now"] = model["min_memory_gb"] <= free
+    return json.dumps({"memory_free_gb": round(free), "memory_total_gb": round(available_memory_gb("MemTotal")),
+                       "models": models}, indent=2)
 
 
 async def _check_memory(slug: str) -> None:

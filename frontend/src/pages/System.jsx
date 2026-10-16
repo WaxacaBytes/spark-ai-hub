@@ -2,7 +2,9 @@ import { useState, useEffect } from 'react'
 import { useStore } from '../store'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
-function CircularGauge({ value, max, label, sublabel, unit, color = 'var(--tertiary)', size = 140 }) {
+// `pair`: two figures that matter equally (used and free), shown big side by
+// side under the ring instead of one of them hiding in the small print.
+function CircularGauge({ value, max, label, sublabel, unit, pair, color = 'var(--tertiary)', size = 140 }) {
   const radius = (size - 20) / 2
   const stroke = 6
   const circ = 2 * Math.PI * radius
@@ -38,6 +40,16 @@ function CircularGauge({ value, max, label, sublabel, unit, color = 'var(--terti
         <div className="text-sm font-semibold font-display text-text">{label}</div>
         {sublabel && <div className="text-[11px] text-text-dim font-label mt-0.5">{sublabel}</div>}
       </div>
+      {pair && (
+        <div className="mt-3 flex w-full flex-col gap-1.5">
+          {pair.map((p) => (
+            <div key={p.label} className="flex items-baseline justify-center gap-1.5 rounded-xl bg-surface-high px-2 py-1.5">
+              <span className="whitespace-nowrap text-lg min-[400px]:text-xl font-bold font-display tabular-nums" style={{ color: p.color }}>{p.value}</span>
+              <span className="whitespace-nowrap text-xs font-label text-text-dim">{p.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -79,7 +91,18 @@ export default function System() {
   const axisColor = theme === 'light' ? '#8a8a9a' : '#6E6C7A'
   const tooltipBg = theme === 'light' ? '#ffffff' : '#161625'
   const tooltipBorder = theme === 'light' ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
-  const tempColor = metrics.gpu_temperature > 80 ? 'var(--error)' : '#FBBF24'
+  // How far the GPU is from slowing down is the headroom nvidia-smi reports
+  // (T.Limit), measured where the GPU itself measures it -- not a fixed
+  // number of degrees: under load it throttled at 83 °C with 3 °C left, so
+  // the ring fills toward that margin running out, not toward 100 °C.
+  const headroom = metrics.gpu_temp_headroom
+  const gpuLimit = headroom != null ? metrics.gpu_temperature + Math.max(headroom, 0) : null
+  const tempColor = metrics.gpu_thermal_slowdown || (headroom != null && headroom < 5)
+    ? 'var(--error)'
+    : headroom != null && headroom < 15 ? 'var(--warning)' : 'var(--tertiary)'
+  const ramFree = metrics.ram_total_gb - metrics.ram_used_gb
+  const size = (gb) => (gb >= 1000 ? `${(gb / 1024).toFixed(1)} TB` : `${Math.round(gb)} GB`)
+  const freeColor = (free, total) => (free / total < 0.1 ? 'var(--error)' : free / total < 0.25 ? 'var(--warning)' : 'var(--primary)')
 
   return (
     <div className="px-6 py-6 pb-12">
@@ -98,19 +121,36 @@ export default function System() {
           unit="%" color="var(--tertiary)"
         />
         <CircularGauge
-          value={metrics.ram_used_gb} max={metrics.ram_total_gb}
-          label="RAM" sublabel={`of ${metrics.ram_total_gb} GB · ${Math.round(metrics.ram_total_gb - metrics.ram_used_gb)} GB free`}
-          unit="GB" color="var(--tertiary)"
+          value={Math.round(ramPct)} max={100}
+          label="Memory" sublabel={`${Math.round(metrics.ram_total_gb)} GB shared by CPU and GPU`}
+          unit="% used" color="var(--tertiary)"
+          pair={[
+            { value: `${Math.round(metrics.ram_used_gb)} GB`, label: 'used' },
+            { value: `${Math.round(ramFree)} GB`, label: 'free', color: freeColor(ramFree, metrics.ram_total_gb) },
+          ]}
         />
         <CircularGauge
-          value={metrics.disk_used_gb} max={metrics.disk_total_gb}
-          label="Disk Usage" sublabel={`of ${metrics.disk_total_gb} GB`}
-          unit="GB" color="var(--primary)"
+          value={Math.round((metrics.disk_used_gb / metrics.disk_total_gb) * 100)} max={100}
+          label="Disk" sublabel={`${(metrics.disk_total_gb / 1024).toFixed(1)} TB`}
+          unit="% used" color="var(--primary)"
+          pair={[
+            { value: size(metrics.disk_used_gb), label: 'used' },
+            { value: size(metrics.disk_free_gb), label: 'free', color: freeColor(metrics.disk_free_gb, metrics.disk_total_gb) },
+          ]}
         />
         <CircularGauge
-          value={metrics.gpu_temperature} max={100}
-          label="Temperature" sublabel={metrics.gpu_temperature > 80 ? 'Warning' : 'Normal'}
-          unit="°C" color={tempColor}
+          value={metrics.gpu_temperature} max={gpuLimit || 100}
+          label="Temperature"
+          sublabel={metrics.gpu_thermal_slowdown
+            ? 'GPU slowing down: too hot'
+            : metrics.soc_critical ? `The chip powers off at ${metrics.soc_critical} °C` : null}
+          unit="°C GPU" color={tempColor}
+          pair={[
+            { value: headroom != null ? `${headroom} °C` : '—', label: 'to limit', color: tempColor },
+            ...(metrics.soc_temperature != null
+              ? [{ value: `${metrics.soc_temperature} °C`, label: 'chip' }]
+              : []),
+          ]}
         />
       </div>
 

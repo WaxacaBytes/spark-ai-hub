@@ -1052,19 +1052,21 @@ async def get_installed_slugs() -> set[str]:
         await db.close()
 
 
-def available_memory_gb() -> float:
+def available_memory_gb(field: str = "MemAvailable") -> float:
+    """GiB of /proc/meminfo's `field`: what is free for a new app, or with
+    "MemTotal" all the memory CPU and GPU share."""
     with open("/proc/meminfo") as f:
         for line in f:
-            if line.startswith("MemAvailable:"):
+            if line.startswith(f"{field}:"):
                 return int(line.split()[1]) / 2**20
     return 0.0
 
 
-async def memory_plan(slug: str) -> tuple[float, float, list[str]]:
+async def memory_plan(slug: str | None = None) -> tuple[float, float, list[str]]:
     """(GiB `slug` needs, GiB free for it, other apps up or starting).
 
     An app still loading has not taken all of its memory yet, so its share is
-    counted as spoken for.
+    counted as spoken for. With no slug: (0, GiB free for anything, apps up).
     """
     from daemon.services.registry_service import get_recipes
 
@@ -1078,7 +1080,8 @@ async def memory_plan(slug: str) -> tuple[float, float, list[str]]:
         if not is_ready(other):
             loading += recipes[other].memory_gb
         running.append(other)
-    return recipes[slug].memory_gb, available_memory_gb() - loading, running
+    need = recipes[slug].memory_gb if slug else 0.0
+    return need, available_memory_gb() - loading, running
 
 
 def _parse_compose_images(slug: str) -> list[str]:

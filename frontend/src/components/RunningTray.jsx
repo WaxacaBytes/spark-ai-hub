@@ -172,9 +172,10 @@ function Pill({ recipe, building, isDefault, scroll }) {
 // What is left, not what is taken: the number a model's memory is held
 // against when deciding what else can launch.
 function MemoryGauge({ used, total }) {
-  const pct = Math.min(100, Math.round((used / total) * 100))
   const free = Math.max(0, total - used)
-  const color = pct >= 90 ? 'var(--error)' : pct >= 75 ? 'var(--warning)' : 'var(--tertiary)'
+  // The bar is the free share too, so the number and the bar say one thing.
+  const pct = Math.min(100, Math.round((free / total) * 100))
+  const color = pct <= 10 ? 'var(--error)' : pct <= 25 ? 'var(--warning)' : 'var(--tertiary)'
   return (
     <Link
       to="/system"

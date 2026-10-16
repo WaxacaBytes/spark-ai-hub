@@ -166,11 +166,19 @@ export default function App() {
                 color="var(--primary)"
                 onClick={() => navigate('/system')}
               />
+              {/* The ring fills toward the GPU's own limit, not toward 100 °C. */}
               <MiniGauge
-                value={Math.round(metrics.gpu_temperature)}
+                value={metrics.gpu_temp_headroom != null
+                  ? Math.round((metrics.gpu_temperature / (metrics.gpu_temperature + Math.max(metrics.gpu_temp_headroom, 0))) * 100)
+                  : Math.round(metrics.gpu_temperature)}
+                text={`${Math.round(metrics.gpu_temperature)}°`}
+                title={metrics.gpu_temp_headroom != null
+                  ? `GPU ${metrics.gpu_temperature} °C, ${metrics.gpu_temp_headroom} °C below its limit`
+                  : `GPU ${metrics.gpu_temperature} °C`}
                 label="TMP"
-                color={metrics.gpu_temperature > 80 ? 'var(--error)' : '#FBBF24'}
-                displayUnit="°"
+                color={metrics.gpu_thermal_slowdown || (metrics.gpu_temp_headroom ?? 99) < 5
+                  ? 'var(--error)'
+                  : (metrics.gpu_temp_headroom ?? 99) < 15 ? 'var(--warning)' : '#FBBF24'}
                 onClick={() => navigate('/system')}
               />
             </div>
