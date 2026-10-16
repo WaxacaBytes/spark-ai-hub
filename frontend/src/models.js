@@ -79,6 +79,12 @@ export function mediaKind(recipe) {
   return null
 }
 
+// A media model's main arena score: the first the recipe lists (its main
+// task). Elo only compares within one board, so callers group by `board`.
+export function primaryArena(recipe) {
+  return recipe.arena?.[0] || null
+}
+
 // "2.9 s", "45 s", "2.2 min", "1.4 h" — one figure, its own unit, no range.
 export function formatDuration(seconds) {
   if (seconds == null) return null

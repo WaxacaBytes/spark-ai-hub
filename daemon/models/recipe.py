@@ -17,11 +17,15 @@ TAG_CAPABILITIES = {
 # What an image or video model makes, from the same hand-written tags that tell
 # the Hub's MCP tools which recipes can answer which call. Shown on the detail
 # page so nobody has to read tags to learn a model generates but cannot edit.
-def media_timing(recipe) -> dict:
-    """A media model's render and load figures for the MCP model lists, so an
-    agent can say how long a result will take; {} where unmeasured."""
+def media_figures(recipe) -> dict:
+    """A media model's measured figures for the MCP model lists: how long a
+    result takes and how human voters rank it, so an agent can pick among the
+    installed models itself; {} where unmeasured."""
     keys = ("render_seconds", "render_workload", "load_seconds")
-    return {k: v for k in keys if (v := getattr(recipe, k, None))}
+    out = {k: v for k in keys if (v := getattr(recipe, k, None))}
+    if arena := getattr(recipe, "arena", None):
+        out["arena"] = [a.model_dump(exclude_defaults=True) for a in arena]
+    return out
 
 
 MEDIA_CAPABILITIES = {
@@ -146,6 +150,25 @@ class RecipeAudioDefaults(BaseModel):
     source: str = ""
 
 
+class RecipeArenaScore(BaseModel):
+    """One human-preference Elo for a media model, as a board published it.
+
+    Elo only compares within one board (one task, one scale), so every score
+    names its board and task, and the date it was read: a score is a dated
+    measurement, never a claim to be the best. `base` marks a variant (a
+    LoRA, an abliteration, a quant) that the board does not list and that
+    carries its base model's score, named in `entry`.
+    """
+    board: str                 # "AA-Image-T2I v2.1"
+    task: str                  # text-to-image, image-editing, text-to-video, image-to-video, image-to-3d
+    elo: float
+    entry: str                 # the model's name on that board
+    votes: int | None = None
+    read: str                  # YYYY-MM-DD the board was read
+    url: str = ""
+    base: bool = False
+
+
 class RecipeBackdrop(BaseModel):
     """A second picture, framed for the wide hero band.
 
@@ -262,6 +285,7 @@ class Recipe(BaseModel):
     render_seconds: float | None = None
     render_workload: str = ""
     load_seconds: float | None = None
+    arena: list[RecipeArenaScore] = []
     context_tokens: int | None = None     # served context window; read off the
                                           # compose command when not declared
     # vLLM and SGLang claim a fixed share of the whole memory pool at boot and

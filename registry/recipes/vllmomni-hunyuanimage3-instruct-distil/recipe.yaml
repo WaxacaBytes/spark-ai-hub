@@ -52,3 +52,22 @@ image_defaults:
   steps: 8
   notes: "Tencent's setting for the distilled checkpoint: 8 steps (the undistilled model uses 50)."
   source: "https://github.com/Tencent-Hunyuan/HunyuanImage-3.0"
+# Human-preference Elo as each board published it on the date read (see
+# RecipeArenaScore). base: true = the board lists only the base model.
+arena:
+  - board: AA-Image-T2I v2.1
+    task: text-to-image
+    elo: 989
+    entry: HunyuanImage 3.0 Instruct
+    votes: 5382
+    read: '2026-10-15'
+    url: https://artificialanalysis.ai/image/leaderboard/text-to-image
+    base: true
+  - board: AA-Image-Editing v2.1
+    task: image-editing
+    elo: 1063
+    entry: HunyuanImage 3.0 Instruct
+    votes: 5844
+    read: '2026-10-15'
+    url: https://artificialanalysis.ai/image/leaderboard/editing
+    base: true

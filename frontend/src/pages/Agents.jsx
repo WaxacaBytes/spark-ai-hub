@@ -186,7 +186,7 @@ export default function Agents({ search = '' }) {
           eyebrow="The tools · /mcp"
           title="Media models"
           subtitle="Image, video, 3D, music and decision models. Agents call them through the Hub's MCP tools, and can start them on demand."
-          sorts={['lab', 'time', 'release', 'params', 'size']}
+          sorts={['lab', 'time', 'arena', 'release', 'params', 'size']}
           media
         />
       </div>

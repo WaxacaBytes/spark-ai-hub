@@ -45,3 +45,13 @@ render_seconds: 79.3
 render_workload: "one 1024x1024 picture, default steps, textured GLB (5.0 MB)"
 load_seconds: 171
 requires_hf_token: false
+# Human-preference Elo as each board published it on the date read (see
+# RecipeArenaScore). base: true = the board lists only the base model.
+arena:
+  - board: 3D Arena
+    task: image-to-3d
+    elo: 1283
+    entry: Hunyuan3D-2
+    votes: 5245
+    read: '2026-10-15'
+    url: https://huggingface.co/spaces/3d-arena/3d-arena

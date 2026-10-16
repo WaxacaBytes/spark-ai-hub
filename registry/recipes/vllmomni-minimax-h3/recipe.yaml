@@ -69,3 +69,20 @@ video_defaults:
   send_aspect_ratio: true
   notes: "Text-to-video, or pin a first frame (image), a last frame (last_image) or both; the clip is 960x576 (or 576x960 for 9:16). MiniMax publishes no step count. 960x576 at 24 fps fits this build on a Spark; clips run 4-15 s, per the model card; shift 12 from the checkpoint's scheduler config. Measured: 4 s at 10 steps rendered in 232 s."
   source: "https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/scheduler/scheduler_config.json"
+# Human-preference Elo as each board published it on the date read (see
+# RecipeArenaScore). base: true = the board lists only the base model.
+arena:
+  - board: AA-Video-T2V v2.1
+    task: text-to-video
+    elo: 1159
+    entry: MiniMax H3 (768p)
+    votes: 5962
+    read: '2026-10-15'
+    url: https://artificialanalysis.ai/video/leaderboard/text-to-video
+  - board: AA-Video-I2V v1.1
+    task: image-to-video
+    elo: 1141
+    entry: MiniMax H3 (768p)
+    votes: 4009
+    read: '2026-10-15'
+    url: https://artificialanalysis.ai/video/leaderboard/image-to-video

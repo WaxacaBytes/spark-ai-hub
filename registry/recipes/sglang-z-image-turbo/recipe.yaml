@@ -53,3 +53,13 @@ image_defaults:
   guidance_scale: 0.0
   notes: "Distilled: 9 steps (8 transformer passes) with guidance 0, per the model card."
   source: "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo"
+# Human-preference Elo as each board published it on the date read (see
+# RecipeArenaScore). base: true = the board lists only the base model.
+arena:
+  - board: AA-Image-T2I v2.1
+    task: text-to-image
+    elo: 935
+    entry: Z-Image Turbo
+    votes: 7901
+    read: '2026-10-15'
+    url: https://artificialanalysis.ai/image/leaderboard/text-to-image

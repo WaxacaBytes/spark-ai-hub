@@ -265,7 +265,9 @@ function RecipeDetailPage({ slug }) {
             </div>
           </div>
 
-          <div className="hidden lg:flex flex-wrap items-center gap-2 shrink-0">
+          {/* Capped at the row's width so the badges wrap inside it; a media
+              model's Time and Arena badges are long enough to run off it. */}
+          <div className="hidden lg:flex flex-wrap items-center gap-2 max-w-full">
             {recipe.engine && <SpecBadge label="Engine" value={recipe.engine} />}
             {recipe.params_b != null && (
               <SpecBadge label={recipe.arch === 'moe' ? 'MoE' : 'Dense'} value={formatParams(recipe)} />
@@ -289,6 +291,14 @@ function RecipeDetailPage({ slug }) {
             {recipe.load_seconds != null && (
               <SpecBadge label="Ready in" value={formatDuration(recipe.load_seconds)} />
             )}
+            {(recipe.arena || []).map((a) => (
+              <a key={a.board} href={a.url} target="_blank" rel="noreferrer" className="no-underline text-inherit">
+                <SpecBadge
+                  label={`Arena · ${a.task.replace(/-/g, ' ')}`}
+                  value={`${Math.round(a.elo)} Elo${a.base ? ` (${a.entry}'s)` : ''} · ${a.board} · ${a.read}`}
+                />
+              </a>
+            ))}
           </div>
 
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0">

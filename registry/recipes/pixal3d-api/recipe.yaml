@@ -52,3 +52,13 @@ requires_hf_token: true
 gated_repos:
   - "facebook/dinov3-vitl16-pretrain-lvd1689m"
   - "briaai/RMBG-2.0"
+# Human-preference Elo as each board published it on the date read (see
+# RecipeArenaScore). base: true = the board lists only the base model.
+arena:
+  - board: 3D Arena
+    task: image-to-3d
+    elo: 1262
+    entry: Pixal3D
+    votes: 330
+    read: '2026-10-15'
+    url: https://huggingface.co/spaces/3d-arena/3d-arena

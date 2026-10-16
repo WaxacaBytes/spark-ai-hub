@@ -67,3 +67,22 @@ video_defaults:
   max_seconds: 15
   notes: "Text-to-video, or pin a first frame (image), a last frame (last_image) or both; a pinned clip follows the picture's shape unless aspect_ratio is given. lightx2v's Turbo 8-step 768p settings: 8 transformer evaluations (steps 9 on this server), video shift 6, audio shift 3, 1344x768 at 16:9. Clips run 4-15 s in 21:9, 16:9, 4:3, 1:1, 3:4 or 9:16."
   source: "https://github.com/ModelTC/Minimax-H3-Turbo"
+# Human-preference Elo as each board published it on the date read (see
+# RecipeArenaScore). base: true = the board lists only the base model.
+arena:
+  - board: AA-Video-T2V v2.1
+    task: text-to-video
+    elo: 1159
+    entry: MiniMax H3 (768p)
+    votes: 5962
+    read: '2026-10-15'
+    url: https://artificialanalysis.ai/video/leaderboard/text-to-video
+    base: true
+  - board: AA-Video-I2V v1.1
+    task: image-to-video
+    elo: 1141
+    entry: MiniMax H3 (768p)
+    votes: 4009
+    read: '2026-10-15'
+    url: https://artificialanalysis.ai/video/leaderboard/image-to-video
+    base: true

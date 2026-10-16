@@ -3,7 +3,7 @@ import CardRow from './CardRow'
 import Hint from './Hint'
 import ModelList, { ModelBlock, buildBlockWidth, useBuildColumns, useNarrow } from './ModelList'
 import { vendorKey, vendorLabel } from '../covers'
-import { formatDuration, groupModels, mediaKind } from '../models'
+import { formatDuration, groupModels, mediaKind, primaryArena } from '../models'
 
 // The model catalog as shelves. The Agents page draws two of them: the LLMs
 // agents talk to at /v1, and the media models they call as tools through
@@ -121,6 +121,31 @@ const MODEL_SORTS = [
       return `${label} · ${span}`
     },
   },
+  // Media models ranked by human preference. Elo only compares within one
+  // board, so models are grouped by the board of their main task and ranked
+  // inside it; models no arena lists come last, never guessed.
+  {
+    id: 'arena',
+    label: 'Arena',
+    key: (r) => primaryArena(r)?.elo,
+    compare: (a, b) => {
+      const A = primaryArena(a)
+      const B = primaryArena(b)
+      if (!A || !B) return (A ? -1 : 0) - (B ? -1 : 0) || byRelease(a, b)
+      return (BOARD_ORDER.indexOf(A.task) - BOARD_ORDER.indexOf(B.task)) || (B.elo - A.elo) || byRelease(a, b)
+    },
+    note: 'Ranked on human-preference Elo from public arenas — Artificial Analysis for pictures '
+      + 'and video, 3D Arena for 3D — for each model\'s main task, as published on the date '
+      + 'recorded with it. Elo only compares within one board, so each board is its own band. '
+      + 'A variant the board does not list carries its base model\'s score; models no arena '
+      + 'lists come last.',
+    band: (r) => {
+      const a = primaryArena(r)
+      if (!a) return 'No arena score'
+      const span = a.elo >= 1100 ? '1100+' : a.elo >= 1000 ? '1000–1100' : a.elo >= 900 ? '900–1000' : 'under 900'
+      return `${a.board} · ${span}`
+    },
+  },
   // A capability score, not a speed one — the only sort here that isn't
   // measured on this Spark. Published by Artificial Analysis per base model,
   // so every quant/drafter build of one model shares the same score; a
@@ -139,6 +164,7 @@ const MODEL_SORTS = [
 ]
 
 const KIND_ORDER = ['image', '3D model', 'video', 'song', null]
+const BOARD_ORDER = ['text-to-image', 'image-editing', 'image-to-3d', 'text-to-video', 'image-to-video']
 
 export function byRelease(a, b) {
   const dateOrder = (b.release_date || '').localeCompare(a.release_date || '')
@@ -186,7 +212,7 @@ export default function ModelShelves({
   // models (not only those a search shows), so the layout does not jump.
   const widths = useBuildColumns(models)
   const narrow = useNarrow()
-  const offered = sorts ? MODEL_SORTS.filter((s) => sorts.includes(s.id)) : MODEL_SORTS.filter((s) => s.id !== 'time')
+  const offered = sorts ? MODEL_SORTS.filter((s) => sorts.includes(s.id)) : MODEL_SORTS.filter((s) => s.id !== 'time' && s.id !== 'arena')
 
   // A build is on the Pareto frontier of speed vs. capability if no other
   // build both writes faster and scores higher on the AA Index — i.e. there

@@ -56,3 +56,13 @@ image_defaults:
   preset: "V4_QUALITY_48"
   notes: "Ideogram's default preset: 48 steps (45 at guidance 7, then 3 polish steps at 3). V4_DEFAULT_20 and V4_TURBO_12 trade quality for speed."
   source: "https://github.com/ideogram-oss/ideogram4/blob/main/docs/inference.md"
+# Human-preference Elo as each board published it on the date read (see
+# RecipeArenaScore). base: true = the board lists only the base model.
+arena:
+  - board: AA-Image-T2I v2.1
+    task: text-to-image
+    elo: 1023
+    entry: Ideogram 4.0 (Quality)
+    votes: 10381
+    read: '2026-10-15'
+    url: https://artificialanalysis.ai/image/leaderboard/text-to-image

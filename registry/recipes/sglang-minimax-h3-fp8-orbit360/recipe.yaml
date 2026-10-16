@@ -71,3 +71,14 @@ video_defaults:
   max_seconds: 15
   notes: "Pass the SAME picture as image and last_image for a full 360° loop, with aspect_ratio 1:1 and this prompt verbatim: \"One frozen instant. Only the camera moves. In a continuous 360 orbit. Preserve every person and object in exactly the same world position, orientation, shape and pose throughout the shot. Airborne objects remain suspended at the captured height and angle: no wobbling, shaking, spinning, drifting, falling or continued action. Keep faces, hands, clothing, liquids and the background motionless while retaining their natural appearance. Camera parallax is the only source of apparent movement. No cuts, zoom, morphing or added objects.\" Clips run 4-15 s (4 s default; the LoRA was trained on 28 human-centric square 3 s clips): other subjects, shapes and lengths are untested, and small blinks or movements can remain."
   source: "https://huggingface.co/pablodawson/MiniMax-H3-360-Orbit-LoRA"
+# Human-preference Elo as each board published it on the date read (see
+# RecipeArenaScore). base: true = the board lists only the base model.
+arena:
+  - board: AA-Video-I2V v1.1
+    task: image-to-video
+    elo: 1141
+    entry: MiniMax H3 (768p)
+    votes: 4009
+    read: '2026-10-15'
+    url: https://artificialanalysis.ai/video/leaderboard/image-to-video
+    base: true

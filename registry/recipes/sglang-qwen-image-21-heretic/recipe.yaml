@@ -61,3 +61,22 @@ integration:
   model_id: "Qwen-Image-2.1-Heretic"
   api_key: "<API_KEY>"
   curl_example: "curl <HUB>/v1/images/generations -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"Qwen-Image-2.1-Heretic\", \"prompt\": \"A neon shop sign that reads QWEN IMAGE 2.1, rainy night, reflections on wet pavement\", \"size\": \"1024x1024\"}'"
+# Human-preference Elo as each board published it on the date read (see
+# RecipeArenaScore). base: true = the board lists only the base model.
+arena:
+  - board: AA-Image-T2I v2.1
+    task: text-to-image
+    elo: 1041
+    entry: Qwen-Image-2.1
+    votes: 5378
+    read: '2026-10-15'
+    url: https://artificialanalysis.ai/image/leaderboard/text-to-image
+    base: true
+  - board: AA-Image-Editing v2.1
+    task: image-editing
+    elo: 1082
+    entry: Qwen-Image-2.1
+    votes: 6173
+    read: '2026-10-15'
+    url: https://artificialanalysis.ai/image/leaderboard/editing
+    base: true

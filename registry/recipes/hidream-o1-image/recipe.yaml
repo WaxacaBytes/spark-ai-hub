@@ -54,3 +54,20 @@ requires_hf_token: false
 image_defaults:
   notes: "Set by HiDream's server for the full model: 50 steps, guidance 5.0, shift 3.0. Native resolution 2048x2048."
   source: "https://github.com/HiDream-ai/HiDream-O1-Image/blob/dev/app.py"
+# Human-preference Elo as each board published it on the date read (see
+# RecipeArenaScore). base: true = the board lists only the base model.
+arena:
+  - board: AA-Image-T2I v2.1
+    task: text-to-image
+    elo: 975
+    entry: HiDream-O1-Image
+    votes: 10379
+    read: '2026-10-15'
+    url: https://artificialanalysis.ai/image/leaderboard/text-to-image
+  - board: AA-Image-Editing v2.1
+    task: image-editing
+    elo: 955
+    entry: HiDream-O1-Image
+    votes: 4949
+    read: '2026-10-15'
+    url: https://artificialanalysis.ai/image/leaderboard/editing

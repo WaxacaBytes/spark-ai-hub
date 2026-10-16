@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { formatParams } from './RecipeCard'
-import { buildLabel, displayName, formatDuration } from '../models'
+import { buildLabel, displayName, formatDuration, primaryArena } from '../models'
 import { openUrl as openUrlFor } from './RecipeCard'
 import Hint from './Hint'
 
@@ -72,15 +72,15 @@ const COMPACT = {
     stack: true,
   },
 }
-const COMPACT_THIRD = { params: 'Params', 'aa-index': 'AA Index' }
+const COMPACT_THIRD = { params: 'Params', 'aa-index': 'AA Index', arena: 'Arena' }
 
 // Media models make pictures, clips and 3D models, not tokens: their two
 // figures are Time (one result, model loaded) and Ready in (stopped to
 // ready). Context and the AA Index mean nothing for them, so those go.
-const MEDIA_HEADERS = ['Time', 'Ready in', 'Params', 'On disk']
+const MEDIA_HEADERS = ['Time', 'Ready in', 'Arena', 'Params', 'On disk']
 const MEDIA = {
-  build: { columns: 'minmax(0,1fr) 56px 52px 52px 66px 50px 48px', fixedHeaders: MEDIA_HEADERS },
-  ranked: { columns: '26px minmax(200px,1fr) 56px 46px 56px 56px 74px 62px 62px', fixedHeaders: MEDIA_HEADERS, aaIndex: false },
+  build: { columns: 'minmax(0,1fr) 56px 52px 52px 44px 66px 50px 48px', fixedHeaders: MEDIA_HEADERS },
+  ranked: { columns: '26px minmax(200px,1fr) 56px 46px 56px 56px 50px 74px 62px 62px', fixedHeaders: MEDIA_HEADERS, aaIndex: false },
 }
 
 // Grouped "build" rows: the Build and Engine columns are as wide as the
@@ -134,11 +134,11 @@ function tracksAfterLabel(w, narrow, media, variant = 'build') {
   if (variant === 'ranked') {
     const lead = [Math.max(40, w.engineRanked), Math.max(36, w.quant)]
     return media
-      ? [...lead, 56, 56, params, 62, 62]          // Time, Ready in, Params, On disk, action
+      ? [...lead, 56, 56, 50, params, 62, 62]      // Time, Ready in, Arena, Params, On disk, action
       : [...lead, 50, 50, params, 62, 42, 44, 62]  // Writing, Editing, Params, On disk, Ctx, AA, action
   }
   return media
-    ? [w.engine, 52, 52, params, 50, 48]           // Time, Ready in, Params, On disk, action
+    ? [w.engine, 52, 52, 44, params, 50, 48]       // Time, Ready in, Arena, Params, On disk, action
     : [w.engine, 44, 44, params, 50, 34, 48]       // Writing, Editing, Params, On disk, Ctx, action
 }
 
@@ -212,6 +212,9 @@ const HEADER_HINTS = {
     + 'measured through the Hub\'s MCP tools the way agents call them: one picture (1024×1024 '
     + 'unless the model only renders larger), one 3D model from a picture, one 10 s clip.',
   'Ready in': 'From stopped to ready to render — the wait the first time an agent starts it.',
+  Arena: 'Human-preference Elo from a public arena (Artificial Analysis, 3D Arena) for the model\'s '
+    + 'main task, as published on the date its page shows. Elo compares only within one board. '
+    + 'A lighter number is the base model\'s score, for a variant the board does not list.',
   'AA Index': 'Artificial Analysis Intelligence Index: a published capability score for the '
     + 'base model, the same for every build of it.',
 }
@@ -401,6 +404,15 @@ function BuildRow({ recipe, variant, v, rank, highlight, onFrontier }) {
             {formatDuration(recipe.render_seconds) ?? '—'}
           </span>
           <Cell className="text-right text-text-muted">{formatDuration(recipe.load_seconds)}</Cell>
+          {v.fixedHeaders.includes('Arena') && (
+            <Cell className={`text-right ${
+              highlight === 'arena'
+                ? (primaryArena(recipe)?.base ? 'font-bold text-secondary/55' : 'font-bold text-secondary')
+                : primaryArena(recipe)?.base ? 'text-text-dim' : 'text-text-muted'
+            }`}>
+              {primaryArena(recipe) ? Math.round(primaryArena(recipe).elo) : null}
+            </Cell>
+          )}
         </>
       ) : (<>
       <span className={`truncate text-right font-display text-[13px] font-extrabold tabular-nums ${
