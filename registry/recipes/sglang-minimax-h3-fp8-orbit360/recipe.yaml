@@ -1,0 +1,87 @@
+name: "MiniMax-H3 360 Orbit"
+slug: sglang-minimax-h3-fp8-orbit360
+version: "1.0.0"
+description: "Turn one photo into a frozen-time 360° camera orbit that ends exactly where it started: give the same picture as the first and the last frame, and the camera circles the subject while the scene stays still, so orbits loop and chain without a seam. MiniMax-H3 with Pablo Dawson's 360 Orbit LoRA, trained on orbit renders of human Gaussian splats, so people work best. Compact build from Comfy-Org (pruned FP8 video model, NVFP4 text encoder, about 44 GB of weights). Served by SGLang Diffusion; your coding agents reach it through the Hub's video tools (generate_video / get_video). MiniMax-H3 Community License."
+author: "MiniMax · Orbit LoRA by Pablo Dawson"
+source: "community"
+website: "https://huggingface.co/pablodawson/MiniMax-H3-360-Orbit-LoRA"
+upstream: "https://huggingface.co/MiniMaxAI/MiniMax-H3"
+category: video-gen
+categories:
+  - video-gen
+# Picture in, orbit out: no text-to-video tag, so a text-only request is never
+# routed here (the LoRA only knows how to orbit a pinned photo).
+tags:
+  - openai-videos
+  - image-to-video
+  - last-frame
+  - video-audio
+  - orbit-360
+  - minimax
+  - sglang
+  - fp8
+  - lora
+icon: "\U0001F3AC"
+logo: "/logos/minimax.png"
+requirements:
+  min_memory_gb: 64
+  recommended_memory_gb: 121
+  disk_gb: 100
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP video tools call its API. Proxied so
+  # the Hub reaches it at /run/sglang-minimax-h3-fp8-orbit360/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 45
+  gpu: true
+status: experimental
+release_date: "2026-09"
+engine: "SGLang"
+# MiniMax's card: H3-Omni-Transformer is a 33B dense transformer (~13B of it in AdaLN
+# branches, which inference can precompute).
+params_b: 33
+quantization: "FP8"
+weights_gb: 44.6
+render_seconds: 2363.7
+render_workload: "5 s 16:9 orbit, same picture first and last, 1344x768, 29 steps"
+load_seconds: 494
+requires_hf_token: false
+# The LoRA card's recommended settings: the same image as first and last
+# keyframe, 768x768, 28 steps, no CFG, strength 1.0, the prompt verbatim.
+# SGLang's H3 request counts sigma grid points including the terminal zero, so
+# 28 transformer evaluations are requested as num_inference_steps 29 (as in
+# sglang-minimax-h3-fp8-turbo). The card trains and renders 73 frames (~3 s),
+# but SGLang's H3 server takes 4-15 s clips only, so the default is 4 s.
+video_defaults:
+  steps: 29
+  seconds: 4
+  flow_shift: 12.0
+  extra_params:
+    task: "t2va"
+    conditions: []
+    target:
+      short_edge: 768
+      aspect_ratio: "1:1"
+      duration_seconds: 4.0
+    audio_flow_shift: 3.0
+  aspect_ratios: ["1:1", "16:9", "9:16", "21:9", "4:3", "3:4"]
+  max_seconds: 15
+  notes: "Pass the SAME picture as image and last_image for a full 360° loop, with aspect_ratio 1:1 and this prompt verbatim: \"One frozen instant. Only the camera moves. In a continuous 360 orbit. Preserve every person and object in exactly the same world position, orientation, shape and pose throughout the shot. Airborne objects remain suspended at the captured height and angle: no wobbling, shaking, spinning, drifting, falling or continued action. Keep faces, hands, clothing, liquids and the background motionless while retaining their natural appearance. Camera parallax is the only source of apparent movement. No cuts, zoom, morphing or added objects.\" Clips run 4-15 s (4 s default; the LoRA was trained on 28 human-centric square 3 s clips): other subjects, shapes and lengths are untested, and small blinks or movements can remain."
+  source: "https://huggingface.co/pablodawson/MiniMax-H3-360-Orbit-LoRA"
+# Human-preference Elo as each board published it on the date read (see
+# RecipeArenaScore). base: true = the board lists only the base model.
+arena:
+  - board: AA-Video-I2V v1.1
+    task: image-to-video
+    elo: 1141
+    entry: MiniMax H3 (768p)
+    votes: 4009
+    read: '2026-10-15'
+    url: https://artificialanalysis.ai/video/leaderboard/image-to-video
+    base: true
