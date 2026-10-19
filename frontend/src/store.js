@@ -158,9 +158,10 @@ export const useStore = create((set, get) => ({
     try {
       const res = await fetch(`/api/system/hf-access/${slug}`)
       if (!res.ok) return true
-      const { ok, repos } = await res.json()
+      const { ok, account, repos } = await res.json()
       if (ok) return true
-      set({ hfAccessRequest: { slug, action, repos: repos.filter((r) => !r.accessible) } })
+      // Every repo, accepted or not: the dialog ticks off each as it opens.
+      set({ hfAccessRequest: { slug, action, account, repos } })
       return false
     } catch (e) {
       // Never let the pre-flight itself be what blocks an install.
@@ -177,10 +178,10 @@ export const useStore = create((set, get) => ({
     try {
       const res = await fetch(`/api/system/hf-access/${req.slug}`)
       if (!res.ok) return { ok: false, error: 'Access check failed' }
-      const { ok, repos } = await res.json()
+      const { ok, account, repos } = await res.json()
       if (!ok) {
-        set({ hfAccessRequest: { ...req, repos: repos.filter((r) => !r.accessible) } })
-        return { ok: false, error: 'Still no access. Accept the terms on the page above, then check again.' }
+        set({ hfAccessRequest: { ...req, account: account ?? req.account, repos } })
+        return { ok: false }
       }
     } catch {
       return { ok: false, error: 'Access check failed' }

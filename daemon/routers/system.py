@@ -64,7 +64,9 @@ async def get_hf_access(slug: str):
     if recipe is None:
         raise HTTPException(status_code=404, detail="Recipe not found")
     repos = await hf_token.check_repo_access(recipe.gated_repos)
-    return {"ok": all(r["accessible"] for r in repos), "repos": repos}
+    ok = all(r["accessible"] for r in repos)
+    account = None if ok else await hf_token.account_name()
+    return {"ok": ok, "account": account, "repos": repos}
 
 
 @router.get("/api/system/metrics", response_model=SystemMetrics)

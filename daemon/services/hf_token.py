@@ -76,7 +76,44 @@ async def check_repo_access(repo_ids: list[str]) -> list[dict]:
                 )
                 if r.status_code in (401, 403):
                     entry["accessible"] = False
+                    entry.update(await _gate(client, repo_id, headers))
             except httpx.HTTPError:
                 pass
             results.append(entry)
     return results
+
+
+async def _gate(client: httpx.AsyncClient, repo_id: str, headers: dict) -> dict:
+    """What accepting this repo's gate asks of the person, so the dialog can
+    say it in their words: a form to fill (`form`), the label of the button
+    they will press (`button`), and whether the owner approves by hand
+    (`manual`) so a pending request is not mistaken for a broken one."""
+    try:
+        r = await client.get(f"https://huggingface.co/api/models/{repo_id}", headers=headers)
+        info = r.json() if r.status_code == 200 else {}
+    except (httpx.HTTPError, ValueError):
+        info = {}
+    card = info.get("cardData") or {}
+    return {
+        "manual": info.get("gated") == "manual",
+        "form": bool(card.get("extra_gated_fields")),
+        "button": card.get("extra_gated_button_content") or "Agree and access repository",
+    }
+
+
+async def account_name() -> str | None:
+    """The HuggingFace username the stored token belongs to. The terms have to
+    be accepted by that account, which need not be the one signed in to
+    HuggingFace in the browser — the dialog names it so that is visible."""
+    token = read_token()
+    if not token:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://huggingface.co/api/whoami-v2",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        return r.json().get("name") if r.status_code == 200 else None
+    except (httpx.HTTPError, ValueError):
+        return None
