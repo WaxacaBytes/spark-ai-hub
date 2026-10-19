@@ -45,6 +45,9 @@ services:
       - HF_HOME=/workspace/cache/huggingface
       - TORCH_HOME=/workspace/cache/torch
       - ATTN_BACKEND=flash_attn
+      # One picture; Pixal3D's multi-view weights are their own recipe,
+      # pixal3d-mv-api, on the same engine image.
+      - PIXAL3D_PIPELINE=single
       - PORT=30000
     ipc: host
     shm_size: 16gb

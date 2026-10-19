@@ -1,0 +1,67 @@
+name: "Pixal3D Multi-View"
+slug: pixal3d-mv-api
+version: "1.0.0"
+description: "Turn up to four views of one object -- front, left, back, right, at eye level -- into a 3D model with PBR textures (GLB): TencentARC's Pixal3D multi-view weights project every view's pixels into the same 3D grid on the TRELLIS.2 backbone, so the sides and back follow your pictures instead of being guessed. It cuts each view out of any background itself (BRIA's RMBG-2.0) and lines the views up, so they need not share framing. Runs in a small Spark AI Hub engine with no web page; your coding agents reach it through the Hub's 3D tools (generate_3d with views / get_3d), and the models open in My files to turn around. For one picture, Pixal3D (pixal3d-api) estimates the camera better. MIT (Pixal3D); RMBG-2.0 is for non-commercial use."
+author: "TencentARC"
+source: "spark-ai-hub"
+website: "https://github.com/TencentARC/Pixal3D"
+upstream: "https://github.com/WaxacaBytes/pixal3d-api-spark-ai-hub"
+fork: "https://huggingface.co/TencentARC/Pixal3D"
+category: 3d-gen
+categories:
+  - 3d-gen
+tags:
+  - openai-meshes
+  - image-to-3d
+  - multi-view
+  - background-removal
+  - pbr
+  - pixal3d
+  - tencent
+icon: "\U0001F9CA"
+logo: "/logos/pixal3d.png"
+requirements:
+  min_memory_gb: 40
+  recommended_memory_gb: 56
+  disk_gb: 55
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP 3D tools call its API. Proxied so
+  # the Hub reaches it at /run/pixal3d-mv-api/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 15
+  gpu: true
+status: experimental
+# Pixal3D's multi-view inference and weights, upstream's "Sep 2026" release.
+release_date: "2026-09"
+engine: "Pixal3D"
+# Pixal3D's checkpoints: three 1.3B flow transformers (structure, shape, texture), TRELLIS.2's layout.
+params_b: 3.9
+quantization: "BF16"
+weights_gb: 25.5
+render_seconds: 131.0
+render_workload: "front, left, back and right views (1024x1024), default steps, textured GLB (7.4 MB); front and left only: 127 s"
+load_seconds: 87
+requires_hf_token: true
+# Meta's DINOv3 (manual approval) and BRIA's RMBG-2.0: the token's account
+# must accept both on the web.
+gated_repos:
+  - "facebook/dinov3-vitl16-pretrain-lvd1689m"
+  - "briaai/RMBG-2.0"
+# Human-preference Elo as each board published it on the date read (see
+# RecipeArenaScore). base: true = the board lists only the base model.
+arena:
+  - board: 3D Arena
+    task: image-to-3d
+    elo: 1262
+    entry: Pixal3D
+    base: true
+    votes: 330
+    read: '2026-10-15'
+    url: https://huggingface.co/spaces/3d-arena/3d-arena

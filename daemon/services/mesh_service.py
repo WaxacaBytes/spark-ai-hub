@@ -17,7 +17,7 @@ what agents make for them -- one object on a plain background -- and a
 cut-out PNG is sent as it is. A picture whose background is not plain enough
 is refused with what to do instead. A model tagged `background-removal`
 (Pixal3D, with BRIA's RMBG-2.0) cuts any background out itself and gets the
-picture as it is.
+pictures -- the front and any other views -- as they are.
 
 Models are stored in the Hub's data dir and served at /meshes/<id>.glb, private
 to the account that made them (media_store). The cut-out picture is kept beside
@@ -194,7 +194,8 @@ async def generate(*, image: str, seed: int | None, steps: int | None, model: st
             form = aiohttp.FormData()
             form.add_field("image", cutout, filename="input.png", content_type="image/png")
             for name, ref in views.items():
-                view = await asyncio.to_thread(cut_out, await load_input(ref, session, user))
+                raw_view = await load_input(ref, session, user)
+                view = await asyncio.to_thread(to_png if backend.cuts_out else cut_out, raw_view)
                 form.add_field(name, view, filename=f"{name}.png", content_type="image/png")
             form.add_field("seed", str(seed))
             form.add_field("output_format", "glb")
