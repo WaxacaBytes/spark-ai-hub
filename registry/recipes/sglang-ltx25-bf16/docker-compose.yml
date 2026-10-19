@@ -1,0 +1,111 @@
+services:
+  sglang:
+    # LTX-2.5 (Lightricks), the distilled 22B audio-video DiT, served by SGLang
+    # Diffusion on the OpenAI videos API: POST /v1/videos queues a job (JSON
+    # for text-to-video, multipart with input_reference for a first frame),
+    # GET /v1/videos/{id} reports progress, GET /v1/videos/{id}/content serves
+    # the MP4 with its soundtrack. The Hub's MCP video tools drive exactly that.
+    #
+    # Native in SGLang (LTX2Pipeline with the LTX-2.5 config): Gemma-4-12B text
+    # encoder, text connectors, the distilled DiT on Lightricks' pinned
+    # 8-sigma schedule, unguided (CFG 1), video and audio denoised together,
+    # 48 kHz stereo vocoder. SGLang picks the LTX-2.5 config because the model
+    # directory's name contains "LTX-2.5".
+    #
+    # Image: lmsysorg/sglang:v0.5.22-cu130 -- a stable numbered release with an
+    # arm64 manifest. Its LTX-2.5 code is identical to the 2026-10-16 nightly's.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        #
+        # A plain directory, not the HF cache: offline, SGLang loads a local
+        # path as-is. Fetched: what LTX2Pipeline loads (transformer,
+        # text_encoder, tokenizer, processor, scheduler, vae, audio_vae,
+        # vocoder, connectors, duration_head) and the 0.8 GB diffusion decoder
+        # (loaded only with --load-diffusion-decoder). Left out: the 42 GB
+        # full/SFT DiT (transformer_full, --model-variant dev), the 10 GB
+        # prompt enhancer, the latent upsamplers (two-stage only), the
+        # distilled LoRA (for the dev DiT), and the repo's second, 8-shard copy
+        # of the transformer and unsharded copy of the connectors that their
+        # index files do not point at.
+        #
+        # SGLang treats a local model as complete only when every component
+        # model_index.json names is on disk, and otherwise tries to download
+        # it (offline: a crash). So the prompt enhancer, which no SGLang
+        # pipeline loads, is marked absent there the way the file marks any
+        # absent optional component: [null, null].
+        #
+        # Gated repo (Lightricks' access form): the Hub passes its HF token in
+        # as a build secret; it never lands in a layer.
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Lightricks/LTX-2.5-Diffusers', revision='da0b690960026eab794b8ceaf841233cf7064478', local_dir='/models/LTX-2.5-Diffusers', ignore_patterns=['transformer_full/*', 'prompt_enhancer/*', 'latent_upsampler/*', 'temporal_latent_upsampler/*', '*distilled-lora*', 'transformer/*-of-00008.safetensors', 'connectors/diffusion_pytorch_model.safetensors', '*.md'], max_workers=8)"
+        RUN python3 -c "import json; p='/models/LTX-2.5-Diffusers/model_index.json'; d=json.load(open(p)); d['prompt_enhancer']=[None, None]; json.dump(d, open(p, 'w'), indent=2)"
+        FROM lmsysorg/sglang:v0.5.22-cu130
+        COPY --from=weights /models /models
+    image: spark-ai-hub/sglang-ltx25-bf16:v0.5.22-cu130
+    container_name: spark-ai-hub-sglang-ltx25-bf16
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/sglang-ltx25-bf16/.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # LoRA add-ons (lora-ltx25-* recipes) load into this model while it
+      # runs, and SGLang wraps the dynamic LoRA forward in @torch.compile,
+      # which fails on this image's torch ("'torch.Stream' object has no
+      # attribute 'cuda_stream'"). Disabling TorchDynamo runs that forward
+      # eagerly; SGLang's own --enable-torch-compile is off by default anyway.
+      - TORCHDYNAMO_DISABLE=1
+    ipc: host
+    shm_size: 16gb
+    command:
+      - sglang
+      - serve
+      - --model-path
+      - /models/LTX-2.5-Diffusers
+      - --served-model-name
+      - Lightricks/LTX-2.5-Diffusers
+      - --host
+      - 0.0.0.0
+      - --port
+      - "30000"
+      # SGLang offloads the DiT and the text encoder to CPU by default for
+      # diffusion models. On the Spark CPU and GPU share the same memory, so
+      # offload only adds copies back and forth.
+      - --dit-cpu-offload
+      - "false"
+      - --text-encoder-cpu-offload
+      - "false"
+      # Pinned host buffers are for fast CPU<->GPU transfer, which unified
+      # memory never needs.
+      - --pin-cpu-memory
+      - "false"
+      - --output-path
+      - /tmp/sglang-outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

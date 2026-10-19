@@ -1,0 +1,49 @@
+name: "MOSS-Image SFT 4-step LoRA"
+slug: lora-moss-image-sft-4step
+version: "1.0.0"
+description: "akhaliq's few-step LoRA for MOSS-Image SFT: a picture in 4 model passes with no CFG instead of 50 with CFG 3 (100 passes), on the release sampler. Continues lodestones' 8-step DMD. An add-on, not a model: install it and the Hub's image tools offer it on MOSS-Image SFT (generate_image with lora). Apache 2.0."
+author: "akhaliq · for MOSS-Image"
+source: "community"
+website: "https://huggingface.co/akhaliq/MOSS-Image-SFT-4-steps"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/openmoss.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 2
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 3
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - turbo
+  - text-to-image
+  - moss
+weights_gb: 0.6
+render_seconds: 15.8
+render_workload: "1024x1024, 4 steps, CFG 1, on MOSS-Image SFT (includes the switch from another LoRA)"
+requires_hf_token: false
+# Where it loads (the first is the one it was made and measured on), and how.
+lora:
+  bases:
+    - sglang-moss-image-sft
+  file: "/lora/moss_image_sft_4step.safetensors"
+  strength: 1.0
+  alpha: 128
+# The card's settings.
+image_defaults:
+  steps: 4
+  guidance_scale: 1.0
+  notes: "Fast text-to-image: 4 steps, no CFG (guidance 1), strength 1, per its card; above 1024x1024 it recommends 6-8 steps. The default 25-50 steps with CFG gives smudged, overcooked pictures with this LoRA."
+  source: "https://huggingface.co/akhaliq/MOSS-Image-SFT-4-steps"

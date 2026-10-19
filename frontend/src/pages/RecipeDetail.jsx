@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { formatParams, openUrl } from '../components/RecipeCard'
@@ -8,7 +8,7 @@ import { hasSecret, maskIn } from '../lib/secret'
 import { useApiKey } from '../hooks/useApiKey'
 import { useAuth } from '../auth'
 import { backdropFor, posterFor } from '../covers'
-import { formatDuration, mediaKind, speedLabel } from '../models'
+import { formatDuration, isLora, mediaKind, speedLabel } from '../models'
 import CoverInfoModal from '../components/CoverInfoModal'
 import YamlEditor from '../components/YamlEditor'
 
@@ -253,6 +253,16 @@ function RecipeDetailPage({ slug }) {
           <div className="flex-1 min-w-0 sm:min-w-[260px]">
             <h1 className="text-xl sm:text-2xl font-bold text-text tracking-tight m-0 font-display">{recipe.name}</h1>
             <p className="text-sm text-text-dim mt-0.5 m-0">{recipe.author}</p>
+            {/* A LoRA names the models it loads into; a model names its LoRAs. */}
+            {isLora(recipe) ? (
+              <RecipeLinks label="Loads into" slugs={recipe.lora.bases} recipes={recipes} />
+            ) : (
+              <RecipeLinks
+                label="LoRAs"
+                slugs={recipes.filter((r) => r.lora?.bases.includes(recipe.slug)).map((r) => r.slug)}
+                recipes={recipes}
+              />
+            )}
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               {recipeCategories.map((cat) => (
                 <span key={cat} className="text-[10px] font-label text-secondary bg-secondary/10 px-2 py-0.5 rounded-full">{cat}</span>
@@ -261,7 +271,9 @@ function RecipeDetailPage({ slug }) {
               {isUpdating && <StatusPill color="primary" pulse>Updating...</StatusPill>}
               {!isBusy && recipe.running && isReady && <StatusPill color="success">Running</StatusPill>}
               {!isBusy && recipe.starting && <StatusPill color="warning" pulse>Starting...</StatusPill>}
-              {!isBusy && !recipe.running && !recipe.starting && recipe.installed && <StatusPill color="dim">Stopped</StatusPill>}
+              {!isBusy && !recipe.running && !recipe.starting && recipe.installed && (
+                <StatusPill color="dim">{isLora(recipe) ? 'Installed' : 'Stopped'}</StatusPill>
+              )}
             </div>
           </div>
 
@@ -277,7 +289,9 @@ function RecipeDetailPage({ slug }) {
             )}
             {recipe.quantization && <SpecBadge label="Precision" value={recipe.quantization} />}
             {recipe.weights_gb != null && <SpecBadge label="Weights" value={`${recipe.weights_gb} GB`} />}
-            <SpecBadge label="Memory" value={`${recipe.requirements?.min_memory_gb ?? 8}–${recipe.requirements?.recommended_memory_gb ?? recipe.requirements?.min_memory_gb ?? 8} GB`} />
+            {!isLora(recipe) && (
+              <SpecBadge label="Memory" value={`${recipe.requirements?.min_memory_gb ?? 8}–${recipe.requirements?.recommended_memory_gb ?? recipe.requirements?.min_memory_gb ?? 8} GB`} />
+            )}
             <SpecBadge label="Disk" value={`${recipe.requirements?.disk_gb ?? 10} GB`} />
             {recipe.tokens_per_second != null && (
               <SpecBadge label="Speed" value={speedLabel(recipe)} />
@@ -336,9 +350,11 @@ function RecipeDetailPage({ slug }) {
             )}
             {recipe.installed && !recipe.running && !recipe.starting && !isBusy && !isRemoving && (
               <>
-                <button disabled={launching || isRemoving} onClick={handleLaunch} className="btn-primary px-6 py-2.5 text-sm font-bold">
-                  {launching ? '...' : '▶ Launch'}
-                </button>
+                {!isLora(recipe) && (
+                  <button disabled={launching || isRemoving} onClick={handleLaunch} className="btn-primary px-6 py-2.5 text-sm font-bold">
+                    {launching ? '...' : '▶ Launch'}
+                  </button>
+                )}
                 <button disabled={launching || isRemoving} onClick={() => updateRecipe(recipe.slug)} className="px-4 py-2.5 bg-surface-high text-text-muted border-none rounded-xl text-sm font-semibold cursor-pointer transition-all hover:text-primary hover:bg-surface-highest disabled:opacity-50">
                   ↻ Update
                 </button>
@@ -540,6 +556,24 @@ function SpeedDetail({ recipe }) {
         </p>
       </div>
     </div>
+  )
+}
+
+// "Loads into: A · B", each a link to that recipe; nothing when there is none.
+function RecipeLinks({ label, slugs, recipes }) {
+  if (!slugs.length) return null
+  return (
+    <p className="m-0 mt-1 text-sm text-text-muted">
+      <span className="text-text-dim">{label}: </span>
+      {slugs.map((slug, i) => (
+        <span key={slug}>
+          {i > 0 && ' · '}
+          <Link to={`/app/${slug}`} className="font-semibold text-primary no-underline hover:underline">
+            {recipes.find((r) => r.slug === slug)?.name || slug}
+          </Link>
+        </span>
+      ))}
+    </p>
   )
 }
 
@@ -939,6 +973,7 @@ const MEDIA_LABELS = {
   'audio-reference': 'Audio reference',
   'video-editing': 'Video editing',
   'face-swap': 'Face swap',
+  'character-swap': 'Character swap',
   'video-with-audio': 'Video with sound',
   'orbit-360': '360° orbit',
   'image-to-3d': 'Image to 3D',

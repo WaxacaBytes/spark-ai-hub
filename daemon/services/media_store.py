@@ -25,16 +25,17 @@ from daemon.db import get_db
 
 
 async def record(name: str, user_id: int | None, model: str = "",
-                 seconds: float | None = None) -> None:
+                 seconds: float | None = None, lora: str = "") -> None:
     """Note that account `user_id` made the file <name> (e.g. '<32 hex>.png')
-    with the model `model` (a recipe slug; empty for an upload), and that
-    making it took `seconds`, from the request to the finished file."""
+    with the model `model` (a recipe slug; empty for an upload) running the
+    LoRA `lora` (a LoRA recipe's slug; empty for none), and that making it
+    took `seconds`, from the request to the finished file."""
     if user_id is None:
         return
     db = await get_db()
     try:
-        await db.execute("INSERT OR REPLACE INTO media (name, user_id, model, seconds) VALUES (?, ?, ?, ?)",
-                         (name, user_id, model, seconds))
+        await db.execute("INSERT OR REPLACE INTO media (name, user_id, model, seconds, lora) "
+                         "VALUES (?, ?, ?, ?, ?)", (name, user_id, model, seconds, lora or ""))
         await db.commit()
     finally:
         await db.close()
@@ -132,23 +133,49 @@ def find(name: str) -> Path | None:
 async def _rows() -> dict[str, dict]:
     db = await get_db()
     try:
-        rows = await (await db.execute("SELECT name, user_id, model, seconds FROM media")).fetchall()
+        rows = await (await db.execute("SELECT name, user_id, model, seconds, lora FROM media")).fetchall()
     finally:
         await db.close()
     return {row["name"]: row for row in rows}
 
 
-def _model_fields(slug: str) -> dict:
-    """What the page shows of the file's model: its name (the recipe's own when
-    the catalog still has it, else the slug it was made with), and whether its
-    videos are 360° orbits to drag around."""
+def build_label(recipe) -> str:
+    """A recipe's name with what tells its builds apart -- the part of the
+    checkpoint it serves and its quantization -- added where the name leaves
+    them out: a "MiniMax-H3 FP8" serving FL2VA reads "MiniMax-H3 FL2VA FP8"."""
+    words = recipe.name.split()
+    have = {w.lower() for w in words}
+    if recipe.variant and recipe.variant.lower() not in have:
+        words.insert(1, recipe.variant)
+    if recipe.quantization and recipe.quantization.lower() not in have:
+        words.append(recipe.quantization)
+    return " ".join(words)
+
+
+def _model_fields(slug: str, lora: str = "") -> dict:
+    """What the page shows of the file's model: the build it was made with
+    (build_label, or the slug when the catalog no longer has the recipe), the
+    LoRA loaded into it, and whether its videos are 360° orbits to drag around."""
     if not slug:
         return {"model": "", "orbit": False}
     # Imported here: the registry loads the recipes at startup.
     from daemon.services.registry_service import get_recipe
     from daemon.services.video_service import ORBIT_TAG
     recipe = get_recipe(slug)
-    return {"model": recipe.name if recipe else slug, "orbit": bool(recipe) and ORBIT_TAG in recipe.tags}
+    # A stack of LoRAs is recorded as their slugs joined by "+".
+    adapters = [(part, get_recipe(part)) for part in lora.split("+") if part]
+    label = build_label(recipe) if recipe else slug
+    base = label.split()
+    for part, adapter in adapters:
+        # "MiniMax-H3 Ref2VA Character Swap LoRA" on "MiniMax-H3 Ref2VA INT8 Turbo":
+        # the words the base already says are not said twice.
+        name = (adapter.name if adapter else part).split()
+        shared = 0
+        while shared < min(len(name) - 1, len(base)) and name[shared] == base[shared]:
+            shared += 1
+        label = f"{label} + {' '.join(name[shared:])}"
+    orbit = any(r is not None and ORBIT_TAG in r.tags for r in (recipe, *(a for _, a in adapters)))
+    return {"model": label, "orbit": orbit}
 
 
 def _visible(owner: int | None, user: dict | None) -> bool:
@@ -168,7 +195,7 @@ async def list_files(user: dict | None) -> list[dict]:
         row = rows.get(entry["name"])
         if _visible(row["user_id"] if row else None, user):
             path = entry["_file"]
-            entry.update(_model_fields(row["model"] if row else ""))
+            entry.update(_model_fields(row["model"], row["lora"]) if row else _model_fields(""))
             entry["seconds"] = round(row["seconds"], 1) if row and row["seconds"] is not None else None
             if entry["kind"] == "mesh":
                 entry["rendered"] = render_of(path).is_file()

@@ -35,7 +35,7 @@ import aiohttp
 from daemon.config import settings
 from daemon.models.recipe import media_figures
 from daemon.services.docker_service import get_installed_slugs, is_ready, is_recipe_running
-from daemon.services import media_store, proxy_service
+from daemon.services import lora_service, media_store, proxy_service
 from daemon.services.image_service import ImageError, load_input, owns_job, pick_ready, to_png
 from daemon.services.registry_service import get_recipes
 
@@ -137,17 +137,51 @@ async def list_models() -> list[dict]:
             "min_memory_gb": recipes[slug].requirements.min_memory_gb,
             **media_figures(recipes[slug]),
             **({"recommended": rec} if (rec := recommended(backend)) else {}),
+            **({"prompt_guide": True} if recipes[slug].prompt_guide else {}),
+            **({"loras": loras} if (loras := await _loras_of(slug)) else {}),
         })
     return out
 
 
-async def pick_backend(needs: set[str], model: str | None) -> Backend:
+def prompt_guide(slug: str) -> str:
+    """The model's prompt-writing guide, for get_prompt_guide."""
+    recipe = get_recipes().get(slug)
+    if recipe is None:
+        raise ImageError(f"'{slug}' is not a model in the catalog.")
+    if not recipe.prompt_guide:
+        return (f"{slug} has no prompt guide: write a plain description and follow the "
+                "`recommended` notes list_video_models gives for it.")
+    return (settings.registry_path.parent / "prompt_guides" / f"{recipe.prompt_guide}.md").read_text()
+
+
+async def _loras_of(slug: str) -> list[dict]:
+    """The installed LoRAs a model takes, for list_video_models: what each
+    adds, the settings it brings, and how long a render with it took."""
+    out = []
+    for lora in await lora_service.for_base(slug):
+        rec = recommended(Backend(slug=lora.slug, kinds=frozenset(), summary=lora.name,
+                                  defaults=lora.video_defaults))
+        out.append({"lora": lora.slug, "name": lora.name,
+                    "adds": lora.media_capabilities,
+                    **media_figures(lora),
+                    **({"recommended": rec} if rec else {})})
+    return out
+
+
+async def pick_backend(needs: set[str], model: str | None, lora=None) -> Backend:
     label = " and ".join(_KIND_LABELS[k] for k in ACCEPTS if k in needs)
     installed = await installed_backends()
-    candidates = [b for b in installed.values() if needs <= b.kinds]
+    adds = frozenset()
+    if lora is not None:
+        # A LoRA only loads into the models it was trained on, and can give
+        # them an input they lack alone: an IC-LoRA lets LTX-2.5 take a clip.
+        installed = {s: b for s, b in installed.items() if s in lora.lora.bases}
+        adds = frozenset(TAG_KINDS[t] for t in lora.tags if t in TAG_KINDS)
+        label += f" with the {lora.slug} LoRA"
+    candidates = [b for b in installed.values() if needs <= b.kinds | adds]
     if model:
         backend = installed.get(model)
-        if backend is None or not needs <= backend.kinds:
+        if backend is None or not needs <= backend.kinds | adds:
             names = ", ".join(b.slug for b in candidates) or "none installed"
             raise ImageError(f"'{model}' is not an installed model that can {label}. "
                              f"Installed models that can: {names}.")
@@ -278,26 +312,34 @@ async def start(*, prompt: str, image: str | None, seconds: int | None,
                 aspect_ratio: str | None, seed: int | None, steps: int | None, model: str | None,
                 video: str | None = None, last_image: str | None = None,
                 images: list[str] | None = None, audio: str | None = None,
-                user: dict | None = None) -> dict:
+                lora: list[str] | None = None, user: dict | None = None) -> dict:
     images = [i for i in (images or []) if i]
+    try:
+        adapter = await lora_service.resolve(lora or [])
+    except lora_service.LoraError as exc:
+        raise ImageError(str(exc)) from None
     if images and not image:
         image, images = images[0], images[1:]
     needs = {kind for kind, given in (("image", image), ("video", video), ("images", images),
                                       ("last_image", last_image), ("audio", audio)) if given}
     kind = "video" if video else "image" if image or last_image else "audio" if audio else "text"
-    backend = await pick_backend(needs or {"text"}, model)
+    backend = await pick_backend(needs or {"text"}, model, adapter)
+    defaults = lora_service.merged_defaults(backend.defaults, adapter)
     # A conditions model takes a LIST of references, so it can be given a clip
     # AND a picture at once -- which is the whole shape of a face swap: the
     # video whose face changes, plus the face to put there. Every other model
     # has one input slot and must still be told to pick one.
-    if image and video and not takes_conditions_for(backend):
+    # An IC-LoRA (LTX-2.5) also takes both: the clip it edits and the first
+    # frame that sets the look (Layout-to-Render).
+    if image and video and not (takes_conditions_for(backend)
+                                or (adapter and "ic-lora" in adapter.tags)):
         raise ImageError("Give either a starting image or an input video, not both.")
     if aspect_ratio and aspect_ratio not in backend.aspect_ratios:
         raise ImageError(f"{backend.slug} renders {', '.join(backend.aspect_ratios)}, "
                          f"not {aspect_ratio}.")
     if seconds and seconds > backend.max_seconds:
         raise ImageError(f"{backend.slug} renders clips up to {backend.max_seconds} s.")
-    task = (getattr(backend.defaults, "extra_params", None) or {}).get("task")
+    task = (getattr(defaults, "extra_params", None) or {}).get("task")
     # MiniMax-H3's FL2VA checkpoint serves two tasks: t2va from text alone and
     # fl2va, which pins the clip's first frame, last frame or both. A picture
     # turns the one into the other; the clip then takes the picture's shape
@@ -306,7 +348,7 @@ async def start(*, prompt: str, image: str | None, seconds: int | None,
     if keyframes:
         task = "fl2va"
     seed = seed if seed is not None else secrets.randbelow(MAX_SEED)
-    fields = video_fields(backend.defaults, prompt=prompt, seconds=seconds,
+    fields = video_fields(defaults, prompt=prompt, seconds=seconds,
                           aspect_ratio=aspect_ratio or ("auto" if keyframes else "16:9"),
                           seed=seed, steps=steps)
     if task and fields.get("extra_params", {}).get("task") != task:
@@ -359,12 +401,19 @@ async def start(*, prompt: str, image: str | None, seconds: int | None,
             for key, value in fields.items():
                 form.add_field(key, json.dumps(value) if isinstance(value, dict) else str(value))
             body, kwargs = form, {}
-        async with session.post(url, data=body, headers=proxy_service.probe_headers(),
-                                **kwargs) as r:
-            if r.status != 200:
-                raise ImageError(f"{backend.slug} refused the video job (HTTP {r.status}): "
-                                 f"{(await r.text())[:500]}")
-            remote = await r.json()
+        # The adapter is the server's, not the request's: switch it and queue
+        # the job under one lock, so no other render switches it in between.
+        async with lora_service.lock(backend.slug):
+            try:
+                await lora_service.use(backend.slug, adapter, lambda: rendering_on(backend.slug))
+            except lora_service.LoraError as exc:
+                raise ImageError(str(exc)) from None
+            async with session.post(url, data=body, headers=proxy_service.probe_headers(),
+                                    **kwargs) as r:
+                if r.status != 200:
+                    raise ImageError(f"{backend.slug} refused the video job (HTTP {r.status}): "
+                                     f"{(await r.text())[:500]}")
+                remote = await r.json()
 
     _prune()
     job_id = secrets.token_hex(16)
@@ -373,9 +422,10 @@ async def start(*, prompt: str, image: str | None, seconds: int | None,
         "seed": seed, "size": fields.get("size") or remote.get("size"),
         "seconds": clip_seconds(fields) or remote.get("seconds"),
         "steps": fields.get("num_inference_steps"), "kind": kind,
-        "user_id": user and user["id"],
+        "user_id": user and user["id"], "lora": adapter and adapter.slug,
     }
     return {"job_id": job_id, "model": backend.slug, "status": remote.get("status", "queued"),
+            **({"lora": adapter.slug} if adapter else {}),
             **_summary(_jobs[job_id])}
 
 
@@ -478,9 +528,11 @@ async def check(job_id: str, wait: int = 0, on_progress=None, user: dict | None 
                 job["video_id"] = video_id
                 # Until the model finished, not until this poll noticed.
                 took = (remote.get("completed_at") or time.time()) - job["created"]
-                await media_store.record(f"{video_id}.mp4", job.get("user_id"), job["slug"], took)
-                recipe = get_recipes().get(job["slug"])
-                if recipe and ORBIT_TAG in recipe.tags:
+                # Both the model and the LoRA it ran: My files names the pair.
+                await media_store.record(f"{video_id}.mp4", job.get("user_id"), job["slug"], took,
+                                         lora=job.get("lora") or "")
+                makers = [get_recipes().get(s) for s in (job["slug"], *(job.get("lora") or "").split("+")) if s]
+                if any(r is not None and ORBIT_TAG in r.tags for r in makers):
                     await asyncio.to_thread(all_keyframes, path)
                 job["poster"] = await asyncio.to_thread(poster_jpeg_b64, path)
                 job["inference_time_s"] = remote.get("inference_time_s")

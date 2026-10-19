@@ -1,0 +1,49 @@
+name: "MiniMax-H3 Ref2VA CardSpin LoRA"
+slug: lora-minimax-h3-cardspin
+version: "1.0.0"
+description: "A LoRA for MiniMax-H3's reference-conditioning (Ref2VA) models: the photo turns in space like a thin physical card, one full clockwise turn, and as it turns the portrait printed on it shows the sitter's profile and the back of their head before the front comes round again. MATLOWAI's CardSpin v2 (their step-1500 orbit LoRA plus 50 card-spin steps), rank 32. An add-on, not a model: install it and the Hub's video tools offer it on its base models (generate_video with lora). MiniMax-H3 Community License."
+author: "MATLOWAI · for MiniMax-H3"
+source: "community"
+website: "https://huggingface.co/MATLOWAI/MiniMax-H3-ORB360-CardSpin"
+category: video-gen
+categories:
+  - video-gen
+icon: "\U0001F3AC"
+logo: "/logos/minimax.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 3
+  gpu: false
+status: experimental
+release_date: "2026-09"
+engine: "SGLang"
+tags:
+  - lora
+  - orbit-360
+  - image-to-video
+  - video-audio
+  - minimax
+weights_gb: 0.29
+render_seconds: 770.6
+render_workload: "5 s 4:3 card spin from one picture, 1024x768, 9 steps, on MiniMax-H3 Ref2VA FP8 with the Ref2VA Turbo LoRA"
+requires_hf_token: false
+# Where it loads (the first is the one it was made and measured on), and how.
+lora:
+  bases:
+    - sglang-minimax-h3-ref2va-int8-turbo
+    - sglang-minimax-h3-ref2va-fp8
+  file: "/lora/minimax_h3_orb360_cardspin_v2_step50.safetensors"
+  strength: 1.0
+  alpha: 32
+# Settings it brings on top of its base model's.
+video_defaults:
+  notes: "Card spin: pass the photo, ideally a portrait, as `image` (<Picture 1>, the first and last view) and the card's structured caption, timed for the clip's length; for 5 s: \"subject_definitions: <Subject 1> is the photograph shown in <Picture 1>, treated as a thin physical photo card standing in space. The printed image, its tones and grain, and the person or subject in it remain unchanged. <Picture 1> is the first-frame viewpoint of [Shot 1]. summary: [reference generation] ORB360_CARDSPIN. The photograph from <Picture 1> turns as a thin physical card in front of a dark background: one full clockwise turn in 5.000000 seconds, while the portrait inside it reveals the side and the back of the sitter's head. retention_analysis: <Subject 1> (appears in [Shot 1]): fully_preserved - only the card's orientation in space changes. <Picture 1> ([Shot 1] first frame and last frame): fully_preserved - the shot starts and ends exactly on this view. detailed_description: [Shot 1] The shot begins exactly on <Picture 1>. The camera makes one smooth clockwise 360-degree turn around the photograph, which behaves like a thin card: the face turns into profile, the card goes edge-on, its back shows the back of the head, the opposite profile passes and the front returns. No cuts, no zoom. The video runs at 24 fps and has 121 frames. At 0.000000 seconds (zero-based frame 0), the view is exactly <Picture 1>. At 1.000000 seconds (zero-based frame 24), the card is edge-on. At 1.666667 seconds (zero-based frame 40), the back of the card faces the camera. At 5.000000 seconds (zero-based frame 120), the view has returned exactly to <Picture 1>. overall_soundscape: N/A non_diegetic_music: N/A\" Both sound sections N/A ask for silence. The card's resolutions: 800x800, 1024x768 and 1152x768 landscapes, 672x832 and 832x1024 portraits; on real photos the orbit stays at the photo's own height. References: name them in the prompt as <Picture 1>, <Picture 2>."
+  source: "https://huggingface.co/MATLOWAI/MiniMax-H3-ORB360-CardSpin"

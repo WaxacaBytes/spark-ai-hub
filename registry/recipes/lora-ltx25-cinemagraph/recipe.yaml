@@ -1,0 +1,51 @@
+name: "LTX-2.5 Cinemagraph LoRA"
+slug: lora-ltx25-cinemagraph
+version: "1.0.0"
+description: "Lightricks' official LoRA for LTX-2.5: turns a still picture into a looping cinemagraph: one element moves (water, clouds, neon, a reflection) while everything else stays frozen. Trained by Lightricks on LTX-2.5-22B; ltx-2.5-22b-lora-cinemagraph-0.9.safetensors. An add-on, not a model: install it and the Hub's video tools offer it on LTX-2.5 on Lightricks' pipelines (generate_video with lora). LTX-2.x Community License."
+author: "Lightricks"
+source: "community"
+website: "https://huggingface.co/Lightricks/LTX-2.5-22b-LoRA-Cinemagraph"
+category: video-gen
+categories:
+  - video-gen
+icon: "\U0001F3AC"
+logo: "/logos/lightricks.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 3
+  gpu: false
+status: experimental
+release_date: "2026-09"
+engine: "LTX-Pipelines"
+tags:
+  - lora
+  - image-to-video
+  - cinemagraph
+  - selective-motion
+  - ltx
+weights_gb: 0.20
+render_seconds: 191.9
+render_workload: "5 s 16:9 cinemagraph from one still, 1344x768, two-stage distilled (8 + 3 steps), on LTX-2.5 Distilled (LTX-Pipelines)"
+requires_hf_token: true
+# Lightricks gates each LoRA repo separately ("Agree and Access").
+gated_repos:
+  - "Lightricks/LTX-2.5-22b-LoRA-Cinemagraph"
+# Lightricks' own pipelines run it; SGLang's LTX-2.5 is not where it was tested.
+lora:
+  bases:
+    - ltxpipelines-ltx25-bf16
+  file: "/lora/ltx-2.5-22b-lora-cinemagraph-0.9.safetensors"
+  strength: 1.1
+# Settings it brings on top of its base model's.
+video_defaults:
+  seconds: 5
+  notes: "Cinemagraph: pass the still as `image` and start the prompt with the trigger word, the card's way: CINEMAGRAPH_MOTION, tripod locked-off static camera, zero camera movement, <who and what> remain completely frozen, only <the one element> moves, <how it moves>, everything else stays still, seamless natural loop. Strength 1.1 (the card's sweet spot is 1.0-1.2). Made for scenes without moving people."
+  source: "https://huggingface.co/Lightricks/LTX-2.5-22b-LoRA-Cinemagraph"

@@ -1,0 +1,55 @@
+services:
+  lora:
+    # TaoLive AIGC's (Alibaba) TaoMate 3-step LoRA for MiniMax-H3, the FL2VA release (stage 3),
+    # pinned to revision e40d1f68. Rank 128, alpha 128, FP32, native H3 names
+    # (blocks.N.attn.qkv_proj.lora_a / lora_b). The build stores it in the
+    # diffusers names the Hub's other H3 LoRAs use, in BF16, so it loads into
+    # SGLang and stacks with them.
+    #
+    # A LoRA recipe holds the adapter and nothing else: the image is the file
+    # under /lora. Nothing of it runs. When a render asks for it, the Hub
+    # copies it into the running base model's container and switches it on
+    # there through SGLang's /v1/set_lora (daemon/services/lora_service.py).
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('TaoLiveAIGC/TaoMate-H3-FL2VA', 'adapter_model.safetensors', revision='e40d1f68dd14bfe32f0d1bec02433aed96c135f1', local_dir='/src')"
+        RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+         && pip install --no-cache-dir safetensors numpy
+        RUN python3 <<'PY'
+        import os, re
+        from safetensors import safe_open
+        from safetensors.torch import save_file
+        # MiniMax-H3's native layer names -> the diffusers names the other
+        # H3 LoRAs ship in (lightx2v's Turbos, Face Swap, Character Swap),
+        # so the Hub can stack them on one layer. The fused qkv_proj becomes
+        # to_q / to_k / to_v: the same A for each, B cut in three -- exact.
+        LAYER = {"attn.qkv_proj": ["attn.to_q", "attn.to_k", "attn.to_v"], "attn.out_proj": ["attn.to_out.0"],
+                 "mlp.fc1": ["ff.net.0.proj"], "mlp.fc2": ["ff.net.2"]}
+        f, pairs = safe_open("/src/adapter_model.safetensors", "pt"), {}
+        for key in f.keys():
+            m = re.match(r"^(?:diffusion_model\.)?(token_refiner\.)?blocks\.(\d+)\.(attn\.qkv_proj|attn\.out_proj|mlp\.fc1|mlp\.fc2)\.(lora_A|lora_B|lora_a|lora_b)(?:\.weight)?$", key)
+            if not m:
+                raise SystemExit(key)
+            refiner, block, layer, part = m.groups()
+            layer = layer if "." in layer else layer.replace("_", ".", 1)
+            pairs.setdefault((refiner, block, layer), {})[part[-1] if part != "alpha" else "alpha"] = f.get_tensor(key)
+        out = {}
+        for (refiner, block, layer), t in pairs.items():
+            a, b = t.get("A", t.get("a", t.get("n"))), t.get("B", t.get("b", t.get("p")))
+            assert a.shape[0] == 128, (block, layer)
+            prefix = f"token_refiner.refiner_blocks.{block}" if refiner else f"transformer_blocks.{block}"
+            names = LAYER[layer]
+            for name, half in zip(names, b.chunk(len(names))):
+                out[f"{prefix}.{name}.lora_A.weight"] = a.bfloat16().contiguous()
+                out[f"{prefix}.{name}.lora_B.weight"] = half.bfloat16().contiguous()
+        os.makedirs("/lora")
+        save_file(out, "/lora/adapter_model.safetensors")
+        print(len(pairs), "layers ->", len(out) // 2)
+        PY
+        FROM scratch
+        COPY --from=weights /lora /lora
+    image: spark-ai-hub/lora-minimax-h3-taomate-fl2va:e40d1f68

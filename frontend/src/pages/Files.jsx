@@ -307,7 +307,9 @@ function FileCard({ file, picked, selecting, onToggle, onDelete, onOpen }) {
           <span className="text-xs text-text-dim font-label ml-auto">{size(file.bytes)}</span>
         </div>
         {file.model && (
-          <div className="text-xs text-text-muted truncate" title={file.model}>{file.model}</div>
+          // Wraps rather than cuts: the end of the label is what tells builds
+          // apart (variant, quantization, the LoRA it ran).
+          <div className="text-xs text-text-muted break-words">{file.model}</div>
         )}
         <div className="text-xs text-text-dim">{when(file.created)}</div>
         {shapeOf(file) && (

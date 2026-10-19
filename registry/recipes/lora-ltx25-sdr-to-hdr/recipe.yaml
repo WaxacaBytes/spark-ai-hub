@@ -1,0 +1,54 @@
+name: "LTX-2.5 SDR-to-HDR IC-LoRA"
+slug: lora-ltx25-sdr-to-hdr
+version: "1.0.0"
+description: "Lightricks' official IC-LoRA (video-to-video) for LTX-2.5: converts an ordinary (SDR) clip into HDR: a 10-bit BT.2020 HLG video with the highlight and shadow range a camera's HDR mode would capture. Trained by Lightricks on LTX-2.5-22B; ltx-2.5-22b-ic-lora-sdr-to-hdr-1.0.safetensors. An add-on, not a model: install it and the Hub's video tools offer it on LTX-2.5 on Lightricks' pipelines (generate_video with lora). LTX-2.x Community License."
+author: "Lightricks"
+source: "community"
+website: "https://huggingface.co/Lightricks/LTX-2.5-22b-IC-LoRA-SDR-To-HDR"
+category: video-gen
+categories:
+  - video-gen
+icon: "\U0001F3AC"
+logo: "/logos/lightricks.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 2
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 3
+  gpu: false
+status: experimental
+release_date: "2026-09"
+engine: "LTX-Pipelines"
+tags:
+  - lora
+  - ic-lora
+  - video-edit
+  - sdr-to-hdr
+  - hdr
+  - ltx
+weights_gb: 1.32
+render_seconds: 986.7
+render_workload: "4 s 1920x1080 clip to a 10-bit HLG HDR master, one stage, on LTX-2.5 Distilled (LTX-Pipelines)"
+requires_hf_token: true
+# Lightricks gates each LoRA repo separately ("Agree and Access").
+gated_repos:
+  - "Lightricks/LTX-2.5-22b-IC-LoRA-SDR-To-HDR"
+# Lightricks' own pipelines run it; SGLang's LTX-2.5 takes no clip.
+lora:
+  bases:
+    - ltxpipelines-ltx25-bf16
+  file: "/lora/ltx-2.5-22b-ic-lora-sdr-to-hdr-1.0.safetensors"
+  strength: 1.0
+  pipeline: "hdr"
+  text_embeddings: "/lora/ltx-2.5-22b-ic-lora-sdr-to-hdr-scene-emb.safetensors"
+# Settings it brings on top of its base model's.
+video_defaults:
+  seconds: 4
+  notes: "SDR to HDR: pass the clip as `video` and a few words describing it as the prompt (the tool needs one; the LoRA ignores it and uses the text embedding it ships with). Runs Lightricks' one-stage HDRICLoraPipeline. The result is a 10-bit HLG MP4: it looks right on HDR screens and flat on ordinary ones."
+  source: "https://huggingface.co/Lightricks/LTX-2.5-22b-IC-LoRA-SDR-To-HDR"

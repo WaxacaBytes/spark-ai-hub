@@ -112,7 +112,7 @@ class McpProtocolTests(unittest.TestCase):
         names = {t["name"] for t in r.json()["result"]["tools"]}
         self.assertEqual(names, {"generate_image", "edit_image", "get_image",
                                  "list_image_models", "generate_video", "get_video",
-                                 "list_video_models", "generate_3d", "get_3d", "list_3d_models",
+                                 "list_video_models", "get_prompt_guide", "generate_3d", "get_3d", "list_3d_models",
                                  "generate_music", "get_music",
                                  "create_upload", "create_download", "delete_file",
                                  "start_model", "stop_model", "web_search", "web_fetch",
@@ -283,6 +283,17 @@ class ImageServiceTests(unittest.TestCase):
         self.assertNotIn("true_cfg_scale", body)
         self.assertEqual(image_service.recommended(backend),
                          {"steps": 4, "guidance_scale": 1.0, "notes": "distilled", "source": "card"})
+
+    def test_true_cfg_brings_a_blank_negative_prompt_a_callers_own_wins(self):
+        from daemon.models.recipe import RecipeImageDefaults
+        defaults = RecipeImageDefaults(true_cfg_scale=3.0)
+        body = image_service.generation_body(image_service.Params(prompt="p"), 1, defaults)
+        self.assertEqual(body["negative_prompt"], " ")
+        body = image_service.generation_body(image_service.Params(prompt="p", negative_prompt="blur"), 1, defaults)
+        self.assertEqual(body["negative_prompt"], "blur")
+        body = image_service.generation_body(image_service.Params(prompt="p"), 1,
+                                             RecipeImageDefaults(true_cfg_scale=1.0))
+        self.assertNotIn("negative_prompt", body)
 
     def test_no_defaults_leaves_steps_to_the_server(self):
         backend = image_service.Backend(slug="k", kinds=frozenset({"generate"}), summary="k")

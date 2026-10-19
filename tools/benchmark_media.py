@@ -16,6 +16,9 @@ figure can be reproduced months later (they are the 2026-10-15 benchmark's):
          card's settings; one run. Orbit LoRAs get the same picture first and
          last with their own prompt; reference-only models (no text-to-video)
          get "<Picture 1> " + the prompt; face swap gets clip.mp4 + face.png.
+         A LoRA (lora-* recipe) is measured on its first installed base
+         model with its own workload; it gets a Time, never a Ready in,
+         which is its base model's.
   3D     object.png, seed 7, default steps; run twice, the second counts.
   music  LYRICS + STYLE, 60 s, seed 7; one run.
 
@@ -52,11 +55,15 @@ KEY_FILE = Path.home() / ".config" / "sah" / "key"
 
 SEED = 7
 VIDEO_SECONDS = 5
+# Describes frame.png, the first frame of clip.mp4: real daylight footage
+# (Coverr "Girl smiling and petting dogs", seconds 1.5-6.5) with a face, three
+# dogs, objects and textures, so every video test checks the same scene.
 VIDEO_PROMPT = (
-    "The ginger cat in the bookshop window wakes up, stretches and yawns, then turns its head to "
-    "watch the woman with the red umbrella walk past outside; rain keeps falling, raindrops ripple "
-    "the puddles, the warm window light flickers softly. Slow, steady push-in of the camera toward "
-    "the window. Gentle rain and distant city ambience.")
+    "On a sunny hillside terrace, the smiling blonde woman kneeling on the gravel strokes the "
+    "long-haired ginger dog; the dog pants happily and turns its head to look at her, she laughs, "
+    "a black dog trots past behind them, the breeze lifts her hair and the palm fronds, and the "
+    "white town on the hills shimmers in the distance. Steady handheld camera, natural daylight. "
+    "The dogs panting, her soft laughter, birdsong and a light breeze.")
 ORBIT_PROMPT = (
     "One frozen instant. Only the camera moves. In a continuous 360 orbit. Preserve every person and "
     "object in exactly the same world position, orientation, shape and pose throughout the shot. "
@@ -65,6 +72,17 @@ ORBIT_PROMPT = (
     "background motionless while retaining their natural appearance. Camera parallax is the only "
     "source of apparent movement. No cuts, zoom, morphing or added objects.")
 FACESWAP_PROMPT = "Faceswap: replace the woman's face in <Video 1> with the face of <Picture 1>."
+# The Day-to-Night IC-LoRA card's prompt shape, for clip.mp4's sunny terrace.
+NIGHT_PROMPT = (
+    "A realistic nighttime scene. The blonde woman kneels on the terrace stroking the long-haired "
+    "ginger dog under warm string lights and a dim streetlamp, the hillside town below glitters with "
+    "window lights under a dark starry sky, deep natural shadows on the gravel. Only the lighting "
+    "changes from day to night; identical composition, framing, camera movement and motion.")
+# The Character Swap card's own example prompt.
+CHARSWAP_PROMPT = ("Replace the selected person in <Video 1> with the character in <Picture 1>. "
+                   "Keep the reference character's face, hair and clothing. Follow the source "
+                   "performance's pose, gaze, expression and movement. Preserve the scene and "
+                   "the other people.")
 IMAGE_PROMPT = (
     "A cozy corner bookshop on a rainy evening, seen from the street: warm golden light spilling from "
     "tall windows onto wet cobblestones, a ginger cat asleep on a stack of books in the window, a "
@@ -137,19 +155,22 @@ def call(name, **args):
     return bool(res.get("isError")), text, res.get("structuredContent") or {}
 
 
+def upload_path(url: str) -> Path:
+    """Where the Hub keeps an upload served at /images/<id>.png or /videos/<id>.mp4."""
+    kind, name = url.rstrip("/").split("/")[-2:]
+    return DATA / kind / "uploads" / name
+
+
 def upload(path: Path) -> str:
     """The Hub URL of one input, uploaded once and reused while it exists."""
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     known = json.loads(UPLOADED.read_text()) if UPLOADED.exists() else {}
     url = known.get(digest)
-    if url:
-        try:
-            req = urllib.request.Request(url, method="HEAD", headers={
-                "Authorization": f"Bearer {KEY_FILE.read_text().strip()}"})
-            urllib.request.urlopen(req, timeout=30).close()
-            return url
-        except urllib.error.URLError:
-            pass
+    # Still there unless someone deleted it in My files. Checked on disk: the
+    # API key opens /mcp only, so asking for the URL itself is always refused,
+    # and that refusal used to re-upload every input on every run.
+    if url and upload_path(url).is_file():
+        return url
     # The way an agent uploads: a one-time link from create_upload.
     err, text, link = call("create_upload")
     if err:
@@ -243,8 +264,14 @@ def render(kind, args):
 
 # ------------------------------------------------------------- workloads
 
-def plan(slug, kind, entry, inputs):
-    """(arguments, number of runs, describe(result) -> render_workload)."""
+def plan(slug, kind, entry, inputs, model=None):
+    """(arguments, number of runs, describe(result) -> render_workload).
+    `model` is the base a LoRA `slug` runs on; None for a model itself."""
+    if model:
+        args, runs, describe = plan(slug, kind, entry, inputs)
+        args.update(model=model, lora=slug)
+        base = recipe(model)["name"]
+        return args, runs, lambda r: f"{describe(r)}, on {base}"
     tags = set(recipe(slug).get("tags") or [])
     if kind == "image":
         def describe(r):
@@ -267,9 +294,16 @@ def plan(slug, kind, entry, inputs):
     if "orbit-360" in tags:
         args.update(prompt=ORBIT_PROMPT, last_image=inputs["frame"])
         what = "orbit, same picture first and last"
-    elif "faceswap" in tags:
-        args.update(prompt=FACESWAP_PROMPT, video=inputs["clip"], image=inputs["face"])
+    elif "faceswap" in tags or "character-swap" in tags:
+        prompt = FACESWAP_PROMPT if "faceswap" in tags else CHARSWAP_PROMPT
+        args.update(prompt=prompt, video=inputs["clip"], image=inputs["face"])
         what = None
+    elif "relighting" in tags:
+        # An IC-LoRA edits the clip itself: no picture.
+        # 4 s: the card's training length (97 frames); clip.mp4 runs 5.
+        del args["image"]
+        args.update(prompt=NIGHT_PROMPT, video=inputs["clip"], seconds=4)
+        what = "clip relit to night"
     elif "text-to-video" not in entry.get("accepts", []):
         args["prompt"] = "<Picture 1> " + VIDEO_PROMPT
         what = "clip from one reference picture"
@@ -278,7 +312,8 @@ def plan(slug, kind, entry, inputs):
         size = r.get("size") or ""
         steps = f"{r['steps']} steps" if r.get("steps") else "server default steps"
         if what is None:
-            return f"new face on a {VIDEO_SECONDS} s {size} clip, {steps}"
+            swapped = "face" if "faceswap" in tags else "character"
+            return f"new {swapped} on a {VIDEO_SECONDS} s {size} clip, {steps}"
         return f"{clip_seconds(r):g} s 16:9 {what}, {size}, {steps}"
     return args, 1, describe
 
@@ -333,30 +368,38 @@ def main():
 
     for slug in opts.slugs:
         models = listing()
-        kind, entry = kind_of(slug, models)
-        others = [s for s in running_media(models) if s != slug]
+        lora = recipe(slug).get("lora") if (RECIPES_DIR / slug).is_dir() else None
+        model = slug
+        if lora:
+            model = next((b for b in lora["bases"] if b in models), None)
+            if model is None:
+                raise SystemExit(f"{slug}: none of its base models is installed ({', '.join(lora['bases'])}).")
+        kind, entry = kind_of(model, models)
+        others = [s for s in running_media(models) if s != model]
         for other in others:
             err, text, _ = call("stop_model", model=other)
             log(f"stop {other}: {text[:100]}")
             if err:
                 raise SystemExit(f"cannot measure {slug} alone: {text}")
         if opts.cold and entry.get("state") in ("ready", "starting"):
-            log(f"stop {slug} to time its load: {call('stop_model', model=slug)[1][:80]}")
+            log(f"stop {model} to time its load: {call('stop_model', model=model)[1][:80]}")
             entry["state"] = "stopped"
 
         load_s = None
         if entry.get("state") in ("ready", "starting"):
-            log(f"{slug} is already running: Ready in is not measured (use --cold)")
-            start(slug)
+            log(f"{model} is already running: Ready in is not measured (use --cold)")
+            start(model)
         else:
-            log(f"start {slug}")
-            load_s, text = start(slug)
+            log(f"start {model}")
+            load_s, text = start(model)
             if load_s is None:
-                log(f"  {slug} did not start: {text}")
+                log(f"  {model} did not start: {text}")
                 continue
             log(f"  ready in {load_s:.0f} s")
+        if lora:
+            load_s = None   # the base model's figure, not the LoRA's
 
-        args, runs, describe = plan(slug, kind, entry, inputs)
+        args, runs, describe = plan(slug, kind, entry, inputs, model if lora else None)
         times, result = [], {}
         for run in range(1, runs + 1):
             secs, result = render(kind, args)

@@ -156,6 +156,10 @@ async def launch_app(slug: str, user: dict, hub_url: str | None) -> dict:
     recipe = get_recipe(slug)
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
+    if recipe.lora:
+        raise HTTPException(status_code=400, detail=(
+            f"{recipe.name} is a LoRA: nothing of it runs. A render that asks for it "
+            f"loads it into one of {', '.join(recipe.lora.bases)}."))
     set_pending(slug, "launching")
     clear_ready(slug)
     # Last launch's failure is history the moment a new one starts; leaving it

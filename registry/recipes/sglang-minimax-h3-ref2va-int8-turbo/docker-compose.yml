@@ -73,6 +73,12 @@ services:
     environment:
       - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
       - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # LoRA add-ons (lora-* recipes) load into this model while it runs, and
+      # SGLang wraps the dynamic LoRA forward in @torch.compile, which fails on
+      # this image's torch ("'torch.Stream' object has no attribute
+      # 'cuda_stream'"). Disabling TorchDynamo runs that forward eagerly;
+      # SGLang's own --enable-torch-compile is off by default anyway.
+      - TORCHDYNAMO_DISABLE=1
     ipc: host
     shm_size: 16gb
     command:

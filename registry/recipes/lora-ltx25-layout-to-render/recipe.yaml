@@ -1,0 +1,56 @@
+name: "LTX-2.5 Layout-to-Render IC-LoRA"
+slug: lora-ltx25-layout-to-render
+version: "1.0.0"
+description: "Lightricks' official IC-LoRA (video-to-video) for LTX-2.5: turns a rough layout or previz clip (blocking, grey boxes, a simple 3D pass) into a photoreal shot that keeps its geometry and camera move; give it a first frame too to set the look. Trained by Lightricks on LTX-2.5-22B; ltx-2.5-22b-ic-lora-layout-to-render-1.0.safetensors. An add-on, not a model: install it and the Hub's video tools offer it on LTX-2.5 on Lightricks' pipelines (generate_video with lora). LTX-2.x Community License."
+author: "Lightricks"
+source: "community"
+website: "https://huggingface.co/Lightricks/LTX-2.5-22b-IC-LoRA-Layout-To-Render"
+category: video-gen
+categories:
+  - video-gen
+icon: "\U0001F3AC"
+logo: "/logos/lightricks.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 2
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 3
+  gpu: false
+status: experimental
+release_date: "2026-09"
+engine: "LTX-Pipelines"
+tags:
+  - lora
+  - ic-lora
+  - video-edit
+  - layout-to-render
+  - camera-control
+  - vfx
+  - ltx
+weights_gb: 1.31
+render_seconds: 171.8
+render_workload: "4 s 16:9 clay layout rendered in the look of a first frame, 1344x768, two-stage distilled (8 + 3 steps), on LTX-2.5 Distilled (LTX-Pipelines)"
+requires_hf_token: true
+# Lightricks gates each LoRA repo separately ("Agree and Access").
+gated_repos:
+  - "Lightricks/LTX-2.5-22b-IC-LoRA-Layout-To-Render"
+# Lightricks' own pipelines run it; SGLang's LTX-2.5 takes no clip.
+lora:
+  bases:
+    - ltxpipelines-ltx25-bf16
+  file: "/lora/ltx-2.5-22b-ic-lora-layout-to-render-1.0.safetensors"
+  strength: 1.0
+  # An IC-LoRA whose file lacks the reference_downscale_factor metadata the
+  # engine otherwise recognizes them by.
+  pipeline: "ic"
+# Settings it brings on top of its base model's.
+video_defaults:
+  seconds: 4
+  notes: "Layout to render: pass the layout clip as `video` (it drives geometry and camera) and, optionally, a finished first frame as `image` (it sets the look). Describe the shot, the card's way: <the scene and camera move>. Match the first frame: <season, light, materials>. Keep the same <objects> and camera as the driver. Photoreal."
+  source: "https://huggingface.co/Lightricks/LTX-2.5-22b-IC-LoRA-Layout-To-Render"

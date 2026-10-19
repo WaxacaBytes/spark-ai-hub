@@ -1,0 +1,38 @@
+services:
+  lora:
+    # Akatz Labs' character-swap adapter for MiniMax-H3 Ref2VA, V1.5 (the
+    # card's recommended file; 155 MB, rank 16, alpha 16), pinned to revision
+    # d06323b7 and checked against the card's SHA-256. It replaces a person in
+    # a source clip with the character from a reference picture -- face, hair
+    # and clothing -- following the clip's pose, gaze, expression and motion.
+    # An individual author's release; it is the adapter's original and only
+    # source. The card's tested setup is the Ref2VA INT8 DiT with the 8-step
+    # Turbo distillation, which is sglang-minimax-h3-ref2va-int8-turbo.
+    #
+    # Published in ComfyUI/ai-toolkit layout (diffusion_model.blocks.N.attn.
+    # qkv_proj..., one A shared across q/k/v), which SGLang loads as a silent
+    # no-op, so it is REKEYED here by convert_lora.py beside this file: renames,
+    # slices and a row swap of the raw bytes, nothing recomputed. The same
+    # converter was validated 624/624 tensors bitwise against lightx2v's own
+    # diffusers export. 208 modules: every block's qkv, out, fc1 and fc2 plus
+    # the two token-refiner blocks; no AdaLN.
+    #
+    # A LoRA recipe holds the adapter and nothing else: the image is the file
+    # under /lora, so installing it adds a few hundred MB and uninstalling it
+    # removes them. Nothing of it runs. When a render asks for it, the Hub
+    # copies the file into a running base model's container and switches it
+    # on there through SGLang's /v1/set_lora (daemon/services/lora_service.py).
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub numpy
+        RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('akatz-ai/MiniMax-H3-Character-Swap-LoRA', 'h3_character_swap_v1.5.safetensors', revision='d06323b7c8e70e97cdab48b78a1e05f786c8cba9', local_dir='/src')" \
+         && echo "8f2c3c3eba161df8d0c6099598b4730f641f5ce01e04cd16d2427cff8a35218f  /src/h3_character_swap_v1.5.safetensors" | sha256sum -c -
+        COPY convert_lora.py /tmp/convert_lora.py
+        RUN python3 /tmp/convert_lora.py /src/h3_character_swap_v1.5.safetensors \
+              /lora/charswap_v15_ref2va_diffusers.safetensors
+        FROM scratch
+        COPY --from=weights /lora /lora
+    image: spark-ai-hub/lora-minimax-h3-charswap:v1.5

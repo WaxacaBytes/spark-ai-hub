@@ -1,0 +1,46 @@
+services:
+  lora:
+    # lodestones' 8-step data-space DMD distillation of MOSS-Image-Base (update
+    # 12000, EMA), pinned to revision b9ea04f0: the card's recommended use, the
+    # LoRA alone on the stock transformer and the standard Euler sampler.
+    # Its keys are kohya-style (diffusion_model.layers.N.proj.X.lora_down /
+    # lora_up / alpha). The build renames them to the native names SGLang's
+    # MOSS-Image reads (layers.N.proj.X.lora_A / lora_B, as other MOSS LoRAs
+    # ship them) and folds each layer's alpha/rank into lora_B, so the file
+    # runs at alpha = rank (scale 1). Kept in FP32, as published: its card
+    # notes the distillation delta is finer than BF16's rounding step.
+    #
+    # A LoRA recipe holds the adapter and nothing else: the image is the file
+    # under /lora. Nothing of it runs. When a render asks for it, the Hub
+    # copies it into the running base model's container and switches it on
+    # there through SGLang's /v1/set_lora (daemon/services/lora_service.py).
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('lodestones/MOSS-Image-Base-8-steps-dmd', 'lora.safetensors', revision='b9ea04f07123bc4e80b2e07a6eea756b92b25ef5', local_dir='/src')"
+        RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+         && pip install --no-cache-dir safetensors numpy
+        RUN python3 <<'PY'
+        import os, re
+        from safetensors import safe_open
+        from safetensors.torch import save_file
+        f, pairs = safe_open("/src/lora.safetensors", "pt"), {}
+        for key in f.keys():
+            layer, part = re.match(r"^diffusion_model\.(layers\.\d+\.proj\.\w+)\.(lora_down|lora_up|alpha)", key).groups()
+            pairs.setdefault(layer, {})[part] = f.get_tensor(key).float()
+        out = {}
+        for layer, t in pairs.items():
+            rank = t["lora_down"].shape[0]
+            assert rank == 128, (layer, rank)
+            out[f"{layer}.lora_A.weight"] = t["lora_down"].contiguous()
+            out[f"{layer}.lora_B.weight"] = (t["lora_up"] * (t["alpha"].item() / rank)).contiguous()
+        os.makedirs("/lora")
+        save_file(out, "/lora/moss_image_base_dmd_8step.safetensors")
+        print(len(pairs), "layers")
+        PY
+        FROM scratch
+        COPY --from=weights /lora /lora
+    image: spark-ai-hub/lora-moss-image-base-dmd-8step:b9ea04f0

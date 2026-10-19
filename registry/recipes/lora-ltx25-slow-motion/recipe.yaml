@@ -1,0 +1,55 @@
+name: "LTX-2.5 Slow-Motion Control LoRA"
+slug: lora-ltx25-slow-motion
+version: "1.0.0"
+description: "Lightricks' official LoRA for LTX-2.5: renders real slow motion from a first frame -- splashes, hair, cloth, liquids, punches -- like a high-speed camera, played back at 24 fps. Trained by Lightricks on LTX-2.5-22B; ltx-2.5-22b-lora-slow-motion-control-1.0.safetensors. An add-on, not a model: install it and the Hub's video tools offer it on LTX-2.5 on Lightricks' pipelines (generate_video with lora). LTX-2.x Community License."
+author: "Lightricks"
+source: "community"
+website: "https://huggingface.co/Lightricks/LTX-2.5-22b-LoRA-Slow-Motion-Control"
+category: video-gen
+categories:
+  - video-gen
+icon: "\U0001F3AC"
+logo: "/logos/lightricks.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 3
+  gpu: false
+status: experimental
+release_date: "2026-09"
+engine: "LTX-Pipelines"
+tags:
+  - lora
+  - image-to-video
+  - slow-motion
+  - speed-control
+  - ltx
+weights_gb: 0.65
+render_seconds: 147.9
+render_workload: "5 s 16:9 clip in 5x slow motion from a first frame, no sound, 1344x768, two-stage distilled (8 + 3 steps), on LTX-2.5 Distilled (LTX-Pipelines)"
+requires_hf_token: true
+# Lightricks gates each LoRA repo separately ("Agree and Access").
+gated_repos:
+  - "Lightricks/LTX-2.5-22b-LoRA-Slow-Motion-Control"
+# Lightricks' own pipelines run it; SGLang's LTX-2.5 is not where it was tested.
+lora:
+  bases:
+    - ltxpipelines-ltx25-bf16
+  file: "/lora/ltx-2.5-22b-lora-slow-motion-control-1.0.safetensors"
+  strength: 1.0
+  pipeline: "slow-motion"
+# Settings it brings on top of its base model's.
+video_defaults:
+  seconds: 5
+  # The card's speed node default: motion sampled at 24 / 0.2 = 120 fps.
+  extra_params:
+    speed: 0.2
+  notes: "Slow motion: pass a first frame as `image` and write a normal caption of the action -- no slow-motion words; the card says the speed setting alone drives it. Renders 5x slow motion (speed 0.2, the card's default: motion sampled as if at 120 fps, played at 24). Slow-motion clips have no soundtrack."
+  source: "https://huggingface.co/Lightricks/LTX-2.5-22b-LoRA-Slow-Motion-Control"

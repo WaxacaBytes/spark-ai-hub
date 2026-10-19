@@ -1,0 +1,30 @@
+services:
+  lora:
+    # Lightricks' Day-to-Night IC-LoRA for LTX-2.5 (rank 32), pinned to
+    # revision 52aac758. Its metadata carries reference_downscale_factor 1:
+    # the reference clip is read at the output's own size.
+    #
+    # A LoRA recipe holds the adapter and nothing else: the image is the file
+    # under /lora, so installing it adds a few hundred MB and uninstalling it
+    # removes them. Nothing of it runs. When a render asks for it, the Hub
+    # copies the file into the running LTX-2.5 engine and switches it on there
+    # through /v1/set_lora (daemon/services/lora_service.py). Gated: the Hub's
+    # HF token comes in as a build secret and never lands in a layer.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('Lightricks/LTX-2.5-22b-IC-LoRA-Day-To-Night', 'ltx-2.5-22b-ic-lora-day-to-night-0.9.safetensors', revision='52aac758c153f9a74a6f6fe08cf92d2167f3c184', local_dir='/lora')"
+        FROM scratch
+        COPY --from=weights /lora /lora
+    image: spark-ai-hub/lora-ltx25-day-to-night:52aac758
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN

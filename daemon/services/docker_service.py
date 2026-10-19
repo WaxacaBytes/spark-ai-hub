@@ -552,11 +552,14 @@ async def _prune_orphaned_images() -> str:
     (running or stopped) -- the latter protects anything outside the Hub's
     own management (e.g. a manually-run app) without needing to know its
     name. Everything else, including plain dangling layers, is removed.
-    Individual images still held by a concurrent build fail to remove and are
-    silently skipped, not treated as an error.
+    A recipe still installing counts as installed: its image is built before
+    its installed_recipes row is written, so a concurrent install's prune in
+    that window would otherwise delete it (seen with two LoRAs installed
+    together). Images that fail to remove are skipped, not an error.
     """
     keep: set[str] = set()
-    for slug in await get_installed_slugs():
+    installing = {slug for slug, action in _pending_actions.items() if action == "installing"}
+    for slug in await get_installed_slugs() | installing:
         keep.update(_parse_compose_images(slug))
 
     proc = await asyncio.create_subprocess_exec(
@@ -692,10 +695,13 @@ async def update_recipe(slug: str, api_key: str | None = None,
 
     recipe = get_recipe(slug)
     build_recipe = bool(recipe and recipe.docker and recipe.docker.build)
+    # An update replaces the image. Only what was running is recreated on it:
+    # a stopped app stays stopped, and a LoRA image has nothing in it to start.
+    running = not (recipe and recipe.lora) and await is_recipe_running(slug)
 
     if build_recipe:
         yield f"[spark-ai-hub] Rebuilding local image for {slug}..."
-        up_cmd = _compose_cmd(slug, recipe_dir) + ["up", "-d", "--build"]
+        up_cmd = _compose_cmd(slug, recipe_dir) + (["up", "-d", "--build"] if running else ["build"])
         yield f"[spark-ai-hub] Running: {' '.join(up_cmd)}"
 
         # Same env as install: the rebuild re-runs the weights stage, and a
@@ -752,6 +758,10 @@ async def update_recipe(slug: str, api_key: str | None = None,
 
     if proc.returncode != 0:
         yield f"[spark-ai-hub] Pull failed with exit code {proc.returncode}"
+        return
+    if not running:
+        yield f"[spark-ai-hub] Pruning orphaned images... {await _prune_orphaned_images()}"
+        yield f"[spark-ai-hub] {slug} updated successfully!"
         return
 
     # Phase 2: Recreate containers with new images

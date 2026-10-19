@@ -1,0 +1,49 @@
+name: "MOSS-Image Base 8-step DMD LoRA"
+slug: lora-moss-image-base-dmd-8step
+version: "1.0.0"
+description: "lodestones' few-step LoRA for MOSS-Image Base: a picture in 4-8 model passes with no CFG instead of 50 with CFG 3 (100 passes). A work-in-progress data-space DMD distillation (update 12000). An add-on, not a model: install it and the Hub's image tools offer it on MOSS-Image Base (generate_image with lora). Apache 2.0."
+author: "lodestones · for MOSS-Image"
+source: "community"
+website: "https://huggingface.co/lodestones/MOSS-Image-Base-8-steps-dmd"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/openmoss.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 2
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 3
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - turbo
+  - text-to-image
+  - moss
+weights_gb: 1.3
+render_seconds: 13.0
+render_workload: "1024x1024, 8 steps, CFG 1, on MOSS-Image Base"
+requires_hf_token: false
+# Where it loads (the first is the one it was made and measured on), and how.
+lora:
+  bases:
+    - sglang-moss-image-base
+  file: "/lora/moss_image_base_dmd_8step.safetensors"
+  strength: 1.0
+  alpha: 128
+# The card's settings.
+image_defaults:
+  steps: 8
+  guidance_scale: 1.0
+  notes: "Fast text-to-image: 8 steps (4-8 work), no CFG (guidance 1), the release scheduler (shift 5), strength 1, per its card. Trained on compact-JSON scene_graph captions; plain prompts work too. A work in progress per its card."
+  source: "https://huggingface.co/lodestones/MOSS-Image-Base-8-steps-dmd"

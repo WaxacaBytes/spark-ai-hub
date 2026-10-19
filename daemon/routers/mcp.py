@@ -92,6 +92,14 @@ INSTRUCTIONS = (
     "needed between calls. Keep calling in the same turn instead of telling the user "
     "to wait, and never start the same render again: that queues a second one. "
     "start_model works the same way: call it again until the model is ready.\n\n"
+    "Some image and video models take LoRAs: add-ons listed under a model's `loras` in "
+    "list_image_models or list_video_models that teach it one trick, such as reshooting a "
+    "picture from another camera angle or swapping a character into a clip. Pass the LoRA's "
+    "id in `lora` to edit_image, generate_image or generate_video and follow its recommended "
+    "notes; the Hub loads it into the model. Several LoRAs of one model run together when "
+    "listed together, such as a Turbo (fewer steps) plus an effect; a Turbo's step count "
+    "and shift are the ones used. A video model marked `prompt_guide` was trained on prompts "
+    "in a set format: call get_prompt_guide for it before writing its prompt.\n\n"
     "Makes decisions with decide: a decision model on the Spark, such as Cloudflare's Clef "
     "(list_decision_models names them), answers typed questions "
     "(a choice among named options, a score, a yes/no) about text, JSON, images and videos "
@@ -185,6 +193,12 @@ TOOLS = [
                           "description": _STEPS_HINT},
                 "model": {"type": "string",
                           "description": "A model id from list_image_models. Omit to use whichever is running."},
+                "lora": {"type": "array", "items": {"type": "string"},
+                         "description": ("LoRA ids from a model's `loras` in list_image_models: "
+                                         "add-ons that each teach that model one trick (reshoot the "
+                                         "subject from another camera angle, render in fewer "
+                                         "steps, ...). List several to run them together. Follow "
+                                         "their `recommended` notes. Omit for the model on its own.")},
             },
             "required": ["prompt"],
             "additionalProperties": False,
@@ -209,6 +223,12 @@ TOOLS = [
                           "description": _STEPS_HINT},
                 "model": {"type": "string",
                           "description": "A model id from list_image_models. Omit to use whichever is running."},
+                "lora": {"type": "array", "items": {"type": "string"},
+                         "description": ("LoRA ids from a model's `loras` in list_image_models: "
+                                         "add-ons that each teach that model one trick (reshoot the "
+                                         "subject from another camera angle, render in fewer "
+                                         "steps, ...). List several to run them together. Follow "
+                                         "their `recommended` notes. Omit for the model on its own.")},
             },
             "required": ["prompt", "images"],
             "additionalProperties": False,
@@ -279,6 +299,13 @@ TOOLS = [
                           "description": "Leave this out: the model card's setting is used."},
                 "model": {"type": "string",
                           "description": "A model id from list_video_models. Omit to use whichever is running."},
+                "lora": {"type": "array", "items": {"type": "string"},
+                         "description": ("LoRA ids from a model's `loras` in list_video_models: "
+                                         "add-ons that each teach that model one trick (swap a "
+                                         "character, orbit a subject, render in fewer steps). List "
+                                         "several to run them together, e.g. a Turbo plus an orbit. "
+                                         "Follow their `recommended` notes. Omit for the model on "
+                                         "its own.")},
             },
             "required": ["prompt"],
             "additionalProperties": False,
@@ -307,6 +334,21 @@ TOOLS = [
                         "running, and the settings its model card recommends; plus the "
                         "memory free to start one."),
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "annotations": {"readOnlyHint": True},
+    },
+    {
+        "name": "get_prompt_guide",
+        "title": "Get a model's prompt guide",
+        "description": ("How to write a prompt for a video model that list_video_models marks "
+                        "with prompt_guide: the format it was trained on (sections, timing, "
+                        "speech and sound), condensed from its maker's docs. Read it before "
+                        "writing that model's prompt."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"model": {"type": "string", "description": "A model id from list_video_models."}},
+            "required": ["model"],
+            "additionalProperties": False,
+        },
         "annotations": {"readOnlyHint": True},
     },
     {
@@ -590,6 +632,12 @@ def _sse(message: dict) -> str:
 # ------------------------------------------------------------------- tools
 
 
+def _loras(args: dict) -> list[str]:
+    """The LoRA ids asked for: a list, or one id as a plain string."""
+    value = args.get("lora") or []
+    return [str(v).strip() for v in ([value] if isinstance(value, str) else value) if str(v).strip()]
+
+
 def _int(args: dict, key: str) -> int | None:
     value = args.get(key)
     if value is None or value == "":
@@ -659,6 +707,8 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             return _music_result(info, origin) if info["kind"] == "music" else _image_result(info, origin)
         if name == "list_video_models":
             return _text(await _with_memory(await video_service.list_models()))
+        if name == "get_prompt_guide":
+            return _text(video_service.prompt_guide(str(args.get("model") or "").strip()))
         if name == "list_3d_models":
             return _text(await _with_memory(await mesh_service.list_models()))
         if name == "generate_3d":
@@ -692,7 +742,8 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
                 audio=str(args.get("audio") or "").strip() or None,
                 seconds=_int(args, "seconds"), aspect_ratio=str(args.get("aspect_ratio") or "") or None,
                 seed=_int(args, "seed"), steps=_int(args, "steps"),
-                model=str(args.get("model") or "").strip() or None, user=user,
+                model=str(args.get("model") or "").strip() or None,
+                lora=_loras(args), user=user,
             )
             return _started("get_video", info["job_id"], info["model"], info)
 
@@ -714,10 +765,13 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             if not isinstance(images, list) or not 1 <= len(images) <= 3:
                 raise image_service.ImageError("'images' must list one to three images.")
             images = [str(i) for i in images]
+        lora = _loras(args)
         # Picked now, so "no model is running" comes back from this call, not the first get.
-        slug = (await image_service.pick_backend(kind, str(args.get("model") or "").strip() or None)).slug
+        slug = (await image_service.pick_backend(
+            kind, str(args.get("model") or "").strip() or None,
+            await image_service.installed_lora(lora))).slug
         job_id = image_service.start_job(
-            kind, lambda: image_service.run(kind, params, images, slug, user=user), slug, user)
+            kind, lambda: image_service.run(kind, params, images, slug, user=user, lora=lora), slug, user)
         return _started("get_image", job_id, slug)
     except (image_service.ImageError, web_service.WebError) as exc:
         return _text(str(exc), is_error=True)

@@ -1,0 +1,63 @@
+name: "MOSS-Image Base"
+slug: sglang-moss-image-base
+version: "1.0.0"
+description: "MOSS-Image-Base, OpenMOSS's pre-trained text-to-image model: a 5B diffusion transformer with a Qwen3.5-9B text encoder and the FLUX.2 small decoder. No post-training or distillation, released as the starting point for fine-tunes and LoRAs, so it wants the full 50 steps and CFG 3-6. Text-to-image only (no editing): natural-language prompts, tag lists, or a JSON layout that places text and objects by pixel box. Renders text in English and Chinese. Any aspect ratio, 0.25 to 4 megapixels in multiples of 16. Served by SGLang Diffusion on the OpenAI images API; your coding agents reach it through the Hub's image tools (generate_image). Everything stays resident on the GPU at BF16. Apache 2.0."
+author: "OpenMOSS"
+source: "community"
+website: "https://huggingface.co/OpenMOSS-Team/MOSS-Image-Base"
+upstream: "https://github.com/OpenMOSS/MOSS-Image"
+category: image-gen
+categories:
+  - image-gen
+tags:
+  - openai-images
+  - text-to-image
+  - moss
+  - diffusion
+  - sglang
+icon: "\U0001F5BC️"
+logo: "/logos/openmoss.png"
+requirements:
+  min_memory_gb: 40
+  recommended_memory_gb: 48
+  disk_gb: 60
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP image tools call its API. Proxied so
+  # the Hub reaches it at /run/sglang-moss-image-base/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 20
+  gpu: true
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+# "Efficient image generation with a 5B backbone" (OpenMOSS README); the text
+# encoder is Qwen3.5-9B.
+params_b: 5
+arch: dense
+quantization: "BF16"
+weights_gb: 27.3
+render_seconds: 71.6
+render_workload: "1024x1024, 50 steps"
+load_seconds: 95
+requires_hf_token: false
+# The Hub's image tools use these whenever an agent leaves them unset. From the
+# user guide: 50 steps or more, CFG 3 (3-6; raise it for short prompts), shift
+# 5 (SGLang's pipeline default). SGLang also skips layer 22 in the
+# unconditional pass by default, as the official pipeline does.
+image_defaults:
+  steps: 50
+  guidance_scale: 3.0
+  notes: "Text-to-image only. 50 steps, CFG 3 (the guide's range is 3-6: raise it for short prompts). Best at 1, 1.5 or 2 megapixels; any aspect ratio from 512x512 up to 2K, sides in multiples of 16. Quote the exact words to render; English and Chinese text. A JSON layout (summary.caption + items with yxyx pixel boxes centred on the canvas) as the prompt places text and objects where you put them."
+  source: "https://github.com/OpenMOSS/MOSS-Image/blob/main/USERGUIDE.md"
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "MOSS-Image-Base"
+  api_key: "<API_KEY>"
+  curl_example: "curl <HUB>/v1/images/generations -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"MOSS-Image-Base\", \"prompt\": \"A sticky note on a fridge, handwritten: Buy milk and eggs\", \"size\": \"1024x1024\"}'"

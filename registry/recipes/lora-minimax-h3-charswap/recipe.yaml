@@ -1,0 +1,50 @@
+name: "MiniMax-H3 Ref2VA Character Swap LoRA"
+slug: lora-minimax-h3-charswap
+version: "1.0.0"
+description: "A LoRA for MiniMax-H3's reference-conditioning (Ref2VA) models: give it a clip plus one picture of a character, and it regenerates the clip with that character in place of a person in it -- face, hair and clothing -- following the clip's pose, gaze, expression and movement, soundtrack included. Akatz Labs' V1.5 (the card's recommended file), 155 MB, rank 16. Experimental per its author: identity, timing and expressions can drift on long or busy shots. An add-on, not a model: install it and the Hub's video tools offer it on its base models (generate_video with lora). MiniMax-H3 Community License."
+author: "Akatz Labs · for MiniMax-H3"
+source: "community"
+website: "https://huggingface.co/akatz-ai/MiniMax-H3-Character-Swap-LoRA"
+category: video-gen
+categories:
+  - video-gen
+icon: "\U0001F3AC"
+logo: "/logos/minimax.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - character-swap
+  - image-to-video
+  - video-edit
+  - video-audio
+  - minimax
+weights_gb: 0.16
+render_seconds: 1914.0
+render_workload: "new character on a 5 s 1344x768 clip, 9 steps, on MiniMax-H3 Ref2VA INT8 Turbo"
+requires_hf_token: false
+# Where it loads (the first is the one it was made and measured on), and how.
+lora:
+  bases:
+    - sglang-minimax-h3-ref2va-int8-turbo
+    - sglang-minimax-h3-ref2va-fp8
+  file: "/lora/charswap_v15_ref2va_diffusers.safetensors"
+  strength: 1.0
+  alpha: 16
+# Settings it brings on top of its base model's.
+video_defaults:
+  notes: "Character swap: pass the source clip as `video` AND the character picture as `image` in the same call, and say who to replace, e.g. the card's prompt: Replace the selected person in <Video 1> with the character in <Picture 1>. Keep the reference character's face, hair and clothing. Follow the source performance's pose, gaze, expression and movement. Preserve the scene and the other people. Its author recommends short continuous shots (no cuts). Tested by its author on the Ref2VA INT8 Turbo model. 8 denoising passes on the Turbo base (steps 9), 768p short edge at 24 fps, clips 4-15 s. References: a clip (video), pictures (image, then images), a sound (audio); name them in the prompt as <Video 1>, <Picture 1>, <Picture 2>, <Audio 1>."
+  source: "https://huggingface.co/akatz-ai/MiniMax-H3-Character-Swap-LoRA"

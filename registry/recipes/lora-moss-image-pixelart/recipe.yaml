@@ -1,0 +1,49 @@
+name: "MOSS-Image PixelArt 16x16 LoRA"
+slug: lora-moss-image-pixelart
+version: "1.0.0"
+description: "A style LoRA for MOSS-Image Base that draws 16x16 pixel-art game icons: one item per picture, dark outline, flat shading, on a flat magenta background that comes off with a colour key. Angais' PixelArt 16x16, rank 32. An add-on, not a model: install it and the Hub's image tools offer it on MOSS-Image Base (generate_image with lora). Apache 2.0."
+author: "Angais · for MOSS-Image"
+source: "community"
+website: "https://huggingface.co/Angais/MOSS-Image-PixelArt-16x16"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/openmoss.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 2
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 3
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - pixel-art
+  - text-to-image
+  - moss
+weights_gb: 0.25
+render_seconds: 87.8
+render_workload: "1024x1024, 50 steps, CFG 3, on MOSS-Image Base"
+requires_hf_token: false
+# Where it loads (the first is the one it was made and measured on), and how.
+lora:
+  bases:
+    - sglang-moss-image-base
+  file: "/lora/moss-image-pixelart-16x16.safetensors"
+  strength: 1.0
+  alpha: 32
+# The card's settings.
+image_defaults:
+  steps: 50
+  guidance_scale: 3.0
+  notes: "Pixel-art icons: 512x512 (aspect_ratio 1:1), 50 steps, CFG 3, and the card's prompt: pixel art 16x16 game icon, <the item>, dark outline, plain magenta background. Cut the magenta (#FF00FF) out for a transparent sprite. Objects it never saw come out as well as trained ones, per its card."
+  source: "https://huggingface.co/Angais/MOSS-Image-PixelArt-16x16"

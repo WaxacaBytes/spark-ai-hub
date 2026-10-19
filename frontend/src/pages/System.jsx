@@ -102,7 +102,7 @@ export default function System() {
     : headroom != null && headroom < 15 ? 'var(--warning)' : 'var(--tertiary)'
   const ramFree = metrics.ram_total_gb - metrics.ram_used_gb
   const size = (gb) => (gb >= 1000 ? `${(gb / 1024).toFixed(1)} TB` : `${Math.round(gb)} GB`)
-  const freeColor = (free, total) => (free / total < 0.1 ? 'var(--error)' : free / total < 0.25 ? 'var(--warning)' : 'var(--primary)')
+  const freeColor = (free, total) => (free / total <= 0.1 ? 'var(--error)' : free / total <= 0.25 ? 'var(--warning)' : 'var(--primary)')
 
   return (
     <div className="px-6 py-6 pb-12">
@@ -120,6 +120,8 @@ export default function System() {
           label="GPU" sublabel={metrics.gpu_name || 'Blackwell'}
           unit="%" color="var(--tertiary)"
         />
+        {/* Every ring shows what is used, like the sidebar's clocks. What is
+            free is the big text under it, never a ring. */}
         <CircularGauge
           value={Math.round(ramPct)} max={100}
           label="Memory" sublabel={`${Math.round(metrics.ram_total_gb)} GB shared by CPU and GPU`}

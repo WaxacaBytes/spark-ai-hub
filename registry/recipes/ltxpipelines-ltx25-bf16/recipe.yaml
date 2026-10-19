@@ -1,0 +1,64 @@
+name: "LTX-2.5 Distilled"
+slug: ltxpipelines-ltx25-bf16
+version: "1.0.0"
+description: "Lightricks' LTX-2.5, the 22B audio-video model, on Lightricks' own inference code: video with its own synchronized sound from a text prompt or a first frame, in their two-stage distilled recipe (half size, 2x latent upsample, full-size refine) at 1344x768, and video-to-video through IC-LoRAs (lora-ltx25-* recipes: Day-to-Night, Colorization, Clean Plate, ...) that the Hub loads into it per render. Your coding agents reach it through the Hub's video tools (generate_video / get_video). LTX-2.x Community License (free under $10M annual revenue)."
+author: "Lightricks"
+source: "community"
+website: "https://huggingface.co/Lightricks/LTX-2.5"
+upstream: "https://github.com/Lightricks/LTX-2"
+category: video-gen
+categories:
+  - video-gen
+tags:
+  - openai-videos
+  - text-to-video
+  - image-to-video
+  - video-audio
+  - ltx
+  - diffusion
+  - bf16
+icon: "\U0001F3AC"
+logo: "/logos/lightricks.png"
+requirements:
+  # Lightricks' pipelines build each model when its stage runs and free it
+  # after: the 42 GB DiT and the 26 GB Gemma-4-12B are never resident together.
+  min_memory_gb: 80
+  recommended_memory_gb: 96
+  disk_gb: 125
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP video tools call its API. Proxied so
+  # the Hub reaches it at /run/ltxpipelines-ltx25-bf16/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 45
+  gpu: true
+status: experimental
+release_date: "2026-10"
+engine: "LTX-Pipelines"
+params_b: 22
+arch: dense
+quantization: "BF16"
+weights_gb: 114.7
+render_seconds: 151.6
+render_workload: "5 s 16:9 clip from a first frame, 1344x768, two-stage distilled (8 + 3 steps)"
+load_seconds: 19
+requires_hf_token: true
+gated_repos:
+  - "Lightricks/LTX-2.5"
+# Lightricks' DistilledPipeline / ICLoraPipeline defaults: 24 fps, frame
+# counts of 8k+1 (the server rounds a length in seconds to one), sides in
+# multiples of 64; the distilled sigma schedules are fixed (8 steps at half
+# size, 3 at full size), so steps and guidance are not knobs.
+video_defaults:
+  fps: 24
+  seconds: 5
+  max_seconds: 15
+  size: "1344x768"
+  notes: "Clips of 1-15 s at 24 fps, 1344x768 (16:9) or 768x1344 (9:16), from text or from a first frame (image). Sound is generated with the picture: describe speech (quote the words), effects and ambience in plain sentences, actions in order, and what the camera does (Lightricks' prompting guide). The distilled schedule is fixed (8 steps at half size, then 3 at full size); steps and guidance are not knobs. With an IC-LoRA loaded (lora=...), give a clip (video) and describe the result you want: the clip is the in-context reference the LoRA edits."
+  source: "https://github.com/Lightricks/LTX-2/blob/main/packages/ltx-pipelines/docs/pipelines.md"

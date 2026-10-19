@@ -1,0 +1,47 @@
+name: "Qwen-Image-2.1 QMA Camera Angles LoRA"
+slug: lora-qwen-image-21-qma-camera-angles
+version: "1.0.0"
+description: "A camera-control LoRA for Qwen-Image-2.1: give it a picture and a camera position, and it renders the same subject, scene and style from there -- 8 azimuths around it, 4 heights (low angle, eye level, elevated, high angle) and 3 distances (close-up, medium, wide): all 96 combinations. Trained on photographs and Blender renders of whole scenes (rank 64, 3,000 steps). Quarter views, height and distance changes are the most reliable; big orbits on wide landscapes can stop short. An add-on, not a model: install it and the Hub's image tools offer it on Qwen-Image-2.1 (edit_image with lora). Apache 2.0."
+author: "gribbliest · for Qwen-Image-2.1"
+source: "community"
+website: "https://huggingface.co/gribbliest/qwen-image-2.1-qma-camera-angles"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/qwen.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - image-edit
+  - camera-angle
+  - qwen
+weights_gb: 0.32
+render_seconds: 91.6
+render_workload: "one 1024x1024 picture reshot from a new camera position, 30 steps, true CFG 3, on Qwen-Image-2.1"
+requires_hf_token: false
+lora:
+  bases:
+    - sglang-qwen-image-21
+  file: "/lora/qwen-image-2.1-qma-camera-angles.safetensors"
+  strength: 1.0
+# The card's settings: strength 1.0, 30 steps, CFG 3.
+image_defaults:
+  steps: 30
+  true_cfg_scale: 3.0
+  notes: "Move the camera: pass the picture as `images` and the camera position as the prompt, in the card's grammar: <qma> {azimuth} {elevation} {distance}. Azimuth (relative to the original camera): front view, front-right quarter view, right side view, back-right quarter view, back view, back-left quarter view, left side view, front-left quarter view. Elevation: low-angle shot, eye-level shot, elevated shot, high-angle shot. Distance: close-up, medium shot, wide shot. Example: <qma> right side view eye-level shot medium shot. Other edit instructions may follow the camera part. What the picture does not show (a back) is imagined. The card: quarter views, elevated shots and distance changes are the most reliable; big orbits on wide scenes can stop short (a new seed or the neighbouring view helps). Tested 2026-10-18 on a photo (woman, dogs, terrace) and a studio object (pocket watch): back, side and high-angle views of the photo and side and high-angle views of the watch moved as asked; the back of the front-facing watch stayed a front view."
+  source: "https://huggingface.co/gribbliest/qwen-image-2.1-qma-camera-angles"

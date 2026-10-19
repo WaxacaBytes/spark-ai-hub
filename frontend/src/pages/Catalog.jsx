@@ -5,7 +5,7 @@ import RecipeCard from '../components/RecipeCard'
 import PosterCard from '../components/PosterCard'
 import CardRow from '../components/CardRow'
 import { byLab, byRelease } from '../components/ModelShelves'
-import { isModel } from '../models'
+import { isLora, isModel } from '../models'
 import Hero from '../components/Hero'
 
 const CATEGORIES = [
@@ -41,14 +41,14 @@ export default function Catalog({ search = '' }) {
   }, [category, search])
 
   const filtered = useMemo(
-    () => recipes.filter((r) => !isModel(r) && matches(r)),
+    () => recipes.filter((r) => !isModel(r) && !isLora(r) && matches(r)),
     [recipes, matches],
   )
   // A search for "qwen" here should not come back empty just because the
   // Qwen models moved: say how many are waiting on the Agents page. The search
   // box is shared, so following the link keeps the query.
   const agentHits = useMemo(
-    () => (search ? recipes.filter((r) => isModel(r) && matches(r)).length : 0),
+    () => (search ? recipes.filter((r) => (isModel(r) || isLora(r)) && matches(r)).length : 0),
     [recipes, matches, search],
   )
 
@@ -69,7 +69,7 @@ export default function Catalog({ search = '' }) {
       if (r && !seen.has(r.slug)) { seen.add(r.slug); out.push(r) }
     }
     recipes.filter((r) => r.running || r.starting).sort(byRelease).forEach(push)
-    recipes.filter((r) => !isModel(r) && getSectionId(r) === 'spark-ai-hub').sort(byRelease).forEach(push)
+    recipes.filter((r) => !isModel(r) && !isLora(r) && getSectionId(r) === 'spark-ai-hub').sort(byRelease).forEach(push)
     return out.slice(0, 5)
   }, [recipes])
 

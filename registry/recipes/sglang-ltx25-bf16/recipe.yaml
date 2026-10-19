@@ -1,0 +1,68 @@
+name: "LTX-2.5 Distilled"
+slug: sglang-ltx25-bf16
+version: "1.0.0"
+description: "Generate video with its own synchronized sound (speech, effects, ambience, music; 48 kHz stereo) from a text prompt or from a first frame, with Lightricks' LTX-2.5, the 22B audio-video model, in its distilled checkpoint: 8 steps on Lightricks' fixed schedule, no guidance pass. Clips up to 15 s at 24 fps, 960x544 or 544x960. Takes LoRA add-ons (lora-ltx25-* recipes) that the Hub loads into it per render. Served by SGLang Diffusion; your coding agents reach it through the Hub's video tools (generate_video / get_video). LTX-2.x Community License (free under $10M annual revenue)."
+author: "Lightricks"
+source: "community"
+website: "https://huggingface.co/Lightricks/LTX-2.5-Diffusers"
+upstream: "https://github.com/Lightricks/LTX-2"
+category: video-gen
+categories:
+  - video-gen
+tags:
+  - openai-videos
+  - text-to-video
+  - image-to-video
+  - video-audio
+  - ltx
+  - diffusion
+  - sglang
+  - bf16
+icon: "\U0001F3AC"
+logo: "/logos/lightricks.png"
+requirements:
+  # 70 GB of BF16 weights (DiT 38, Gemma-4-12B 24, connectors 6.3, VAEs and
+  # vocoder 2) stay resident, plus activations.
+  min_memory_gb: 80
+  recommended_memory_gb: 96
+  disk_gb: 80
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP video tools call its API. Proxied so
+  # the Hub reaches it at /run/sglang-ltx25-bf16/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 40
+  gpu: true
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+# "22B DiT" (SGLang's LTX-2.5 cookbook; Lightricks' files are ltx-2.5-22b-*).
+params_b: 22
+arch: dense
+quantization: "BF16"
+weights_gb: 70.9
+render_seconds: 56.2
+render_workload: "5 s 16:9 clip from a first frame, 960x544, 8 steps"
+requires_hf_token: true
+# Lightricks' access form ("Agree and Access") on each LTX-2.5 repo.
+gated_repos:
+  - "Lightricks/LTX-2.5-Diffusers"
+# LTX25SamplingParams in SGLang (from the model card's "Quick start --
+# distilled"): 960x544, 24 fps, 121 frames, guidance 1.0 on the pinned
+# 8-sigma distilled schedule. SGLang turns seconds x fps into the 8k+1 frame
+# count the VAE needs. The card's longest auto-duration is 20 s; the Hub caps
+# every video model at 15.
+video_defaults:
+  steps: 8
+  fps: 24
+  seconds: 5
+  max_seconds: 15
+  size: "960x544"
+  notes: "Clips of 1-15 s at 24 fps, 960x544 (16:9) or 544x960 (9:16), from text or from a first frame (image). Sound is generated with the picture: describe the speech, effects and ambience you want in the prompt, in plain sentences (Lightricks' prompting guide: one flowing paragraph, actions in order, camera and sound described). The distilled checkpoint runs 8 steps on a fixed schedule with no guidance; steps and guidance are not knobs."
+  source: "https://huggingface.co/Lightricks/LTX-2.5-Diffusers"

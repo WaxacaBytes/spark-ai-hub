@@ -1,0 +1,52 @@
+name: "LTX-2.5 Decompression IC-LoRA"
+slug: lora-ltx25-decompression
+version: "1.0.0"
+description: "Lightricks' official IC-LoRA (video-to-video) for LTX-2.5: repairs a heavily compressed clip -- macroblocking, chroma bleed, ringing -- into clean, detailed footage of the same shot. Trained by Lightricks on LTX-2.5-22B; ltx-2.5-22b-ic-lora-decompression-0.9.safetensors. An add-on, not a model: install it and the Hub's video tools offer it on LTX-2.5 on Lightricks' pipelines (generate_video with lora). LTX-2.x Community License."
+author: "Lightricks"
+source: "community"
+website: "https://huggingface.co/Lightricks/LTX-2.5-22b-IC-LoRA-Decompression"
+category: video-gen
+categories:
+  - video-gen
+icon: "\U0001F3AC"
+logo: "/logos/lightricks.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 3
+  gpu: false
+status: experimental
+release_date: "2026-09"
+engine: "LTX-Pipelines"
+tags:
+  - lora
+  - ic-lora
+  - video-edit
+  - decompression
+  - video-restoration
+  - ltx
+weights_gb: 0.91
+render_seconds: 148.1
+render_workload: "4 s 16:9 heavily compressed clip restored, 1344x768, two-stage distilled (8 + 3 steps), on LTX-2.5 Distilled (LTX-Pipelines)"
+requires_hf_token: true
+# Lightricks gates each LoRA repo separately ("Agree and Access").
+gated_repos:
+  - "Lightricks/LTX-2.5-22b-IC-LoRA-Decompression"
+# Lightricks' own pipelines run it; SGLang's LTX-2.5 takes no clip.
+lora:
+  bases:
+    - ltxpipelines-ltx25-bf16
+  file: "/lora/ltx-2.5-22b-ic-lora-decompression-0.9.safetensors"
+  strength: 1.0
+# Settings it brings on top of its base model's.
+video_defaults:
+  seconds: 4
+  notes: "Decompression: pass the compressed clip as `video`. The card's prompt pattern: Reference shows <the scene>, heavily compressed with visible macroblocking, chroma bleed, and ringing artifacts. Edited shows the same scene restored to high quality with sharp detail, clean edges, and no compression artifacts. ENHANCE QUALITY <the scene>. Subject identity, framing, and background geometry are identical to the reference; only compression artifacts and image quality differ between reference and edited."
+  source: "https://huggingface.co/Lightricks/LTX-2.5-22b-IC-LoRA-Decompression"

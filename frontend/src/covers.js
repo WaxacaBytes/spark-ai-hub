@@ -61,7 +61,8 @@ const FAMILY = [
   ['inkling', 'thinking-machines'], ['minimax', 'minimax'], ['laguna', 'poolside'],
   ['ling3', 'inclusion'], ['seed-oss', 'bytedance'], ['minicpm', 'openbmb'],
   ['mistral', 'mistral'], ['mimo', 'xiaomi'], ['ornith', 'ornith'], ['clef', 'cloudflare'],
-  ['intern-decision', 'internlm'], ['comet', 'multiverse'],
+  ['intern-decision', 'internlm'], ['comet', 'multiverse'], ['kandinsky', 'kandinsky'],
+  ['moss-image', 'openmoss'], ['ltx', 'lightricks'], ['wan2', 'wan'],
 ]
 
 const BY_AUTHOR = {
@@ -115,6 +116,10 @@ export const VENDOR_LABELS = {
   mistral: 'Mistral AI',
   xiaomi: 'Xiaomi · MiMo',
   ornith: 'Ornith AI',
+  kandinsky: 'Kandinsky Lab · Kandinsky',
+  openmoss: 'OpenMOSS · MOSS-Image',
+  lightricks: 'Lightricks · LTX',
+  wan: 'Alibaba · Wan',
   generic: 'More models',
 }
 

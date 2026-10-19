@@ -1,0 +1,52 @@
+name: "MiniMax-H3 FL2VA Turbo LoRA"
+slug: lora-minimax-h3-turbo
+version: "1.0.0"
+description: "lightx2v's FL2VA Turbo 8-step v1.0 768p LoRA for MiniMax-H3's first/last-frame (FL2VA) model: video with sound in 8 model passes instead of the base model's long schedule, on its own or together with another FL2VA LoRA (a Turbo plus an orbit). The same file the FL2VA FP8 Turbo model loads at startup. An add-on, not a model: install it and the Hub's video tools offer it on its base model (generate_video with lora). Apache 2.0."
+author: "lightx2v · for MiniMax-H3"
+source: "community"
+website: "https://huggingface.co/lightx2v/Minimax-h3-Turbo"
+category: video-gen
+categories:
+  - video-gen
+icon: "\U0001F3AC"
+logo: "/logos/minimax.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 3
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 6
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - turbo
+  - text-to-video
+  - image-to-video
+  - last-frame
+  - video-audio
+  - minimax
+weights_gb: 1.3
+render_seconds: 894.6
+render_workload: "5 s 16:9 from a first frame, 1344x768, 9 steps, on MiniMax-H3 FL2VA FP8"
+requires_hf_token: false
+# Where it loads (the first is the one it was made and measured on), and how.
+lora:
+  bases:
+    - sglang-minimax-h3-fp8
+  file: "/lora/minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16.safetensors"
+  strength: 1.0
+  alpha: 8
+# Settings it brings on top of its base model's.
+video_defaults:
+  steps: 9
+  flow_shift: 6.0
+  notes: "Text-to-video, or pin a first frame (image), a last frame (last_image) or both. lightx2v's 8-step 768p settings: 8 transformer evaluations (steps 9 on this server), video shift 6, audio shift 3, 1344x768 at 16:9. List it with another FL2VA LoRA to run that one in 8 steps too."
+  source: "https://huggingface.co/lightx2v/Minimax-h3-Turbo"

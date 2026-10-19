@@ -1,0 +1,50 @@
+name: "MiniMax-H3 Ref2VA Face Swap LoRA"
+slug: lora-minimax-h3-faceswap
+version: "1.0.0"
+description: "A LoRA for MiniMax-H3's reference-conditioning (Ref2VA) models: give it a clip plus one picture of a face, and it regenerates the clip with that face on the person in it, soundtrack included. UntMods' FaceSwap adapter, 63 MB, rank 16; put the word Faceswap in the prompt to trigger it. An add-on, not a model: install it and the Hub's video tools offer it on its base models (generate_video with lora). MiniMax-H3 Community License."
+author: "UntMods · for MiniMax-H3"
+source: "community"
+website: "https://huggingface.co/UntMods/FaceSwap_MiniMaxH3_REF2VA"
+category: video-gen
+categories:
+  - video-gen
+icon: "\U0001F3AC"
+logo: "/logos/minimax.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-09"
+engine: "SGLang"
+tags:
+  - lora
+  - faceswap
+  - image-to-video
+  - video-edit
+  - video-audio
+  - minimax
+weights_gb: 0.06
+render_seconds: 1986.5
+render_workload: "new face on a 5 s 1344x768 clip, 9 steps, on MiniMax-H3 Ref2VA INT8 Turbo"
+requires_hf_token: false
+# Where it loads (the first is the one it was made and measured on), and how.
+lora:
+  bases:
+    - sglang-minimax-h3-ref2va-int8-turbo
+    - sglang-minimax-h3-ref2va-fp8
+  file: "/lora/faceswap_ref2va_diffusers.safetensors"
+  strength: 1.0
+  alpha: 16
+# Settings it brings on top of its base model's.
+video_defaults:
+  notes: "Face swap: pass the clip as `video` AND the new face as `image` in the same call, and include the word Faceswap in the prompt, e.g. Faceswap: replace the woman's face in <Video 1> with the face of <Picture 1>. 8 denoising passes on the Turbo base (steps 9), 768p short edge at 24 fps, clips 4-15 s. References: a clip (video), pictures (image, then images), a sound (audio); name them in the prompt as <Video 1>, <Picture 1>, <Picture 2>, <Audio 1>."
+  source: "https://huggingface.co/UntMods/FaceSwap_MiniMaxH3_REF2VA"

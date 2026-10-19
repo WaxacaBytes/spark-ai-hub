@@ -43,6 +43,9 @@ MEDIA_CAPABILITIES = {
     "audio-reference": "audio-reference",
     "video-edit": "video-editing",
     "faceswap": "face-swap",
+    # A person in a clip replaced by the character in a picture (face, hair,
+    # clothing), following the clip's motion.
+    "character-swap": "character-swap",
     # The clip comes with a soundtrack generated alongside it.
     "video-audio": "video-with-audio",
     # A full turn around a still subject, first frame = last; My files shows it
@@ -150,6 +153,32 @@ class RecipeAudioDefaults(BaseModel):
     source: str = ""
 
 
+class RecipeLora(BaseModel):
+    """A LoRA: an add-on that teaches a model one trick (swap a character, orbit
+    a subject) without being a model itself. Its recipe builds an image that
+    holds only the adapter file, so it installs and uninstalls on its own;
+    nothing of it runs. When a render asks for it, the Hub copies the file into
+    a running base model and switches the adapter on there (lora_service).
+
+    An adapter only fits the exact weights it was trained on -- an H3 Ref2VA
+    adapter does nothing for H3's FL2VA weights -- so `bases` lists every model
+    recipe it loads into, the one it was measured on first.
+    """
+    bases: list[str]
+    file: str                    # the adapter inside this recipe's image
+    strength: float = 1.0
+    # Training alpha, for adapters whose file does not record it (ai-toolkit
+    # omits it); alpha equal to the rank means strength 1.0 is the trained scale.
+    alpha: int | None = None
+    # The base's pipeline this adapter runs through when that is not the
+    # base's usual one (LTX-2.5 engine: "ic", "ic-one-stage", "alpha-gen", "hdr",
+    # "slow-motion").
+    pipeline: str | None = None
+    # A second file the pipeline needs beside the adapter (Lightricks' HDR
+    # IC-LoRA ships its own precomputed text embedding).
+    text_embeddings: str | None = None
+
+
 class RecipeArenaScore(BaseModel):
     """One human-preference Elo for a media model, as a board published it.
 
@@ -227,6 +256,7 @@ class Recipe(BaseModel):
     image_defaults: RecipeImageDefaults | None = None  # image models only
     video_defaults: RecipeVideoDefaults | None = None  # video models only
     audio_defaults: RecipeAudioDefaults | None = None  # music models only
+    lora: RecipeLora | None = None  # LoRA add-ons only; see RecipeLora
     source: str = "community"  # spark-ai-hub | official | community
     status: str = "experimental"
     release_date: str = ""  # YYYY-MM or YYYY-MM-DD, model/tool original release date used for catalog ordering
@@ -236,6 +266,15 @@ class Recipe(BaseModel):
     active_params_b: float | None = None  # active parameters per token, MoE only
     arch: str = ""                        # "dense" | "moe"
     quantization: str = ""                # BF16 | FP8 | NVFP4 | INT4 | MXFP4 | Q8_0 | IQ2_M | ...
+    # Which part of a checkpoint that ships several this recipe serves, as the
+    # model's maker names it (MiniMax-H3: "FL2VA" or "Ref2VA"). My files labels
+    # each result with it, so two builds of one model never read alike.
+    variant: str = ""
+    # A prompt-writing guide for the model, by name: registry/prompt_guides/
+    # <name>.md, condensed from its maker's docs. Agents read it through the
+    # MCP get_prompt_guide tool when they write a prompt for this model, so it
+    # costs nothing in every listing.
+    prompt_guide: str = ""
     # What actually drafts at serve time, read off the docker-compose command
     # itself (--speculative-config / --speculative-algorithm) rather than the
     # slug or tags — those have been wrong often enough (a slug named "dspark"

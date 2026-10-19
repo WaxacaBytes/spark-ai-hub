@@ -61,10 +61,17 @@ export function isAgentModel(recipe) {
   return recipe.category === 'llm' && recipe.ui?.type === 'api-only'
 }
 
+// A LoRA: an add-on a media model loads when a render asks for it. Nothing of
+// it runs, so it installs and uninstalls but never launches.
+export function isLora(recipe) {
+  return Boolean(recipe.lora)
+}
+
 // Every other model: image, video, music and decision models, which agents
-// call as tools through the Hub's MCP server rather than talk to.
+// call as tools through the Hub's MCP server rather than talk to -- and the
+// LoRAs that load into them.
 export function isMediaModel(recipe) {
-  return isModel(recipe) && !isAgentModel(recipe)
+  return (isModel(recipe) && !isAgentModel(recipe)) || isLora(recipe)
 }
 
 // What a media model makes, from the capabilities the daemon derives off its
@@ -94,7 +101,7 @@ export function formatDuration(seconds) {
   return `${(seconds / 3600).toFixed(1)} h`
 }
 
-const ENGINE_PREFIX = /^(vllm|vllmomni|sglang|llamacpp|exllamav3|atlas|tensorfold|hy3dgen)-/
+const ENGINE_PREFIX = /^(vllm|vllmomni|sglang|llamacpp|exllamav3|atlas|tensorfold|hy3dgen|ltxpipelines|sol)-/
 
 function modelKey(recipe) {
   const parts = (recipe.slug || '').replace(ENGINE_PREFIX, '').split('-')

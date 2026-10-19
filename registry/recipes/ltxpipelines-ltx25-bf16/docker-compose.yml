@@ -1,0 +1,108 @@
+services:
+  ltx:
+    # LTX-2.5 (Lightricks) on Lightricks' own inference code, ltx-pipelines,
+    # behind a small server (server.py, beside this file) that speaks the
+    # OpenAI videos API SGLang Diffusion speaks -- POST /v1/videos,
+    # GET /v1/videos/{id}, GET /v1/videos/{id}/content -- plus SGLang's LoRA
+    # endpoints, so the Hub drives it like any other video model and loads
+    # LoRA add-ons into it the same way.
+    #
+    # Why not SGLang alone (the sglang-ltx25-bf16 recipe): SGLang's LTX-2.5
+    # takes text and a first frame only. IC-LoRAs -- Day-to-Night,
+    # Colorization, Clean Plate, Restore, ... -- edit a clip given as an
+    # in-context reference, which only Lightricks' ICLoraPipeline does. It
+    # also renders Lightricks' two-stage recipe (half size, 2x latent upsample,
+    # full-size refine) rather than one stage.
+    #
+    # Built locally from this recipe (no published engine image yet). Torch
+    # 2.14 for the GB10 comes from the stable SGLang image, used here only as
+    # a CUDA 13 / aarch64 PyTorch base. ltx-core caps transformers below 5.15
+    # (5.15 cannot build its Gemma 4 text encoder), so 5.14.1 replaces the
+    # base's 5.19. ltx-core and ltx-pipelines come from Lightricks' repo at a
+    # pinned commit, without their torch pin (the base's torch is the GB10's).
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        # Lightricks' split checkpoint, one file per component, as their
+        # README's quick start downloads it, plus the convolutional VAE, the
+        # duration head, and the full (dev) DiT that the Alpha Gen IC-LoRA
+        # runs on (AlphaGenPipeline is one guided stage on the full model;
+        # every other pipeline here runs the distilled DiT). Gated (Lightricks' access form): the Hub's HF
+        # token comes in as a build secret and never lands in a layer.
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('Lightricks/LTX-2.5', revision='49b093a39c19169a8a81721dcc541e07e945232f', local_dir='/models/ltx-2.5', allow_patterns=['diffusion_models/ltx-2.5-22b-distilled-transformer-bf16.safetensors', 'diffusion_models/ltx-2.5-22b-dev-transformer-bf16.safetensors', 'text_encoders/gemma4-12b-with-proj-ltx-2.5-bf16.safetensors', 'vae/ltx-2.5-video-vae-bf16.safetensors', 'vae/ltx-2.5-video-vae-conv-bf16.safetensors', 'vae/ltx-2.5-audio-vae-bf16.safetensors', 'latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors', 'model_patches/ltx-2.5-duration-head-bf16.safetensors'], max_workers=8)"
+        FROM lmsysorg/sglang:v0.5.22-cu130
+        RUN pip install --no-cache-dir "transformers==5.14.1" colour-science OpenImageIO cloudpickle \
+         && pip install --no-cache-dir --no-deps \
+              "ltx-core @ git+https://github.com/Lightricks/LTX-2@be6d6d0a69d11a0a399c462ed92606692e5f8697#subdirectory=packages/ltx-core" \
+              "ltx-pipelines @ git+https://github.com/Lightricks/LTX-2@be6d6d0a69d11a0a399c462ed92606692e5f8697#subdirectory=packages/ltx-pipelines"
+        COPY --from=weights /models /models
+        COPY server.py /opt/ltx/server.py
+    image: spark-ai-hub/ltxpipelines-ltx25-bf16:be6d6d0a
+    container_name: spark-ai-hub-ltxpipelines-ltx25-bf16
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/ltxpipelines-ltx25-bf16/.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # Lightricks' optimization guide: fewer fragmentation OOMs when each
+      # stage builds and frees its own models.
+      - PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    ipc: host
+    shm_size: 16gb
+    command:
+      - python3
+      - /opt/ltx/server.py
+      - --transformer-path
+      - /models/ltx-2.5/diffusion_models/ltx-2.5-22b-distilled-transformer-bf16.safetensors
+      - --full-transformer-path
+      - /models/ltx-2.5/diffusion_models/ltx-2.5-22b-dev-transformer-bf16.safetensors
+      - --text-encoder-path
+      - /models/ltx-2.5/text_encoders/gemma4-12b-with-proj-ltx-2.5-bf16.safetensors
+      # The diffusion decoder (NADiffusionDecoder), the README's choice: better
+      # detail than the convolutional VAE (ltx-2.5-video-vae-conv-bf16, also
+      # in the image) at a longer decode.
+      - --video-vae-path
+      - /models/ltx-2.5/vae/ltx-2.5-video-vae-bf16.safetensors
+      - --audio-vae-path
+      - /models/ltx-2.5/vae/ltx-2.5-audio-vae-bf16.safetensors
+      - --spatial-upsampler-path
+      - /models/ltx-2.5/latent_upscale_models/ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors
+      - --duration-head-path
+      - /models/ltx-2.5/model_patches/ltx-2.5-duration-head-bf16.safetensors
+      - --served-model-name
+      - Lightricks/LTX-2.5
+      # MiniMax-H3's size, so the two compare on the same canvas; both sides
+      # are multiples of 64 as the two-stage recipe needs.
+      - --default-size
+      - 1344x768
+      - --port
+      - "30000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

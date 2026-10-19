@@ -151,17 +151,18 @@ export default function App() {
                 color="var(--tertiary)"
                 onClick={() => navigate('/system')}
               />
-              {/* The ring fills with what is taken; the number is what is left. */}
+              {/* Same clocks as the System page, showing the same numbers:
+                  memory and disk in % used. */}
               <MiniGauge
-                value={metrics.ram_total_gb > 0 ? Math.round((metrics.ram_used_gb / metrics.ram_total_gb) * 100) : 0}
-                text={`${Math.round(metrics.ram_total_gb - metrics.ram_used_gb)}G`}
-                title={`${Math.round(metrics.ram_total_gb - metrics.ram_used_gb)} GB free of ${Math.round(metrics.ram_total_gb)} GB`}
-                label="FREE"
+                value={usedPct(metrics.ram_used_gb, metrics.ram_total_gb)}
+                title={`Memory ${usedPct(metrics.ram_used_gb, metrics.ram_total_gb)}% used: ${Math.round(metrics.ram_used_gb)} GB of ${Math.round(metrics.ram_total_gb)} GB`}
+                label="RAM"
                 color="var(--tertiary)"
                 onClick={() => navigate('/system')}
               />
               <MiniGauge
-                value={metrics.disk_total_gb > 0 ? Math.round((metrics.disk_used_gb / metrics.disk_total_gb) * 100) : 0}
+                value={usedPct(metrics.disk_used_gb, metrics.disk_total_gb)}
+                title={`Disk ${usedPct(metrics.disk_used_gb, metrics.disk_total_gb)}% used: ${Math.round(metrics.disk_used_gb)} GB of ${(metrics.disk_total_gb / 1024).toFixed(1)} TB`}
                 label="DSK"
                 color="var(--primary)"
                 onClick={() => navigate('/system')}
@@ -178,7 +179,7 @@ export default function App() {
                 label="TMP"
                 color={metrics.gpu_thermal_slowdown || (metrics.gpu_temp_headroom ?? 99) < 5
                   ? 'var(--error)'
-                  : (metrics.gpu_temp_headroom ?? 99) < 15 ? 'var(--warning)' : '#FBBF24'}
+                  : (metrics.gpu_temp_headroom ?? 99) < 15 ? 'var(--warning)' : 'var(--tertiary)'}
                 onClick={() => navigate('/system')}
               />
             </div>
@@ -369,6 +370,10 @@ function About() {
 }
 
 /* ─── Mini Gauge for sidebar ─── */
+function usedPct(used, total) {
+  return total > 0 ? Math.round((used / total) * 100) : 0
+}
+
 function MiniGauge({ value, label, color, displayUnit = '%', text, title, onClick }) {
   const radius = 14
   const stroke = 3

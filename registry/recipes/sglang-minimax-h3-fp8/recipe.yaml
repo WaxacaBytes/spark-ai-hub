@@ -1,4 +1,4 @@
-name: "MiniMax-H3 FP8"
+name: "MiniMax-H3 FL2VA FP8"
 slug: sglang-minimax-h3-fp8
 version: "1.0.0"
 description: "Generate video with a matching soundtrack from a text prompt, or from a first frame, a last frame or both, using MiniMax-H3, the top open-weights text-to-video and image-to-video model on the Artificial Analysis arenas. Compact build from Comfy-Org: the AdaLN-pruned FP8 video model and NVFP4 text encoder bring the weights from 144 GB to about 44 GB. Served by SGLang Diffusion; your coding agents reach it through the Hub's video tools (generate_video / get_video). MiniMax-H3 Community License."
@@ -44,10 +44,13 @@ engine: "SGLang"
 # branches, which inference can precompute).
 params_b: 33
 quantization: "FP8"
+# The checkpoint partition this build serves (MiniMax-H3 ships two).
+variant: "FL2VA"
+prompt_guide: "minimax-h3"
 weights_gb: 44.4
-render_seconds: 3300.1
-render_workload: "5 s 16:9 clip from a first frame, 1344x768, 50 steps (server default)"
-load_seconds: 362
+render_seconds: 3383.6
+render_workload: "5.2 s 16:9 clip from a first frame, 1344x768, server default steps"
+load_seconds: 370
 requires_hf_token: false
 # SGLang's H3 request contract: timing and canvas come only from
 # extra_params.target (768 short edge, 4-15 s at 24 fps); fps, num_frames and

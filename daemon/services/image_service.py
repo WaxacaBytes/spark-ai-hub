@@ -35,7 +35,7 @@ from PIL import Image, ImageOps
 
 from daemon.config import settings
 from daemon.models.recipe import media_figures
-from daemon.services import media_store, proxy_service, web_service
+from daemon.services import lora_service, media_store, proxy_service, web_service
 from daemon.services.docker_service import get_installed_slugs, is_ready, is_recipe_running
 from daemon.services.registry_service import get_recipes
 
@@ -171,22 +171,49 @@ async def list_models() -> list[dict]:
             "min_memory_gb": recipe.requirements.min_memory_gb,
             **media_figures(recipe),
             **({"recommended": rec} if (rec := recommended(backend)) else {}),
+            **({"loras": loras} if (loras := await _loras_of(slug)) else {}),
         })
     return out
 
 
-async def pick_backend(kind: str, model: str | None) -> Backend:
-    """The backend to use: the one asked for, else one that is running."""
+async def _loras_of(slug: str) -> list[dict]:
+    """The installed LoRAs a model takes, for list_image_models: what each
+    adds, the settings it brings, and how long a render with it took."""
+    out = []
+    for lora in await lora_service.for_base(slug):
+        rec = recommended(Backend(slug=lora.slug, kinds=frozenset(), summary=lora.name,
+                                  defaults=lora.image_defaults)) if lora.image_defaults else None
+        out.append({"lora": lora.slug, "name": lora.name, "adds": lora.media_capabilities,
+                    **media_figures(lora), **({"recommended": rec} if rec else {})})
+    return out
+
+
+async def installed_lora(lora: list[str] | None):
+    """The installed LoRA recipe, or stack of them, that `lora` names; None
+    when none is asked for."""
+    try:
+        return await lora_service.resolve(lora or [])
+    except lora_service.LoraError as exc:
+        raise ImageError(str(exc)) from None
+
+
+async def pick_backend(kind: str, model: str | None, lora=None) -> Backend:
+    """The backend to use: the one asked for, else one that is running (and,
+    with a LoRA, one of the models it loads into)."""
     installed = await installed_backends()
+    with_lora = ""
+    if lora is not None:
+        installed = {s: b for s, b in installed.items() if s in lora.lora.bases}
+        with_lora = f" with the {lora.slug} LoRA"
     candidates = [b for b in installed.values() if kind in b.kinds]
     if model:
         backend = installed.get(model)
         if backend is None or kind not in backend.kinds:
             names = ", ".join(b.slug for b in candidates) or "none installed"
-            raise ImageError(f"'{model}' is not an installed model that can {kind} images. "
+            raise ImageError(f"'{model}' is not an installed model that can {kind} images{with_lora}. "
                              f"Installed models that can: {names}.")
         candidates = [backend]
-    return await pick_ready(candidates, f"image model that can {kind}")
+    return await pick_ready(candidates, f"image model that can {kind}{with_lora}")
 
 
 async def pick_ready(candidates: list, what: str):
@@ -235,8 +262,14 @@ def edit_size(png: bytes) -> tuple[int, int]:
 def _guidance(defaults) -> dict:
     if defaults is None:
         return {}
-    return {k: getattr(defaults, k) for k in ("guidance_scale", "true_cfg_scale")
-            if getattr(defaults, k) is not None}
+    out = {k: getattr(defaults, k) for k in ("guidance_scale", "true_cfg_scale")
+           if getattr(defaults, k) is not None}
+    # True CFG steers away from a negative prompt, and SGLang skips it when
+    # there is none -- Qwen-Image-2.1's default -- so CFG 3 silently ran as 1.
+    # A blank one is ComfyUI's empty negative. A caller's own replaces it.
+    if (out.get("true_cfg_scale") or 0) > 1:
+        out["negative_prompt"] = " "
+    return out
 
 
 def generation_body(params: Params, seed: int, defaults=None) -> dict:
@@ -526,23 +559,36 @@ def renders_on(slug: str) -> int:
 
 async def run(kind: str, params: Params, images: list[str], model: str | None,
               on_progress: Callable[[str], None] | None = None,
-              user: dict | None = None) -> Result:
+              user: dict | None = None, lora: list[str] | None = None) -> Result:
     started = time.monotonic()
-    backend = await pick_backend(kind, model)
+    adapter = await installed_lora(lora)
+    backend = await pick_backend(kind, model, adapter)
+    backend = replace(backend, defaults=lora_service.merged_defaults(
+        backend.defaults, adapter, "image_defaults"))
     params = with_defaults(backend, params)
     # Seeded here rather than by the server, so the caller can always be told
     # the seed that reproduces the image.
     seed = params.seed if params.seed is not None else secrets.randbelow(MAX_SEED)
     timeout = aiohttp.ClientTimeout(total=JOB_TIMEOUT, sock_connect=10)
-    with rendering(backend.slug):
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            inputs = [to_png(await load_input(ref, session, user)) for ref in images]
-            if on_progress:
-                on_progress(f"rendering on {backend.slug}")
-            raw = await _render(session, backend, kind, params, inputs, seed)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        inputs = [to_png(await load_input(ref, session, user)) for ref in images]
+        # An image server answers the request itself, with no queue of its
+        # own, so the adapter stays as switched for the whole render: no other
+        # render on this model may switch it until this one is back.
+        async with lora_service.lock(backend.slug):
+            async def busy() -> int:
+                return renders_on(backend.slug)
+            try:
+                await lora_service.use(backend.slug, adapter, busy)
+            except lora_service.LoraError as exc:
+                raise ImageError(str(exc)) from None
+            with rendering(backend.slug):
+                if on_progress:
+                    on_progress(f"rendering on {backend.slug}")
+                raw = await _render(session, backend, kind, params, inputs, seed)
     result = await asyncio.to_thread(store, raw, backend.slug, seed)
     await media_store.record(f"{result.image_id}.png", user and user["id"], backend.slug,
-                             time.monotonic() - started)
+                             time.monotonic() - started, lora=adapter.slug if adapter else "")
     result.steps = params.steps
     result.preset = getattr(backend.defaults, "preset", None)
     return result

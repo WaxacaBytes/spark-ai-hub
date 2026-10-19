@@ -1,0 +1,90 @@
+services:
+  sglang:
+    # MOSS-Image Base (OpenMOSS), served by SGLang Diffusion on the OpenAI images
+    # API. A 5B diffusion transformer conditioned by a Qwen3.5-9B text encoder,
+    # decoded by the FLUX.2 small VAE; every file comes from the one OpenMOSS
+    # repo, pinned to a revision.
+    #
+    # Native in SGLang since #44325 (merged 2026-10-15): its own DiT, Qwen3.5
+    # encoder, scheduler and guidance (CFG 3, unconditional pass skipping
+    # layer 22, shift 5), with numerical parity against the official
+    # pipeline. SGLang picks this pipeline because the model directory's name
+    # contains "MOSS-Image".
+    #
+    # Image: lmsysorg/sglang:nightly-dev-cu13-20261016-a93f16f0, pinned by
+    # digest -- the first published image carrying #44325 (v0.5.22 does not),
+    # with a native arm64 build. lmsys prunes nightly tags within days; the
+    # digest is what is pulled.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        #
+        # Downloaded to a plain directory, not the HF cache: SGLang resolves a
+        # repo id through snapshot_download, and offline that refuses a cached
+        # snapshot with any file missing. A local path is loaded as-is.
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('OpenMOSS-Team/MOSS-Image-Base', revision='1ceede80badddd6a7812069619edaa5633587192', local_dir='/models/MOSS-Image-Base', ignore_patterns=['assets/*'], max_workers=8)"
+        FROM lmsysorg/sglang@sha256:0b3e39704480c423d8a00ca15ebee63154defc62944df2d4b11c594563bab457
+        COPY --from=weights /models /models
+        # LoRA add-ons (lora-moss-image-* recipes): SGLang's MOSSImagePipeline
+        # is not a LoRAPipeline (set_lora answers "Lora is not enabled", as on
+        # main, 2026-10-19), so it is made one -- the mixin every other image
+        # pipeline uses. Its generic layer wrapping covers the DiT's 252
+        # attention/FFN projections the MOSS LoRAs train.
+        RUN f=$$(python3 -c "import sglang, os; print(os.path.dirname(sglang.__file__))")/multimodal_gen/runtime/pipelines/moss_image.py && \
+            sed -i 's/^class MOSSImagePipeline(ComposedPipelineBase):/from sglang.multimodal_gen.runtime.pipelines_core.lora.pipeline import LoRAPipeline\n\n\nclass MOSSImagePipeline(LoRAPipeline, ComposedPipelineBase):/' $$f && \
+            grep -q "class MOSSImagePipeline(LoRAPipeline, ComposedPipelineBase):" $$f
+    image: spark-ai-hub/sglang-moss-image-base:nightly-dev-cu13-20261016-lora
+    container_name: spark-ai-hub-sglang-moss-image-base
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/sglang-moss-image-base/, so it never collides with any other model.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    shm_size: 16gb
+    command:
+      - sglang
+      - serve
+      - --model-path
+      - /models/MOSS-Image-Base
+      - --served-model-name
+      - MOSS-Image-Base
+      - --num-gpus
+      - "1"
+      - --host
+      - 0.0.0.0
+      - --port
+      - "30000"
+      # Every component stays on the GPU (the cookbook's setting "when weights
+      # and request activations fit"; MOSS-Image opts out of SGLang's automatic
+      # placement). On this box CPU and GPU share one pool, so an offload would
+      # only add copies back and forth.
+      - --component-residency
+      - all=resident
+      # Pinned host buffers are only for fast CPU<->GPU transfer, which
+      # unified memory never needs; pinning would lock memory for nothing.
+      - --pin-cpu-memory
+      - "false"
+      - --output-path
+      - /tmp/sglang-outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

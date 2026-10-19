@@ -1,0 +1,230 @@
+services:
+  sol:
+    # Sol-H3 on one DGX Spark: NVIDIA's Sol-Engine recipe for MiniMax-H3
+    # (NVlabs/Sana, branch sol-engine, models/minimax_h3/Sol-H3-Spark), pinned
+    # to commit 0527465f:
+    #   https://github.com/NVlabs/Sana/tree/sol-engine/models/minimax_h3/Sol-H3-Spark
+    #   https://nvlabs.github.io/Sana/Sol-Engine/Sol-H3-Spark/
+    # A 672x384 four-step H3 draft (FP8 DiT, FastH3 VSA LoRA, VSA sparse
+    # attention), H3's x2 latent upscaler, the H3-to-LTX latent adapter, then
+    # three LTX-2.5 refine steps (BF16 dev + distilled LoRA 450 at 0.8, Sol
+    # sparse attention) and LTX's conv VAE: 1344x768, 121 frames, 24 fps, with
+    # H3's own audio. NVIDIA reports 56 s per hot request on a Spark.
+    #
+    # Sol runs three model sessions in three Python environments that cannot
+    # share one interpreter (different torch builds and CuTe versions), all in
+    # this one image:
+    #   qwen    the NGC PyTorch 25.11 base itself (system python), with
+    #           ComfyUI v0.30.0 -- Sol's Dockerfile.qwen
+    #   stage1  /opt/venv/stage1: torch 2.12.0+cu130, patched FastVideo
+    #           3d8ac9d, fastvideo-kernel 0.3.5 built here, cuDNN frontend
+    #           1.27.0; FA4 from flash-attention 14c3779 with its own isolated
+    #           dependency target
+    #   stage2  /opt/venv/stage2: torch 2.13.0+cu132, LTX-2 d1511477 and its
+    #           all2all_cpp kernels built here
+    # Versions are Sol's requirements/*-observed.txt. apache-tvm-ffi
+    # 0.1.13rc1 (FA4's target) is no longer on PyPI; 0.1.13 is its release.
+    # Sol's prepare.py writes the path manifests (and applies its FastVideo
+    # loader patch); server.py, beside this file, serves the OpenAI videos API
+    # over Sol's own runtime.pipeline.Pipeline.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM nvcr.io/nvidia/pytorch:25.11-py3@sha256:417cbf33f87b5378849df37983552cd1f8bc8b62fe1ceabe004de816a55dff21
+        ENV PIP_NO_CACHE_DIR=1 PYTHONDONTWRITEBYTECODE=1
+
+        # --- weights ---------------------------------------------------------
+        # First, so rebuilding the environments below never downloads again.
+        # Sol's own downloader and manifest at the pinned commit: the FL2VA
+        # task's files (the H3 transformer, which T2VA uses too, plus H3's VAE
+        # for input frames) and the offline INT8 Gemma + connector that build
+        # the Stage2 prompt cache once. Downloaded in this stage, not copied
+        # from another one, so the build never holds two copies. LTX-2.5 and
+        # MiniMax-H3 are gated: the Hub's HF token comes in as a build secret
+        # and never lands in a layer.
+        RUN mkdir -p /opt/sol-download/configs && cd /opt/sol-download && \
+            base=https://raw.githubusercontent.com/NVlabs/Sana/0527465fdcbbf27180a76419a4e73643aa1aac73/models/minimax_h3/Sol-H3-Spark && \
+            curl -fsSL -o download_checkpoints.py $$base/download_checkpoints.py && \
+            curl -fsSL -o configs/checkpoints.json $$base/configs/checkpoints.json && \
+            curl -fsSL -o requirements-download.txt $$base/requirements/download.txt && \
+            python3 -m venv /tmp/dl && env -u PIP_CONSTRAINT /tmp/dl/bin/pip install -r requirements-download.txt
+        RUN --mount=type=secret,id=hf_token cd /opt/sol-download && \
+            HF_TOKEN="$$(cat /run/secrets/hf_token 2>/dev/null)" HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60 \
+            /tmp/dl/bin/python download_checkpoints.py --task fl2va --include-offline --output-dir /models/sol && \
+            rm -rf /tmp/dl /models/sol/*/.cache
+
+        # --- sources -----------------------------------------------------------
+        # Sana (Sol's runtime, Sol-Attn and the Stage2 refiner code), then the
+        # source trees Sol's configs/dependencies.json pins, cloned where its
+        # prepare.py looks for them.
+        RUN git clone -q --filter=blob:none --no-checkout https://github.com/NVlabs/Sana.git /opt/sana && \
+            git -C /opt/sana checkout -q --detach 0527465fdcbbf27180a76419a4e73643aa1aac73 && \
+            test "$$(git -C /opt/sana rev-parse HEAD)" = 0527465fdcbbf27180a76419a4e73643aa1aac73
+        RUN cd /opt/sana/models/minimax_h3/Sol-H3-Spark && python3 -c 'import json, subprocess; \
+              [(subprocess.run(["git", "clone", "-q", "--filter=blob:none", "--no-checkout", s["repository"], "/opt/sol/sources/" + s["directory"]], check=True), \
+                subprocess.run(["git", "-C", "/opt/sol/sources/" + s["directory"], "checkout", "-q", "--detach", s["revision"]], check=True)) \
+               for s in json.load(open("configs/dependencies.json"))["sources"]]' && \
+            git -C /opt/sol/sources/FastVideo/fastvideo-kernel submodule update -q --init --recursive include/cutlass
+
+        # --- qwen environment (system python) -----------------------------------
+        # Sol's Dockerfile.qwen: ComfyUI's requirements without the torch lines,
+        # keeping NGC's torch stack; comfy-kitchen and comfy-aimdo at Sol's pins.
+        RUN sed -E '/^(torch|torchvision|torchaudio)([<=>~! ].*)?$$/d' /opt/sol/sources/ComfyUI/requirements.txt > /tmp/comfy.txt && \
+            pip install -r /tmp/comfy.txt && \
+            pip install "comfy-kitchen==0.2.26" "comfy-aimdo==0.4.11" fastapi uvicorn && rm /tmp/comfy.txt
+        # ComfyUI's comfy.sd imports torchaudio, which this base lacks. No
+        # published wheel loads against NGC's torch 2.10.0a0 (2.10 needs stable
+        # ABI headers it doesn't ship), so torchaudio 2.9.1 is built against it,
+        # CPU only -- the Qwen session never runs audio.
+        RUN git clone -q --depth 1 --branch v2.9.1 https://github.com/pytorch/audio.git /tmp/torchaudio && \
+            cd /tmp/torchaudio && USE_CUDA=0 USE_FFMPEG=0 BUILD_SOX=0 MAX_JOBS=8 env -u PIP_CONSTRAINT \
+              pip install --no-build-isolation --no-deps . && \
+            cd / && rm -rf /tmp/torchaudio && python3 -c "import torchaudio; print(torchaudio.__version__)"
+        # The Qwen session's interpreter: NGC's python with NGC's library and
+        # Triton paths, which server.py clears for the two venv sessions (Sol
+        # itself runs this session through a launcher, qwen_python.sh).
+        RUN { echo '#!/bin/sh'; \
+              env | grep -E '^(LD_LIBRARY_PATH|TRITON_[A-Z_]+)=' | sed "s/^\([A-Z_]*\)=\(.*\)$$/export \1='\2'/"; \
+              echo 'exec /usr/bin/python3 "$$@"'; } > /opt/sol-qwen-python && \
+            mkdir -p /opt/sol && mv /opt/sol-qwen-python /opt/sol/qwen-python && chmod +x /opt/sol/qwen-python && \
+            cat /opt/sol/qwen-python
+
+        # --- stage1 environment ------------------------------------------------
+        # FastVideo runs from its (patched) source tree on PYTHONPATH, so its
+        # dependencies are installed here without it; training-, demo- and
+        # tracking-only ones (wandb, gradio, ray, datasets, ...) are left out.
+        RUN python3 -m venv /opt/venv/stage1 && \
+            env -u PIP_CONSTRAINT /opt/venv/stage1/bin/pip install --index-url https://download.pytorch.org/whl/cu130 \
+              "torch==2.12.0+cu130" "torchvision==0.27.0+cu130" "torchaudio==2.11.0+cu130" && \
+            env -u PIP_CONSTRAINT /opt/venv/stage1/bin/pip install \
+              "torch==2.12.0+cu130" --extra-index-url https://download.pytorch.org/whl/cu130 \
+              "diffusers==0.40.0" "transformers==5.15.1" "safetensors==0.8.0" "accelerate==1.0.1" \
+              "nvidia-cudnn-frontend==1.27.0" "nvidia-cudnn-cu13==9.20.0.48" "nvidia-cutlass-dsl==4.8.0.dev0" \
+              "cuda-python==13.3.1" "apache-tvm-ffi==0.1.13.post3" "huggingface-hub==1.29.0" \
+              "av==18.1.0" "imageio==2.37.4" "imageio-ffmpeg==0.6.0" "einops==0.9.0.dev0" \
+              scipy six h5py requests "tokenizers>=0.20.1,<0.23" sentencepiece timm peft flashinfer-python \
+              opencv-python-headless pillow loguru tqdm PyYAML protobuf moviepy aiohttp aiofiles \
+              cloudpickle omegaconf ftfy fastapi uvicorn remote-pdb \
+              scikit-build-core cmake ninja setuptools wheel
+        # fastvideo-kernel 0.3.5 for the GB10 (sm_121), against stage1's torch
+        # and the base's CUDA 13.0 nvcc. Sol imports it from the source tree,
+        # so the built extension goes back there too.
+        RUN cd /opt/sol/sources/FastVideo/fastvideo-kernel && \
+            TORCH_CUDA_ARCH_LIST=12.1 MAX_JOBS=8 env -u PIP_CONSTRAINT \
+              /opt/venv/stage1/bin/pip install --no-build-isolation --no-deps . && \
+            site=$$(/opt/venv/stage1/bin/python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])') && \
+            mkdir -p python/fastvideo_kernel/_C && cp -rv $$site/fastvideo_kernel/_C/. python/fastvideo_kernel/_C/ && \
+            ls python/fastvideo_kernel/_C/*.so && \
+            rm -rf build
+        # FA4's CuTe stack, isolated from stage1's (they pin different
+        # nvidia-cutlass-dsl versions).
+        RUN env -u PIP_CONSTRAINT /opt/venv/stage1/bin/pip install --no-deps --target /opt/sol/deps/fa4 \
+              "nvidia-cutlass-dsl[cu13]==4.6.0.dev0" "quack-kernels==0.5.3" "apache-tvm-ffi==0.1.13" "torch-c-dlpack-ext==0.1.5"
+
+        # --- stage2 environment ------------------------------------------------
+        # LTX-2 runs from its source tree (Sol puts packages/*/src on sys.path);
+        # its dependencies are installed here, and ltx-kernels is built for
+        # all2all_cpp. comfy-kitchen in its own target is for the one-time
+        # prompt-cache build only. PyTorch's cu132 index has no torchaudio, and
+        # torchaudio refuses a torch of another CUDA version; Sol pairs 2.11
+        # with torch 2.13, so its CPU wheel goes in (no CUDA version to refuse;
+        # Stage2 renders with it).
+        RUN python3 -m venv /opt/venv/stage2 && \
+            env -u PIP_CONSTRAINT /opt/venv/stage2/bin/pip install --index-url https://download.pytorch.org/whl/cu132 \
+              "torch==2.13.0+cu132" "torchvision==0.28.0+cu132" && \
+            env -u PIP_CONSTRAINT /opt/venv/stage2/bin/pip install --no-deps --index-url https://download.pytorch.org/whl/cpu \
+              "torchaudio==2.11.0+cpu" && \
+            env -u PIP_CONSTRAINT /opt/venv/stage2/bin/pip install \
+              "torch==2.13.0+cu132" --extra-index-url https://download.pytorch.org/whl/cu132 \
+              "transformers==5.14.1" "safetensors==0.8.0" "accelerate==1.14.0" "nvidia-cudnn-cu13==9.20.0.48" \
+              "nvidia-cutlass-dsl==4.7.0" "cuda-python==13.3.1" "huggingface-hub==1.27.0" "av==18.0.0" \
+              "imageio==2.37.4" "imageio-ffmpeg==0.6.0" "einops==0.8.2" \
+              numpy "scipy>=1.14" tqdm pillow openimageio "cloudpickle>=3.1" setuptools wheel ninja
+        # ltx-kernels compiles against stage2's CUDA 13.2 (torch's own), not the
+        # base's 13.0, whose headers refuse a 13.2 build: its setup.py picks up
+        # pip's nvcc once CUDA_HOME is unset.
+        RUN env -u PIP_CONSTRAINT /opt/venv/stage2/bin/pip install "cuda-toolkit[nvcc,cccl,crt,cudart]==13.2.1" && \
+            cd /opt/sol/sources/LTX-2/packages/ltx-kernels && \
+            TORCH_CUDA_ARCH_LIST=12.1 MAX_JOBS=8 env -u PIP_CONSTRAINT -u CUDA_HOME -u CUDA_PATH \
+              PATH=/opt/venv/stage2/bin:$$PATH \
+              /opt/venv/stage2/bin/pip install --no-build-isolation --no-deps . && \
+            rm -rf build && \
+            env -u PIP_CONSTRAINT /opt/venv/stage2/bin/pip install --no-deps --target /opt/sol/deps/offline-context \
+              -r /opt/sana/models/minimax_h3/Sol-H3-Spark/requirements/offline-context.txt
+
+        # --- path manifests ------------------------------------------------------
+        # Sol's prepare.py: checks every input and source revision, applies the
+        # FastVideo loader patch, links FA4's namespace, and writes one manifest
+        # per task. The prompt cache is built at first start (server.py).
+        RUN cd /opt/sana/models/minimax_h3/Sol-H3-Spark && \
+            echo '{"fa4_dependencies": "/opt/sol/deps/fa4"}' > /opt/sol/overrides.json && \
+            python3 prepare.py --task t2va --checkpoints /models/sol --sources /opt/sol/sources \
+              --paths /opt/sol/overrides.json --python-stage1 /opt/venv/stage1/bin/python \
+              --python-stage2 /opt/venv/stage2/bin/python --python-qwen /opt/sol/qwen-python \
+              --prompt-cache /cache/fixed-prompt.pt --cache-pending --output /opt/sol/paths-t2va.json && \
+            python3 prepare.py --task fl2va --checkpoints /models/sol --sources /opt/sol/sources \
+              --paths /opt/sol/overrides.json --python-stage1 /opt/venv/stage1/bin/python \
+              --python-stage2 /opt/venv/stage2/bin/python --python-qwen /opt/sol/qwen-python \
+              --prompt-cache /cache/fixed-prompt.pt --cache-pending --output /opt/sol/paths-fl2va.json
+
+        COPY server.py /opt/sol/server.py
+    image: spark-ai-hub/sol-minimax-h3-fl2va:0527465f
+    container_name: spark-ai-hub-sol-minimax-h3-fl2va
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/sol-minimax-h3-fl2va/.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    volumes:
+      # Sol's generic Stage2 prompt features (a few MB), built from the
+      # image's INT8 Gemma + connector on the first start and reused after.
+      - sol-h3-prompt-cache:/cache
+    ipc: host
+    shm_size: 16gb
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    command:
+      - python3
+      - /opt/sol/server.py
+      - --sol-root
+      - /opt/sana/models/minimax_h3/Sol-H3-Spark
+      - --paths-dir
+      - /opt/sol
+      - --prompt-cache
+      - /cache/fixed-prompt.pt
+      - --stage2-python
+      - /opt/venv/stage2/bin/python
+      - --offline-context
+      - /opt/sol/deps/offline-context
+      - --served-model-name
+      - MiniMaxAI/MiniMax-H3
+      - --port
+      - "30000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # NOT unless-stopped: the sessions hold most of unified memory, so a boot
+    # that fails must stop instead of looping.
+    restart: on-failure:1
+
+volumes:
+  sol-h3-prompt-cache:
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

@@ -1,0 +1,71 @@
+name: "Sol-H3 FL2VA"
+slug: sol-minimax-h3-fl2va
+version: "1.0.0"
+description: "Generate a 5 s 1344x768 video with a matching soundtrack from a text prompt, or from a first frame, a last frame or both, with NVIDIA's Sol-H3 recipe for one DGX Spark: MiniMax-H3 drafts the clip at 672x384 in four FP8 steps with sparse attention, a latent upscaler and adapter hand it to LTX-2.5, and three LTX-2.5 refine steps finish it with H3's own audio (NVIDIA reports 56 s per hot request on a Spark). Fixed output: 16:9, 121 frames at 24 fps. Your coding agents reach it through the Hub's video tools (generate_video / get_video). MiniMax-H3 Community License and LTX-2 Community License."
+author: "NVIDIA (NVlabs Sana) · MiniMax-H3 + LTX-2.5"
+source: "community"
+website: "https://nvlabs.github.io/Sana/Sol-Engine/Sol-H3-Spark/"
+upstream: "https://github.com/NVlabs/Sana/tree/sol-engine/models/minimax_h3/Sol-H3-Spark"
+category: video-gen
+categories:
+  - video-gen
+tags:
+  - openai-videos
+  - text-to-video
+  - image-to-video
+  - last-frame
+  - video-audio
+  - minimax
+  - fp8
+icon: "\U0001F3AC"
+logo: "/logos/minimax.png"
+requirements:
+  # Sol's three sessions (NVFP4 Qwen, FP8 H3 draft, BF16 LTX-2.5 refiner)
+  # stay resident between requests: the whole Spark.
+  min_memory_gb: 110
+  recommended_memory_gb: 121
+  disk_gb: 230
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP video tools call its API. Proxied so
+  # the Hub reaches it at /run/sol-minimax-h3-fl2va/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 120
+  gpu: true
+status: experimental
+release_date: "2026-10-18"
+engine: "Sol-Engine"
+# MiniMax-H3's 33B dense transformer drafts; LTX-2.5's 22B transformer refines.
+params_b: 55
+quantization: "FP8 + BF16"
+# The H3 checkpoint partition this build serves (MiniMax-H3 ships two).
+variant: "FL2VA"
+prompt_guide: "minimax-h3"
+render_seconds: 66.0
+render_workload: "5 s 16:9 from a first frame, 1344x768, 4 H3 draft + 3 LTX-2.5 refine steps, sessions warm (text only: 60.4 s)"
+load_seconds: 340
+requires_hf_token: true
+gated_repos:
+  - "Lightricks/LTX-2.5"
+# Sol's request contract: a prompt, a seed and the task; the canvas and length
+# are fixed by the recipe (1344x768, 121 frames at 24 fps). The FL2VA weights
+# serve two tasks: t2va (text alone) and fl2va (a picture pinned as the first
+# frame, last frame or both). The Hub switches t2va to fl2va itself when
+# generate_video is given `image` or `last_image`; the server then reloads its
+# sessions for that task (461 s measured) and stays on it until a job asks
+# for the other.
+video_defaults:
+  seconds: 5
+  extra_params:
+    task: "t2va"
+    conditions: []
+  aspect_ratios: ["16:9"]
+  max_seconds: 5
+  notes: "Text-to-video, or pin a first frame (image), a last frame (last_image) or both. Always 1344x768 (16:9), 121 frames at 24 fps (5 s), four H3 draft steps and three LTX-2.5 refine steps; steps, length and shape cannot be changed. Switching between text-only and pinned-frame jobs reloads the model sessions once (about 8 minutes); keep jobs of one kind together. No LoRAs."
+  source: "https://github.com/NVlabs/Sana/tree/sol-engine/models/minimax_h3/Sol-H3-Spark"

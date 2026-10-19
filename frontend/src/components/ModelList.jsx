@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { formatParams } from './RecipeCard'
-import { buildLabel, displayName, formatDuration, primaryArena } from '../models'
+import { buildLabel, displayName, formatDuration, isLora, primaryArena } from '../models'
 import { openUrl as openUrlFor } from './RecipeCard'
 import Hint from './Hint'
 
@@ -304,6 +304,9 @@ function BuildRow({ recipe, variant, v, rank, highlight, onFrontier }) {
     </a>
   ) : recipe.starting ? (
     <span className="font-label text-[10px] text-warning">Starting…</span>
+  ) : isLora(recipe) && recipe.installed ? (
+    // Nothing to launch: renders that ask for it load it into its model.
+    <span className="font-label text-[10px] text-text-dim">Installed</span>
   ) : (
     <button
       onClick={(e) => {

@@ -1,0 +1,57 @@
+name: "MiniMax-H3 FL2VA 360 Orbit LoRA"
+slug: lora-minimax-h3-orbit360
+version: "1.0.0"
+description: "A LoRA for MiniMax-H3's first/last-frame (FL2VA) models: turn one photo into a frozen-time 360° camera orbit that ends exactly where it started. Give the same picture as the first and the last frame, and the camera circles the subject while the scene stays still, so orbits loop and chain without a seam. Pablo Dawson's 360 Orbit LoRA, 160 MB, rank 16, trained on orbit renders of human Gaussian splats, so people work best. An add-on, not a model: install it and the Hub's video tools offer it on its base model (generate_video with lora). MiniMax-H3 Community License."
+author: "Pablo Dawson · for MiniMax-H3"
+source: "community"
+website: "https://huggingface.co/pablodawson/MiniMax-H3-360-Orbit-LoRA"
+category: video-gen
+categories:
+  - video-gen
+icon: "\U0001F3AC"
+logo: "/logos/minimax.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - orbit-360
+  - image-to-video
+  - last-frame
+  - video-audio
+  - minimax
+weights_gb: 0.16
+render_seconds: 2548.0
+render_workload: "5.2 s 16:9 orbit, same picture first and last, 1344x768, 29 steps, on MiniMax-H3 FL2VA FP8"
+requires_hf_token: false
+# Where it loads (the first is the one it was made and measured on), and how.
+lora:
+  bases:
+    - sglang-minimax-h3-fp8
+  file: "/lora/minimax_h3_orbit360_diffusers.safetensors"
+  strength: 1.0
+  alpha: 16
+# Settings it brings on top of its base model's.
+video_defaults:
+  steps: 29
+  seconds: 4
+  flow_shift: 12.0
+  extra_params:
+    target:
+      short_edge: 768
+      aspect_ratio: "1:1"
+      duration_seconds: 4.0
+  notes: "Pass the SAME picture as image and last_image for a full 360° loop, with aspect_ratio 1:1 and this prompt verbatim: \"One frozen instant. Only the camera moves. In a continuous 360 orbit. Preserve every person and object in exactly the same world position, orientation, shape and pose throughout the shot. Airborne objects remain suspended at the captured height and angle: no wobbling, shaking, spinning, drifting, falling or continued action. Keep faces, hands, clothing, liquids and the background motionless while retaining their natural appearance. Camera parallax is the only source of apparent movement. No cuts, zoom, morphing or added objects.\" Clips run 4-15 s (4 s default; the LoRA was trained on 28 human-centric square 3 s clips): other subjects, shapes and lengths are untested, and small blinks or movements can remain."
+  source: "https://huggingface.co/pablodawson/MiniMax-H3-360-Orbit-LoRA"
