@@ -208,6 +208,17 @@ class McpToolCallTests(unittest.TestCase):
                 self.assertEqual(self.client.get(f"/images/{'c' * 32}.png").status_code, 404)
                 self.assertEqual(self.client.get("/images/..%2Fspark-ai-hub.db").status_code, 404)
 
+    def test_a_file_lists_with_the_prompt_it_was_made_from(self):
+        name = f"{'d' * 32}.png"
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / name).write_bytes(_png())
+            asyncio.run(media_store.record(name, OWNER["id"], "some-model", 12.0,
+                                           prompt="a red teapot on a wooden table"))
+            with mock.patch.object(image_service, "IMAGE_DIR", Path(tmp)):
+                files = asyncio.run(media_store.list_files(OWNER))
+        entry = next(f for f in files if f["name"] == name)
+        self.assertEqual(entry["prompt"], "a red teapot on a wooden table")
+
     def test_media_is_private_to_its_owner(self):
         name = f"{'e' * 32}.png"
         with tempfile.TemporaryDirectory() as tmp:

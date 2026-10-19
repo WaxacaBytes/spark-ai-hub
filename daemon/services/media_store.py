@@ -25,17 +25,18 @@ from daemon.db import get_db
 
 
 async def record(name: str, user_id: int | None, model: str = "",
-                 seconds: float | None = None, lora: str = "") -> None:
+                 seconds: float | None = None, lora: str = "", prompt: str = "") -> None:
     """Note that account `user_id` made the file <name> (e.g. '<32 hex>.png')
     with the model `model` (a recipe slug; empty for an upload) running the
-    LoRA `lora` (a LoRA recipe's slug; empty for none), and that making it
-    took `seconds`, from the request to the finished file."""
+    LoRA `lora` (a LoRA recipe's slug; empty for none) from `prompt`, and that
+    making it took `seconds`, from the request to the finished file."""
     if user_id is None:
         return
     db = await get_db()
     try:
-        await db.execute("INSERT OR REPLACE INTO media (name, user_id, model, seconds, lora) "
-                         "VALUES (?, ?, ?, ?, ?)", (name, user_id, model, seconds, lora or ""))
+        await db.execute("INSERT OR REPLACE INTO media (name, user_id, model, seconds, lora, prompt) "
+                         "VALUES (?, ?, ?, ?, ?, ?)",
+                         (name, user_id, model, seconds, lora or "", prompt or ""))
         await db.commit()
     finally:
         await db.close()
@@ -133,7 +134,7 @@ def find(name: str) -> Path | None:
 async def _rows() -> dict[str, dict]:
     db = await get_db()
     try:
-        rows = await (await db.execute("SELECT name, user_id, model, seconds, lora FROM media")).fetchall()
+        rows = await (await db.execute("SELECT name, user_id, model, seconds, lora, prompt FROM media")).fetchall()
     finally:
         await db.close()
     return {row["name"]: row for row in rows}
@@ -142,13 +143,16 @@ async def _rows() -> dict[str, dict]:
 def build_label(recipe) -> str:
     """A recipe's name with what tells its builds apart -- the part of the
     checkpoint it serves and its quantization -- added where the name leaves
-    them out: a "MiniMax-H3 FP8" serving FL2VA reads "MiniMax-H3 FL2VA FP8"."""
+    them out: a "MiniMax-H3 FP8" serving FL2VA reads "MiniMax-H3 FL2VA FP8".
+    A quantization that names its parts goes in brackets, so it never reads as
+    model + LoRA: "Sol-H3 FL2VA (H3 FP8, LTX BF16)"."""
     words = recipe.name.split()
     have = {w.lower() for w in words}
     if recipe.variant and recipe.variant.lower() not in have:
         words.insert(1, recipe.variant)
-    if recipe.quantization and recipe.quantization.lower() not in have:
-        words.append(recipe.quantization)
+    quant = recipe.quantization
+    if quant and quant.lower() not in have:
+        words.append(f"({quant})" if "," in quant else quant)
     return " ".join(words)
 
 
@@ -197,6 +201,7 @@ async def list_files(user: dict | None) -> list[dict]:
             path = entry["_file"]
             entry.update(_model_fields(row["model"], row["lora"]) if row else _model_fields(""))
             entry["seconds"] = round(row["seconds"], 1) if row and row["seconds"] is not None else None
+            entry["prompt"] = row["prompt"] if row else ""
             if entry["kind"] == "mesh":
                 entry["rendered"] = render_of(path).is_file()
             files.append(entry)

@@ -422,7 +422,7 @@ async def start(*, prompt: str, image: str | None, seconds: int | None,
         "seed": seed, "size": fields.get("size") or remote.get("size"),
         "seconds": clip_seconds(fields) or remote.get("seconds"),
         "steps": fields.get("num_inference_steps"), "kind": kind,
-        "user_id": user and user["id"], "lora": adapter and adapter.slug,
+        "user_id": user and user["id"], "lora": adapter and adapter.slug, "prompt": prompt,
     }
     return {"job_id": job_id, "model": backend.slug, "status": remote.get("status", "queued"),
             **({"lora": adapter.slug} if adapter else {}),
@@ -530,7 +530,7 @@ async def check(job_id: str, wait: int = 0, on_progress=None, user: dict | None 
                 took = (remote.get("completed_at") or time.time()) - job["created"]
                 # Both the model and the LoRA it ran: My files names the pair.
                 await media_store.record(f"{video_id}.mp4", job.get("user_id"), job["slug"], took,
-                                         lora=job.get("lora") or "")
+                                         lora=job.get("lora") or "", prompt=job.get("prompt") or "")
                 makers = [get_recipes().get(s) for s in (job["slug"], *(job.get("lora") or "").split("+")) if s]
                 if any(r is not None and ORBIT_TAG in r.tags for r in makers):
                     await asyncio.to_thread(all_keyframes, path)

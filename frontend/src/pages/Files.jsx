@@ -12,7 +12,8 @@ const MeshView = lazy(() => import('../components/MeshView'))
  * what they want to keep, delete the rest, and upload a local file to get a
  * link the tools accept. /upload lands here too. Only the signed-in account's
  * own files are ever listed, admins included. Each result carries the model
- * that made it, so a picture worth repeating can be traced back to one. */
+ * that made it and the prompt it was made from, so a picture worth repeating
+ * can be made again. */
 
 const FILTERS = [
   { id: 'all', label: 'All', test: () => true },
@@ -458,10 +459,11 @@ function Viewer({ files, index, onIndex, onClose, details, onDetails }) {
       {details && (
         <dl
           onClick={stop}
-          className="absolute bottom-4 left-4 m-0 max-w-[calc(100vw-2rem)] grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm text-white bg-black/75 backdrop-blur-sm rounded-xl px-4 py-3"
+          className="absolute bottom-4 left-4 m-0 max-w-[min(40rem,calc(100vw-2rem))] grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm text-white bg-black/75 backdrop-blur-sm rounded-xl px-4 py-3"
         >
           <Detail label="Type" value={`${KIND_LABEL[file.kind]}${file.orbit ? ' · 360° orbit' : ''}${file.upload ? ' · upload' : ''}`} />
           {file.model && <Detail label="Model" value={file.model} />}
+          {file.prompt && <PromptDetail prompt={file.prompt} />}
           <Detail label="Made" value={when(file.created)} />
           {file.seconds != null && <Detail label="Took" value={took(file.seconds)} />}
           {shapeOf(file) && <Detail label={file.duration ? 'Length' : 'Size'} value={shapeOf(file)} />}
@@ -480,6 +482,32 @@ function Detail({ label, value }) {
     <>
       <dt className="text-white/60">{label}</dt>
       <dd className="m-0 min-w-0 break-words">{value}</dd>
+    </>
+  )
+}
+
+// A long prompt (MiniMax-H3's structured ones run to pages) scrolls in its
+// row instead of covering the picture; Copy takes all of it.
+function PromptDetail({ prompt }) {
+  const [copied, setCopied] = useState(false)
+  const copy = async () => {
+    if (await copyText(prompt)) {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    }
+  }
+  return (
+    <>
+      <dt className="text-white/60">Prompt</dt>
+      <dd className="m-0 min-w-0 flex items-start gap-3">
+        <span className="flex-1 min-w-0 max-h-32 overflow-y-auto whitespace-pre-wrap break-words">{prompt}</span>
+        <button
+          onClick={copy}
+          className="shrink-0 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white/15 hover:bg-white/25 text-white"
+        >
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </dd>
     </>
   )
 }

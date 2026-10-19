@@ -11,6 +11,7 @@ RECIPES = {
     "charswap": Recipe(name="MiniMax-H3 Character Swap LoRA", slug="charswap"),
     "orbit": Recipe(name="MiniMax-H3 360 Orbit LoRA", slug="orbit", tags=["orbit-360"]),
     "ltx": Recipe(name="LTX-2.5 Distilled", slug="ltx", quantization="BF16"),
+    "sol": Recipe(name="Sol-H3 FL2VA", slug="sol", quantization="H3 FP8, LTX BF16", variant="FL2VA"),
 }
 
 
@@ -22,6 +23,9 @@ class LabelTests(unittest.TestCase):
     def test_the_variant_and_quantization_a_name_leaves_out_are_added(self):
         self.assertEqual(self.fields("h3-fl2va")["model"], "MiniMax-H3 FL2VA FP8")
         self.assertEqual(self.fields("ltx")["model"], "LTX-2.5 Distilled BF16")
+
+    def test_a_quantization_per_part_is_bracketed_not_joined_like_a_lora(self):
+        self.assertEqual(self.fields("sol")["model"], "Sol-H3 FL2VA (H3 FP8, LTX BF16)")
 
     def test_what_the_name_already_says_is_not_repeated(self):
         self.assertEqual(self.fields("h3-ref2va")["model"], "MiniMax-H3 Ref2VA INT8 Turbo")

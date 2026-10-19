@@ -43,7 +43,8 @@ release_date: "2026-10-18"
 engine: "Sol-Engine"
 # MiniMax-H3's 33B dense transformer drafts; LTX-2.5's 22B transformer refines.
 params_b: 55
-quantization: "FP8 + BF16"
+# Per part: the H3 draft transformer in FP8, the LTX-2.5 refiner in BF16.
+quantization: "H3 FP8, LTX BF16"
 # The H3 checkpoint partition this build serves (MiniMax-H3 ships two).
 variant: "FL2VA"
 prompt_guide: "minimax-h3"
