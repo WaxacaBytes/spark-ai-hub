@@ -1,0 +1,50 @@
+services:
+  lora:
+    # Alissonerdx's BFS Head Swap V1.1 LoRA for Qwen-Image-2.1, pinned to
+    # revision 0ca3913a. ai-toolkit keys (diffusion_model.transformer_blocks.
+    # N.*), rank 64: attention in all 32 blocks, img_mlp.out in all, and
+    # img_mlp.gate_up in blocks 0-15 only (V1.1 cut the rest: skin softening).
+    #
+    # ai-toolkit trains the image MLP's two input projections as one fused
+    # layer, img_mlp.gate_up = [gate_layer; proj], as ComfyUI's checkpoints
+    # store it. SGLang's Qwen-Image-2.1 keeps them apart, as the diffusers
+    # checkpoint does, and silently skips the fused name. The build splits
+    # each one exactly (both halves keep lora_A, lora_B is cut in two).
+    #
+    # A LoRA recipe holds the adapter and nothing else: the image is the file
+    # under /lora. Nothing of it runs. When a render asks for it, the Hub
+    # copies it into the running Qwen-Image-2.1 server and switches it on
+    # there through SGLang's /v1/set_lora (daemon/services/lora_service.py).
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('Alissonerdx/BFS-Best-Face-Swap', 'bfs_head_v1.1_qwen_2.1.safetensors', revision='0ca3913ade4b4ada458d60c232354e8586c4c181', local_dir='/lora')"
+        RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+         && pip install --no-cache-dir safetensors numpy
+        RUN python3 <<'PY'
+        import glob, os
+        from safetensors import safe_open
+        from safetensors.torch import save_file
+        path = glob.glob("/lora/*.safetensors")[0]
+        f = safe_open(path, "pt")
+        out = {}
+        for key in f.keys():
+            tensor = f.get_tensor(key)
+            if ".img_mlp.gate_up." not in key:
+                out[key] = tensor
+                continue
+            gate, proj = key.replace("gate_up", "gate_layer"), key.replace("gate_up", "proj")
+            if ".lora_A." in key:
+                out[gate], out[proj] = tensor.clone(), tensor.clone()
+            else:
+                out[gate], out[proj] = (half.contiguous() for half in tensor.chunk(2))
+        save_file(out, path + ".split", metadata=f.metadata())
+        os.replace(path + ".split", path)
+        print(len(out), "tensors")
+        PY
+        FROM scratch
+        COPY --from=weights /lora /lora
+    image: spark-ai-hub/lora-qwen-image-21-bfs-head-swap:0ca3913a

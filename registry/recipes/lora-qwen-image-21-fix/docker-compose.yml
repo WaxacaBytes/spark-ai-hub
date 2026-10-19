@@ -1,0 +1,59 @@
+services:
+  lora:
+    # e-n-v-y's Qwen-Image-2.1 Fix v2.0 LoRA, pinned to revision 045f6828.
+    # ai-toolkit keys, rank 32, image MLP only (img_mlp.gate_up and
+    # img_mlp.out) in 15 of the 32 blocks, with an alpha per layer.
+    #
+    # The build folds each layer's alpha into its lora_B (scale alpha/rank,
+    # exact) and drops the alpha keys, so the file reads as plain LoRA
+    # weights at scale 1.
+    #
+    # ai-toolkit trains the image MLP's two input projections as one fused
+    # layer, img_mlp.gate_up = [gate_layer; proj], as ComfyUI's checkpoints
+    # store it. SGLang's Qwen-Image-2.1 keeps them apart, as the diffusers
+    # checkpoint does, and silently skips the fused name. The build splits
+    # each one exactly (both halves keep lora_A, lora_B is cut in two).
+    #
+    # A LoRA recipe holds the adapter and nothing else: the image is the file
+    # under /lora. Nothing of it runs. When a render asks for it, the Hub
+    # copies it into the running Qwen-Image-2.1 server and switches it on
+    # there through SGLang's /v1/set_lora (daemon/services/lora_service.py).
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('e-n-v-y/Qwen-Image-2.1-Fix-v2.0', 'qwen2.1-detail-fix-2.0.safetensors', revision='045f682888e1f32977d1d7358e5022228fbac4f8', local_dir='/lora')"
+        RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+         && pip install --no-cache-dir safetensors numpy
+        RUN python3 <<'PY'
+        import glob, os
+        from safetensors import safe_open
+        from safetensors.torch import save_file
+        path = glob.glob("/lora/*.safetensors")[0]
+        f = safe_open(path, "pt")
+        tensors = {key: f.get_tensor(key) for key in f.keys()}
+        for key in [k for k in tensors if k.endswith(".alpha")]:
+            layer = key[: -len(".alpha")]
+            alpha = tensors.pop(key).float().item()
+            rank = tensors[layer + ".lora_A.weight"].shape[0]
+            b = tensors[layer + ".lora_B.weight"]
+            tensors[layer + ".lora_B.weight"] = (b.float() * (alpha / rank)).to(b.dtype)
+        out = {}
+        for key, tensor in tensors.items():
+            if ".img_mlp.gate_up." not in key:
+                out[key] = tensor
+                continue
+            gate, proj = key.replace("gate_up", "gate_layer"), key.replace("gate_up", "proj")
+            if ".lora_A." in key:
+                out[gate], out[proj] = tensor.clone(), tensor.clone()
+            else:
+                out[gate], out[proj] = (half.contiguous() for half in tensor.chunk(2))
+        save_file(out, path + ".split", metadata=f.metadata())
+        os.replace(path + ".split", path)
+        print(len(out), "tensors")
+        PY
+        FROM scratch
+        COPY --from=weights /lora /lora
+    image: spark-ai-hub/lora-qwen-image-21-fix:045f6828

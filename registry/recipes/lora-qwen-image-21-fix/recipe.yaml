@@ -1,0 +1,45 @@
+name: "Qwen-Image-2.1 Fix LoRA"
+slug: lora-qwen-image-21-fix
+version: "1.0.0"
+description: "A detail-fix LoRA for Qwen-Image-2.1's text-to-image: no trigger word, it changes how pictures render -- finer, sharper detail and fewer of the base model's flaws, per its card's before/after pairs. v2.0. An add-on, not a model: install it and the Hub's image tools offer it on Qwen-Image-2.1 (generate_image with lora)."
+author: "e-n-v-y · for Qwen-Image-2.1"
+source: "community"
+website: "https://huggingface.co/e-n-v-y/Qwen-Image-2.1-Fix-v2.0"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/qwen.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - text-to-image
+  - detail
+  - qwen
+weights_gb: 0.06
+render_seconds: 47.6
+render_workload: "one 1024x1024 picture from text, 40 steps, CFG 1, on Qwen-Image-2.1"
+requires_hf_token: false
+lora:
+  bases:
+    - sglang-qwen-image-21
+  file: "/lora/qwen2.1-detail-fix-2.0.safetensors"
+  strength: 1.0
+# The card names no settings: strength 1.0, the base model's steps.
+image_defaults:
+  notes: "Detail fix: write the prompt as usual (no trigger word); it applies to every picture made with it. Tested 2026-10-19 on a close-up photo prompt (fisherman's hands mending a net): crisper texture and contrast in skin, wool and net than the base model at the same seed; a subtle change, not a different picture."
+  source: "https://huggingface.co/e-n-v-y/Qwen-Image-2.1-Fix-v2.0"

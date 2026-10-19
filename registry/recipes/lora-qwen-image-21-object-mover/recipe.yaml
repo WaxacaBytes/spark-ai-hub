@@ -1,0 +1,45 @@
+name: "Qwen-Image-2.1 Object Mover LoRA"
+slug: lora-qwen-image-21-object-mover
+version: "1.0.0"
+description: "An object-moving LoRA for Qwen-Image-2.1: draw one red box around an object and another where it should go, and it moves it there, filling in where it was. Trained on 45 before/after pairs (rank 16, 4,000 steps); experimental, per its card. An add-on, not a model: install it and the Hub's image tools offer it on Qwen-Image-2.1 (edit_image with lora). Qwen-Image-2.1's license."
+author: "prithivMLmods · for Qwen-Image-2.1"
+source: "community"
+website: "https://huggingface.co/prithivMLmods/Qwen-Image-2.1-Object-Mover-Bbox-turbo"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/qwen.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - image-edit
+  - object-move
+  - qwen
+weights_gb: 0.08
+render_seconds: 62.5
+render_workload: "one 1344x768 picture with a boxed object moved to a second box, 40 steps, CFG 1, on Qwen-Image-2.1"
+requires_hf_token: false
+lora:
+  bases:
+    - sglang-qwen-image-21
+  file: "/lora/Qwen-Image-2.1-Object-Mover-Bbox-turbo-4000.safetensors"
+  strength: 1.0
+# The card's trigger prompt; the base model's steps.
+image_defaults:
+  notes: "Move an object: draw two clear red boxes (outlines) on the picture, one around the object and one where it should go, pass it as `images`, and use the card's trigger prompt: Move the object highlighted in the red box to the location indicated by the other red box in the scene. Big changes of size or perspective are hard, per its card. Tested 2026-10-19 on a teapot on a table: it moved the teapot into the empty box and erased both boxes, the rest unchanged; the base model alone moved it too but turned the wall and table into a noisy texture."
+  source: "https://huggingface.co/prithivMLmods/Qwen-Image-2.1-Object-Mover-Bbox-turbo"

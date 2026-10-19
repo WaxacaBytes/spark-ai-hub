@@ -1,0 +1,45 @@
+name: "Qwen-Image-2.1 Natural Exposure LoRA"
+slug: lora-qwen-image-21-natural-exposure
+version: "1.0.0"
+description: "An exposure-correction LoRA for Qwen-Image-2.1: give it a too-dark, too-bright or unevenly lit photo and it returns the same picture with balanced, neutral exposure, keeping colours and detail. Trained on 38 before/after pairs (rank 16, 4,000 steps); a preview, per its card. An add-on, not a model: install it and the Hub's image tools offer it on Qwen-Image-2.1 (edit_image with lora). Qwen-Image-2.1's license."
+author: "prithivMLmods · for Qwen-Image-2.1"
+source: "community"
+website: "https://huggingface.co/prithivMLmods/Qwen-Image-2.1-Natural-Exposure-LoRA"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/qwen.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - image-edit
+  - exposure
+  - qwen
+weights_gb: 0.08
+render_seconds: 66.0
+render_workload: "one 1920x1080 photo rebalanced at 1376x768, 40 steps, CFG 1, on Qwen-Image-2.1"
+requires_hf_token: false
+lora:
+  bases:
+    - sglang-qwen-image-21
+  file: "/lora/Qwen-Image-2.1-Natural-Exposure-LoRA-4000.safetensors"
+  strength: 1.0
+# The card's trigger prompt; the base model's steps.
+image_defaults:
+  notes: "Fix exposure: pass the photo as `images` and use the card's trigger prompt: Transform the image with balanced neutral exposure. Made for photos with noticeable exposure problems; extreme under- or overexposure and strong colour casts are hard, per its card. Tested 2026-10-19 on a photo darkened by hand (woman with dogs): it restored natural daylight, skin and fur colours; the base model alone brightened it but pushed the dog to an oversaturated orange."
+  source: "https://huggingface.co/prithivMLmods/Qwen-Image-2.1-Natural-Exposure-LoRA"

@@ -1,0 +1,38 @@
+services:
+  lora:
+    # prithivMLmods' Object Remover (bounding box) LoRA for Qwen-Image-2.1,
+    # pinned to revision 90f708f5, its final 4,000-step file. DiffSynth
+    # (ModelScope) training, rank 16, attention and image MLP of all 32
+    # blocks, already in SGLang's names (gate_layer / proj kept apart).
+    #
+    # PEFT saved it with its adapter name in every key (.lora_A.default.
+    # weight); the build drops that word, so the keys read as plain LoRA
+    # weights.
+    #
+    # A LoRA recipe holds the adapter and nothing else: the image is the file
+    # under /lora. Nothing of it runs. When a render asks for it, the Hub
+    # copies it into the running Qwen-Image-2.1 server and switches it on
+    # there through SGLang's /v1/set_lora (daemon/services/lora_service.py).
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('prithivMLmods/Qwen-Image-2.1-Object-Remover-Bbox-turbo', 'Qwen-Image-2.1-Object-Remover-Bbox-turbo-4000.safetensors', revision='90f708f53feb896a2873378629ffe414e0e584c0', local_dir='/lora')"
+        RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+         && pip install --no-cache-dir safetensors numpy
+        RUN python3 <<'PY'
+        import glob, os
+        from safetensors import safe_open
+        from safetensors.torch import save_file
+        path = glob.glob("/lora/*.safetensors")[0]
+        f = safe_open(path, "pt")
+        out = {key.replace(".default.weight", ".weight"): f.get_tensor(key) for key in f.keys()}
+        save_file(out, path + ".plain", metadata=f.metadata())
+        os.replace(path + ".plain", path)
+        print(len(out), "tensors")
+        PY
+        FROM scratch
+        COPY --from=weights /lora /lora
+    image: spark-ai-hub/lora-qwen-image-21-object-remover:90f708f5

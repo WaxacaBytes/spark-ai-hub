@@ -1,0 +1,45 @@
+name: "Qwen-Image-2.1 Object Remover LoRA"
+slug: lora-qwen-image-21-object-remover
+version: "1.0.0"
+description: "An object-removal LoRA for Qwen-Image-2.1: draw a red box around something in a picture and it erases it, filling in the background and keeping shadows and the rest of the scene. Trained on 80 before/after pairs (rank 16, 4,000 steps); experimental, per its card. An add-on, not a model: install it and the Hub's image tools offer it on Qwen-Image-2.1 (edit_image with lora). Qwen-Image-2.1's license."
+author: "prithivMLmods · for Qwen-Image-2.1"
+source: "community"
+website: "https://huggingface.co/prithivMLmods/Qwen-Image-2.1-Object-Remover-Bbox-turbo"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/qwen.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - image-edit
+  - object-removal
+  - qwen
+weights_gb: 0.08
+render_seconds: 62.0
+render_workload: "one 1344x768 picture with a boxed object erased, 40 steps, CFG 1, on Qwen-Image-2.1"
+requires_hf_token: false
+lora:
+  bases:
+    - sglang-qwen-image-21
+  file: "/lora/Qwen-Image-2.1-Object-Remover-Bbox-turbo-4000.safetensors"
+  strength: 1.0
+# The card's trigger prompt; the base model's steps.
+image_defaults:
+  notes: "Object removal: draw a clear red box (outline) around what should go, pass that picture as `images`, and use the card's trigger prompt: Remove the red highlighted object from the scene. The box is removed with the object. Tested 2026-10-19 on a teapot on a table (two seeds): it erased the teapot and the box cleanly; the base model alone also removes it but left a dark stain where it stood on one seed. On the other seed both turned the plain wall into a noisy texture, so try another seed when that happens."
+  source: "https://huggingface.co/prithivMLmods/Qwen-Image-2.1-Object-Remover-Bbox-turbo"
