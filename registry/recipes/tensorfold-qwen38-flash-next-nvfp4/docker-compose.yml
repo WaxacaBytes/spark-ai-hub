@@ -10,67 +10,26 @@ services:
     # 0015, the NVIDIA FP4 default):
     #   https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold
     #   https://mia-ai.net/models/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold
-    # The engine stage below is their scripts/prepare.sh Dockerfile, step for
-    # step. Their prebuilt GHCR images stop at an older patch set (zig-db28187-
-    # 4144696f21e3; this commit's is -c0a2df4c680d), so it is built here.
+    # The engine is their scripts/prepare.sh build, published pre-built (no
+    # weights) at ghcr.io/waxacabytes/tensorfold-flashnext-spark-ai-hub from
+    # github.com/WaxacaBytes/tensorfold-flashnext-spark-ai-hub: their own GHCR
+    # image stops at an older patch set (zig-db28187-4144696f21e3; this
+    # commit's is -c0a2df4c680d), and the recipe pulls it rather than
+    # compiling it on the Spark.
     # Their start.sh / scripts/config.sh defaults are written out as plain
     # `tensorfold-native serve` flags and TENSORFOLD_* / TF_FLASHNEXT_* variables.
     build:
       context: .
       dockerfile_inline: |
-        # --- weights stage ---------------------------------------------------
-        # Baked into the final image, so `docker rmi` reclaims every byte.
-        FROM python:3.12-slim AS weights
-        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
-        RUN pip install --no-cache-dir huggingface_hub
-        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/Qwen3.8-Flash-Next-FP4-Local', revision='b9ce18a6887e18c089fdea8509a33e63429a3300', local_dir='/weights', ignore_patterns=['.gitattributes'], max_workers=8)"
-
-        # --- engine stage: Mia's prepare.sh Dockerfile ----------------------
-        # NVIDIA's PyTorch 26.07 container (arm64, CUDA 13), pinned by digest;
-        # Zig 0.17.0; TensorFold's zig-flashnext branch at db281878 with Mia's
-        # patches; the TP=1 kernel set compiled ahead of time for sm_121 (no
-        # GPU needed), source mtimes pinned so the cubins match theirs.
-        FROM nvcr.io/nvidia/pytorch:26.07-py3@sha256:2140e699b3beaf7f96a0081fd9c9406bc3832b435cdb60dfa2d261f7d2f34a1c AS build
-        RUN curl -fsSL -o /tmp/zig.tar.xz "https://ziglang.org/download/0.17.0/zig-aarch64-linux-0.17.0.tar.xz" && \
-            echo "9e8d11661d4ae3bd57702a3832781e23ad151dde5798e16a5ccd503f65234ff8  /tmp/zig.tar.xz" | sha256sum -c - && \
-            mkdir -p /opt/zig && tar -xJf /tmp/zig.tar.xz -C /opt/zig --strip-components=1 && rm /tmp/zig.tar.xz && \
-            /opt/zig/zig version
-        RUN git init -q /tensorfold && cd /tensorfold && git remote add origin https://github.com/ashhart/TensorFold.git && \
-            git fetch -q --depth 1 origin db281878ddb836fd0df510d8771ecb7e0fe47d26 && git checkout -q --detach FETCH_HEAD && \
-            test "$$(git rev-parse HEAD)" = db281878ddb836fd0df510d8771ecb7e0fe47d26
-        RUN git init -q /mia && cd /mia && git remote add origin https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold.git && \
-            git fetch -q --depth 1 origin 656879fd752749bbd11a6e1a065a326c00940911 && git checkout -q --detach FETCH_HEAD && \
-            cd /tensorfold && for p in /mia/patches/*.patch; do echo "applying $$p"; git apply --check "$$p" && git apply "$$p" || exit 1; done
-        RUN cd /tensorfold && /opt/zig/zig build -Dnvcc=/usr/local/cuda/bin/nvcc -Doptimize=fast --prefix /opt/tensorfold \
-              -j"$$(nproc)" fatbins install native && \
-            test -x /opt/tensorfold/native/bin/tensorfold-native
-        RUN mkdir -p /opt/tensorfold/share/doc/tensorfold && cd /tensorfold && \
-            for f in LICENSE LICENSE.md LICENSES NOTICE THIRD_PARTY_NOTICES.md; do \
-              if [ -e "$$f" ]; then cp -a "$$f" /opt/tensorfold/share/doc/tensorfold/ || exit 1; fi; done && \
-            cp /mia/LICENSE /mia/NOTICE /opt/tensorfold/share/doc/tensorfold/ 2>/dev/null; true
-        RUN cd /tensorfold && python -B -c 'import json, os, sys; t = int(sys.argv[1]); \
-              [os.utime(os.path.join("src", f), (t, t)) for f in sorted({k["source"]["file"] for k in \
-               json.load(open("zig/tests/cuda/flashnext/kernels.json"))["kernels"]})]' 1791318675 && \
-            PYTHONPATH=/tensorfold/src python -B tools/zig/flashnext_aot.py build \
-              --spec zig/tests/cuda/flashnext/kernels.json --jit zig/tests/cuda/flashnext/jit.json --tp 1 \
-              --out /opt/tensorfold/share/tensorfold/cuda/sm121 > /tmp/aot.log || true && \
-            cat /tmp/aot.log && \
-            grep -q 'kernels ->' /tmp/aot.log && \
-            bad=$$(grep PROBLEM /tmp/aot.log | grep -v 'cubin sha256' || true) && \
-            test -z "$$bad" && \
-            test -f /opt/tensorfold/share/tensorfold/cuda/sm121/aot.json
-
-        # --- runtime ---------------------------------------------------------
-        FROM nvcr.io/nvidia/pytorch:26.07-py3@sha256:2140e699b3beaf7f96a0081fd9c9406bc3832b435cdb60dfa2d261f7d2f34a1c
-        COPY --from=build /opt/tensorfold /opt/tensorfold
-        COPY --from=build /tensorfold/src/tensorfold /opt/tensorfold/python/tensorfold
-        RUN ln -s /opt/tensorfold/native/bin/tensorfold-native /usr/local/bin/tensorfold-native && \
-            pip install --no-cache-dir "huggingface_hub>=1.0" && \
-            pip install --no-cache-dir --no-deps "transformers==5.17.0" "av==19.0.1"
-        ENV TENSORFOLD_CUDA_KERNELS=/opt/tensorfold/share/tensorfold/cuda/sm121 \
-            CUDA_CACHE_PATH=/cache/nv \
-            TENSORFOLD_VISION_PYTHONPATH=/opt/tensorfold/python
-        COPY --from=weights /weights /models/Qwen3.8-Flash-Next-FP4-Local
+        # --- engine: Mia's prepare.sh build of TensorFold's Zig engine -------
+        # NVIDIA's PyTorch 26.07, Zig 0.17.0, TensorFold zig-flashnext db281878
+        # with Mia's patches 0001-0015, TP=1 kernels AOT for sm_121.
+        FROM ghcr.io/waxacabytes/tensorfold-flashnext-spark-ai-hub:zig-db28187-c0a2df4c680d
+        # --- weights, baked in: `docker rmi` reclaims every byte -------------
+        # Downloaded straight into the image's own layer (the engine image has
+        # huggingface_hub), so the build never holds a second copy.
+        RUN HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60 python3 -c "from huggingface_hub import snapshot_download; snapshot_download('nvidia/Qwen3.8-Flash-Next-FP4-Local', revision='b9ce18a6887e18c089fdea8509a33e63429a3300', local_dir='/models/Qwen3.8-Flash-Next-FP4-Local', ignore_patterns=['.gitattributes'], max_workers=8)" && \
+            rm -rf /models/Qwen3.8-Flash-Next-FP4-Local/.cache
         WORKDIR /workspace
     image: spark-ai-hub/tensorfold-qwen38-flash-next-nvfp4:zig-db28187-c0a2df4c680d
     container_name: spark-ai-hub-tensorfold-qwen38-flash-next-nvfp4

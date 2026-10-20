@@ -1,7 +1,7 @@
 name: "Qwen3.8-Flash-Next NVFP4"
 slug: tensorfold-qwen38-flash-next-nvfp4
 version: "1.0.0"
-description: "Qwen3.8-Flash-Next — the first open-weight release of the architecture behind Qwen4, 177B total parameters over a hybrid linear/full attention stack — served by TensorFold's Zig engine (tensorfold-native), following Mia's AI Lab single-Spark recipe of 2026-10-18. The checkpoint is NVIDIA's quantization-aware-distilled FP4 build: NVFP4 routed experts (all 512, 10 active per token), MXFP8 attention and shared-expert linears, an FP8 n-gram table and the MTP head. Five requests at the full native 262K context share one FP8 KV pool. Decoding drafts up to six MTP tokens a round, each verified by the model, so output is unchanged. Images and videos work as OpenAI image_url / video_url parts (data URLs), as do tool calling and reasoning. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
+description: "Qwen3.8-Flash-Next — the first open-weight release of the architecture behind Qwen4, 177B total parameters over a hybrid linear/full attention stack — served by TensorFold's Zig engine (tensorfold-native), following Mia's AI Lab single-Spark recipe of 2026-10-18 (its default checkpoint). The checkpoint is NVIDIA's quantization-aware-distilled FP4 build, trained against the bf16 model as teacher: NVFP4 routed experts (all 512, 10 active per token), MXFP8 attention and shared-expert linears, an FP8 n-gram table and the MTP head. NVIDIA's model card puts it at 91.5% GPQA Diamond and 88.7% ToolEvalBench against 92.2% and 89.4% for bf16 (read 2026-10-19); the INT4-AutoRound build of the same recipe is faster but routes 5 experts a token instead of 10, about 10% lower in general capability per its authors. Five requests at the full native 262K context share one FP8 KV pool; measured through the Hub on 2026-10-19, five prose requests at once ran 111 tok/s combined (22 each) against 44 tok/s for one. Decoding drafts up to six MTP tokens a round, each verified by the model, so output is unchanged. Images and videos work as OpenAI image_url / video_url parts (data URLs), as do tool calling and reasoning. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
 author: "Qwen"
 source: "community"
 website: "https://huggingface.co/nvidia/Qwen3.8-Flash-Next-FP4-Local"
@@ -25,7 +25,7 @@ tags:
 requirements:
   min_memory_gb: 115
   recommended_memory_gb: 128
-  disk_gb: 120
+  disk_gb: 130
   cuda_compute: "12.1"
 ui:
   type: api-only
@@ -34,7 +34,7 @@ ui:
   path: "/v1/models"
 docker:
   build: true
-  build_time_minutes: 60
+  build_time_minutes: 40
   gpu: true
 status: experimental
 engine: "TensorFold"
@@ -47,14 +47,14 @@ artificial_analysis_index: 46
 weights_gb: 102.3
 release_date: "2026-10-18"
 requires_hf_token: false
-tokens_per_second: 48.2
-tokens_per_second_editing: 99.3
+tokens_per_second: 50.2
+tokens_per_second_editing: 103.5
 editing_workload: "code-edit"
 benchmarks:
-  prose: 42.78
-  explainer: 47.66
-  code: 58.08
-  code-edit: 99.3
+  prose: 44.34
+  explainer: 49.61
+  code: 60.94
+  code-edit: 103.51
 integration:
   api_url: "<HUB>/v1"
   model_id: "Qwen/Qwen3.8-Flash-Next"
