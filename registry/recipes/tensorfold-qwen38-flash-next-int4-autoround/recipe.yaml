@@ -1,7 +1,7 @@
 name: "Qwen3.8-Flash-Next INT4-AutoRound"
 slug: tensorfold-qwen38-flash-next-int4-autoround
 version: "1.0.0"
-description: "Qwen3.8-Flash-Next — the first open-weight release of the architecture behind Qwen4, 177B total parameters over a hybrid linear/full attention stack — served by TensorFold's Zig engine (tensorfold-native), following Mia's AI Lab single-Spark recipe of 2026-10-18 with its CHECKPOINT=int4 option. The checkpoint is azampatti's INT4-AutoRound: GPTQ int4 routed experts (group size 128) routed 5 a token instead of the model's 10 (125B total, 4.8B active), an FP8 n-gram table on the GPU and the MTP head. Mia measured it faster than the recipe's default NVIDIA FP4 checkpoint (64.4 tok/s for one request on their Spark); its authors put it about 10% lower in general capability than the full model, where NVIDIA's FP4 QAD build stays within a point of bf16 on GPQA Diamond. Five requests at the full native 262K context share one FP8 KV pool. Decoding drafts up to six MTP tokens a round, each verified by the model, so output is unchanged. Images and videos work as OpenAI image_url / video_url parts (data URLs), as do tool calling and reasoning. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
+description: "Qwen3.8-Flash-Next — the first open-weight release of the architecture behind Qwen4, 177B total parameters over a hybrid linear/full attention stack — served by TensorFold's Zig engine (tensorfold-native), following Mia's AI Lab single-Spark recipe of 2026-10-18 with its CHECKPOINT=int4 option. The checkpoint is azampatti's INT4-AutoRound: GPTQ int4 routed experts (group size 128) routed 5 a token instead of the model's 10 (125B total, 4.8B active), an FP8 n-gram table on the GPU and the MTP head. Mia measured it faster than the recipe's default NVIDIA FP4 checkpoint (64.4 tok/s for one request on their Spark); its authors put it about 10% lower in general capability than the full model, where NVIDIA's FP4 QAD build stays within a point of bf16 on GPQA Diamond. Five requests at the full native 262K context share one FP8 KV pool; measured through the Hub on 2026-10-19, five prose requests at once ran 146 tok/s combined (29 each) against 51 tok/s for one. Decoding drafts up to six MTP tokens a round, each verified by the model, so output is unchanged. Images and videos work as OpenAI image_url / video_url parts (data URLs), as do tool calling and reasoning. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
 author: "Qwen"
 source: "community"
 website: "https://huggingface.co/azampatti/Qwen3.8-Flash-Next-125B-A5B-INT4-AutoRound"
@@ -35,7 +35,7 @@ ui:
   path: "/v1/models"
 docker:
   build: true
-  build_time_minutes: 50
+  build_time_minutes: 55
   gpu: true
 status: experimental
 engine: "TensorFold"
@@ -47,6 +47,14 @@ speculative_method: "mtp"
 weights_gb: 131.0
 release_date: "2026-10-18"
 requires_hf_token: false
+tokens_per_second: 61.2
+tokens_per_second_editing: 146.3
+editing_workload: "code-edit"
+benchmarks:
+  prose: 53.38
+  explainer: 56.04
+  code: 77.99
+  code-edit: 146.34
 integration:
   api_url: "<HUB>/v1"
   model_id: "Qwen/Qwen3.8-Flash-Next"
