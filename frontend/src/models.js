@@ -16,7 +16,7 @@
 // that leaves the output projection dense while the body stays quantized is a
 // build of the model, not a different model.
 const BUILD_TOKENS = new Set([
-  'bf16', 'fp8', 'nvfp4', 'int4', 'mxfp4', 'awq', 'gptq', 'autoround',
+  'bf16', 'fp8', 'nvfp4', 'int4', 'mxfp4', 'awq', 'gptq',
   'q8', 'q4', 'iq2m', 'iq1m', 'q3ks', 'q2kxl', 'q4km', 'exl3',
   // `k2` is EXL3's rate label (2-bit trellis), the same kind of fact as q2kxl.
   // It keeps vllm-glm53-flash-exl3-k2 in the GLM-5.3-Flash model row rather
@@ -192,7 +192,6 @@ function resolvedQuant(recipe) {
   if (quant !== 'INT4') return quant
   const tags = recipe.tags || []
   if (tags.includes('autoround') && tags.includes('w4a16')) return 'AutoRound W4A16'
-  if (tags.includes('autoround')) return 'INT4-AutoRound'
   if (tags.includes('gptq') || /gptq/i.test(recipe.name || '')) return 'GPTQ-Int4'
   return quant
 }
