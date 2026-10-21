@@ -19,7 +19,7 @@ from daemon.services.connect_service import compute_connect_info, request_origin
 from daemon.services.registry_service import load_recipes, get_recipes
 from daemon.services.auth_service import purge_expired_sessions
 from daemon.services.docker_service import is_recipe_running, start_health_check
-from daemon.services import link_service, media_store, oauth_service, proxy_service
+from daemon.services import favorites_service, link_service, media_store, oauth_service, proxy_service
 
 DIST_DIR = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
@@ -61,6 +61,7 @@ async def _session_janitor():
 async def lifespan(app: FastAPI):
     await init_db()
     load_recipes()
+    await favorites_service.load()
     # The front door on :9000. Started after the registry loads, because its
     # config is generated from it -- one /run/{slug}/ route per proxied recipe.
     await proxy_service.ensure_proxy()

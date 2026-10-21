@@ -2,15 +2,16 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
-import { formatParams, openUrl } from '../components/RecipeCard'
+import { openUrl } from '../lib/urls'
 import { fillPlaceholders, hubOrigin } from '../lib/urls'
 import { hasSecret, maskIn } from '../lib/secret'
 import { useApiKey } from '../hooks/useApiKey'
 import { useAuth } from '../auth'
 import { backdropFor, posterFor } from '../covers'
-import { formatDuration, isLora, mediaKind, speedLabel } from '../models'
+import { formatDuration, formatParams, isLora, mediaKind, speedLabel } from '../models'
 import CoverInfoModal from '../components/CoverInfoModal'
 import YamlEditor from '../components/YamlEditor'
+import { FavBadge } from '../components/FavStar'
 
 const DETAIL_TABS = [
   { id: 'details', label: 'Overview' },
@@ -264,6 +265,7 @@ function RecipeDetailPage({ slug }) {
               />
             )}
             <div className="flex items-center gap-2 mt-2 flex-wrap">
+              <FavBadge recipe={recipe} />
               {recipeCategories.map((cat) => (
                 <span key={cat} className="text-[10px] font-label text-secondary bg-secondary/10 px-2 py-0.5 rounded-full">{cat}</span>
               ))}
@@ -665,6 +667,28 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
               </a>
             )}
           </div>
+
+          {/* The Hugging Face repos the build downloads, each at the commit it
+              pins: where the weights this recipe serves come from. */}
+          {recipe.weights?.length > 0 && (
+            <div>
+              <div className="text-[11px] uppercase tracking-[0.16em] text-text-dim font-label">Weights</div>
+              <div className="mt-2 flex flex-col gap-1.5">
+                {recipe.weights.map((w) => (
+                  <a
+                    key={w.repo}
+                    href={`https://huggingface.co/${w.repo}/tree/${w.revision || 'main'}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="min-w-0 break-all font-mono text-[13px] text-primary no-underline hover:text-primary/80 transition-colors"
+                  >
+                    {w.repo}
+                    <span className="ml-2 text-text-dim">{w.revision ? w.revision.slice(0, 7) : 'main'}</span>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
 
           {recipe.tags.length > 0 && (
             <div className="flex flex-wrap gap-2">

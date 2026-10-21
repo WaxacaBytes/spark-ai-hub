@@ -7,7 +7,7 @@ client) target the Hub directly via ANTHROPIC_BASE_URL.
 
 Same routing as openai_proxy.py, same model-rewrite trick: a "model" field
 no running server serves (every Claude model name, in practice) goes to the
-largest model up.
+default model up: the starred one, else the largest.
 """
 from __future__ import annotations
 
@@ -438,6 +438,7 @@ async def messages(request: Request):
     if not routed:
         return _no_model_running()
     upstream, current = routed
+    request.state.recipe = upstream.slug
 
     upstream_payload = _anthropic_to_openai(body, current)
     url = f"{upstream.base}/chat/completions"

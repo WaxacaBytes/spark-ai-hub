@@ -54,6 +54,22 @@ load_seconds: 340
 requires_hf_token: true
 gated_repos:
   - "Lightricks/LTX-2.5"
+# Sol's downloader fetches these from its pinned manifest
+# (Sana 0527465f, configs/checkpoints.json: the FL2VA task plus the offline
+# prompt-cache entries), so the compose file never names them.
+weights:
+  - repo: "MiniMaxAI/MiniMax-H3"
+    revision: "9bfb6693f2cf6de171db46d1aa586f67d773a1da"
+  - repo: "FastVideo/FastVideo-FastH3-4-step-Preview-v1-LoRA"
+    revision: "f509e629374cac104e7f62daecce6d1488a3041d"
+  - repo: "Comfy-Org/MiniMax-H3"
+    revision: "0543966fbdce5ba05709a8f2031c94bdba629b4a"
+  - repo: "Lightricks/LTX-2.5"
+    revision: "5e6e71018ee1756ed329b697a7b4aedc934dfce9"
+  - repo: "LBH-123-AI/Minimax_h3_latent_Upscaler"
+    revision: "13ccf95d85d120bdbc92c05b1247a6e147bf54bf"
+  - repo: "Efficient-Large-Model/H3-to-LTX-Latent-Adapter"
+    revision: "cfcd8a7cc36c135142287584728f7fe362df0867"
 # Sol's request contract: a prompt, a seed and the task; the canvas and length
 # are fixed by the recipe (1344x768, 121 frames at 24 fps). The FL2VA weights
 # serve two tasks: t2va (text alone) and fl2va (a picture pinned as the first

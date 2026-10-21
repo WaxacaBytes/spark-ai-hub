@@ -1,5 +1,7 @@
 from __future__ import annotations
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, Field, computed_field
+
+from daemon.services import favorites_service
 
 
 # What a served model can actually do, derived from the recipe's hand-written
@@ -14,6 +16,13 @@ TAG_CAPABILITIES = {
     "reasoning": "thinking",
 }
 
+
+def weights_of(recipe) -> list[str]:
+    """The Hugging Face repos a model's weights come from, for agents' model
+    lists: the org names the publisher, so "NVIDIA's build" can be picked."""
+    return [w.repo for w in getattr(recipe, "weights", [])]
+
+
 # What an image or video model makes, from the same hand-written tags that tell
 # the Hub's MCP tools which recipes can answer which call. Shown on the detail
 # page so nobody has to read tags to learn a model generates but cannot edit.
@@ -23,6 +32,8 @@ def media_figures(recipe) -> dict:
     installed models itself; {} where unmeasured."""
     keys = ("render_seconds", "render_workload", "load_seconds")
     out = {k: v for k in keys if (v := getattr(recipe, k, None))}
+    if weights := weights_of(recipe):
+        out["weights"] = weights
     if arena := getattr(recipe, "arena", None):
         out["arena"] = [a.model_dump(exclude_defaults=True) for a in arena]
     return out
@@ -179,6 +190,13 @@ class RecipeLora(BaseModel):
     text_embeddings: str | None = None
 
 
+class RecipeWeights(BaseModel):
+    """One Hugging Face repo a recipe's build downloads its weights from."""
+
+    repo: str            # "nvidia/Qwen3.8-Flash-Next-FP4-Local"; its org is the publisher
+    revision: str = ""   # the commit the build pins; "" when it takes main
+
+
 class RecipeArenaScore(BaseModel):
     """One human-preference Elo for a media model, as a board published it.
 
@@ -331,6 +349,16 @@ class Recipe(BaseModel):
     # refuse to start without it free. That share in GiB, read off the compose
     # command by the registry loader; 0 for engines that claim no fixed share.
     reserved_gb: float = 0.0
+    # Where the weights come from, so two builds of one model tell apart whose
+    # checkpoint each serves (NVIDIA's NVFP4 or a community INT4). Read off the
+    # compose file's download calls by the registry loader -- what the build
+    # really pulls, so it cannot drift. Declared here only by a recipe whose
+    # downloads the compose file does not name (an upstream manifest does).
+    weights: list[RecipeWeights] = []
+
+    # The model id an LLM's server answers to, read off its compose command
+    # (--served-model-name and the like): what older usage rows name it by.
+    served_name: str | None = Field(default=None, exclude=True)
 
     # runtime state (not from yaml)
     installed: bool = False
@@ -342,6 +370,14 @@ class Recipe(BaseModel):
     # Why the last launch died, in words. Set when a container exits before it
     # ever answers its health check; cleared on the next launch.
     error: str | None = None
+
+    @computed_field
+    @property
+    def favorite(self) -> dict | None:
+        """Who starred this build as the one to use on this Spark, and when
+        ({by, at}); None when it has no star. Stars are this Hub's choice, kept
+        in its database, never in the recipe."""
+        return favorites_service.star_of(self.slug)
 
     @computed_field
     @property

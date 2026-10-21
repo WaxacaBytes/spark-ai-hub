@@ -128,6 +128,17 @@ class RoutingTests(unittest.TestCase):
         with mock.patch.object(self.proxy, "_running_slugs", mock.AsyncMock(return_value=set())):
             self.assertIsNone(self.run(self.proxy.route("anything")))
 
+    def test_a_starred_model_is_the_default_even_when_smaller(self):
+        with mock.patch.object(self.proxy.favorites_service, "_stars", {"small": {"by": "admin", "at": ""}}):
+            self.assertEqual([u.slug for u in self.run(self.proxy._upstreams())], ["small", "big"])
+            up, model = self.run(self.proxy.route("claude-sonnet-5"))
+        self.assertEqual((up.slug, model), ("small", "org/Small-4B"))
+
+    def test_a_starred_model_that_is_not_running_changes_nothing(self):
+        with mock.patch.object(self.proxy.favorites_service, "_stars", {"elsewhere": {"by": "admin", "at": ""}}):
+            up, _ = self.run(self.proxy.route("claude-sonnet-5"))
+        self.assertEqual(up.slug, "big")
+
 
 class LaunchPlanTests(unittest.TestCase):
     """The swap prompt only appears when the next LLM does not fit."""

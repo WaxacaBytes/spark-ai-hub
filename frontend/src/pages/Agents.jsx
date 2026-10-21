@@ -6,8 +6,7 @@ import { useThemedLogo } from '../hooks/useThemedLogo'
 import { copyText } from '../lib/clipboard'
 import { hasSecret, maskIn } from '../lib/secret'
 import { hubOrigin, openUrl } from '../lib/urls'
-import { formatParams } from '../components/RecipeCard'
-import { groupModels, isAgentModel, isMediaModel, speedLabel } from '../models'
+import { formatParams, groupModels, isAgentModel, isMediaModel, speedLabel } from '../models'
 import { formatContext } from '../components/ModelList'
 import ModelShelves from '../components/ModelShelves'
 
@@ -48,8 +47,9 @@ function saveAgent(id) {
   }
 }
 
-// What /v1/models answers right now: the running LLMs, default (largest)
-// first. Refetched whenever the set of running models changes.
+// What /v1/models answers right now: the running LLMs, default (starred,
+// else largest) first. Refetched whenever the running models or their stars
+// change.
 function useServedModels(runningKey) {
   const [served, setServed] = useState(null)
   useEffect(() => {
@@ -93,7 +93,7 @@ export default function Agents({ search = '' }) {
 
   const runningKey = models
     .filter((r) => r.running || r.starting)
-    .map((r) => `${r.slug}:${r.ready ? 1 : 0}`)
+    .map((r) => `${r.slug}:${r.ready ? 1 : 0}${r.favorite ? ':star' : ''}`)
     .sort()
     .join(',')
   const served = useServedModels(runningKey)
@@ -239,7 +239,7 @@ function ServingPanel({ served, starting, tools, recipes, onBrowse }) {
           ))}
           <p className="m-0 mt-1 text-[11px] leading-5 text-text-dim">
             {live.length > 1
-              ? 'A request goes to the model it names. Anything else goes to the default, the largest one up.'
+              ? 'A request goes to the model it names. Anything else goes to the default: the starred one, else the largest.'
               : 'Requests go here whatever model they name. Launch more and they run side by side when they fit.'}
           </p>
         </div>
@@ -348,8 +348,9 @@ function ServedRow({ model, recipe, isDefault = false, pending = false }) {
         <span className="h-8 w-8 shrink-0 rounded-lg bg-surface" />
       )}
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-semibold text-text">{recipe?.name || model?.id}</span>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          {recipe?.favorite && <span className="shrink-0 text-sm leading-none text-fav">★</span>}
+          <span className="min-w-0 text-sm font-semibold leading-snug text-text">{recipe?.name || model?.id}</span>
           {isDefault && (
             <span className="shrink-0 rounded bg-primary px-1.5 py-0.5 font-label text-[9px] font-bold uppercase tracking-wide text-primary-on">
               Default
@@ -361,7 +362,7 @@ function ServedRow({ model, recipe, isDefault = false, pending = false }) {
             </span>
           )}
         </div>
-        <div className="mt-0.5 truncate font-mono text-[11px] text-text-dim">{model?.id || recipe?.slug}</div>
+        <div className="mt-0.5 break-all font-mono text-[11px] text-text-dim">{model?.id || recipe?.slug}</div>
       </div>
       <div className="hidden shrink-0 flex-col items-end gap-1 sm:flex">
         {meta.length > 0 && <span className="font-label text-[10px] tabular-nums text-text-muted">{meta.join(' · ')}</span>}

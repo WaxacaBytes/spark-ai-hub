@@ -420,6 +420,7 @@ async def record_usage(
     completion_tokens: int = 0,
     total_tokens: int = 0,
     source: str = "",
+    recipe: str = "",
 ) -> None:
     """Append one call to the usage log. Never raises into the request path.
 
@@ -434,10 +435,10 @@ async def record_usage(
             await db.execute(
                 """INSERT INTO usage_events
                    (user_id, model, endpoint, prompt_tokens, completion_tokens,
-                    total_tokens, source)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    total_tokens, source, recipe)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (user_id, model or "", endpoint or "", prompt_tokens or 0,
-                 completion_tokens or 0, total_tokens or 0, source or ""),
+                 completion_tokens or 0, total_tokens or 0, source or "", recipe or ""),
             )
             await db.commit()
         finally:

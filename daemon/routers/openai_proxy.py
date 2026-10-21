@@ -4,7 +4,8 @@ One stable endpoint (the Hub itself) in front of every LLM that is running.
 Each model server publishes no host port: it sits on the Hub's app network and
 is reached through the front door at /run/{slug}/v1. A request goes to the
 server that serves the model it names; one naming anything else goes to the
-largest model up, with its "model" field rewritten, so clients configured
+default -- the model up that an admin starred, else the largest -- with its
+"model" field rewritten, so clients configured
 once with any placeholder survive model swaps in the Hub.
 """
 from __future__ import annotations
@@ -24,7 +25,8 @@ import aiohttp
 from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from daemon.services import auth_service, proxy_service
+from daemon.services import auth_service, favorites_service, proxy_service
+from daemon.models.recipe import weights_of
 from daemon.services.registry_service import get_recipes
 
 router = APIRouter(prefix="/v1", tags=["openai"])
@@ -52,10 +54,11 @@ _CREDENTIAL_HEADERS = {"authorization", "x-api-key", "api-key", "cookie"}
 # The Hub already knows the answer: every recipe is hand-tagged. So each
 # /v1/models entry is annotated with the capabilities of the recipe serving it
 # (the tag → capability mapping lives on the Recipe model, so the detail page
-# shows the user exactly what is reported here), plus its size and slug. This
-# mirrors how Ollama reports capabilities from /api/show, in the one place an
-# OpenAI-compatible client can reach. Unknown fields are ignored by
-# OpenAI-shaped clients, so this is additive for anything that does not look.
+# shows the user exactly what is reported here), plus its size, its slug and
+# the Hugging Face repos its weights come from. This mirrors how Ollama reports
+# capabilities from /api/show, in the one place an OpenAI-compatible client
+# can reach. Unknown fields are ignored by OpenAI-shaped clients, so this is
+# additive for anything that does not look.
 
 @dataclass
 class Upstream:
@@ -67,6 +70,11 @@ class Upstream:
 
 _UPSTREAM_CACHE: dict[str, Any] = {"list": [], "fetched_at": 0.0}
 _UPSTREAM_CACHE_TTL = 5.0  # seconds
+
+
+def invalidate_upstreams() -> None:
+    """Forget the cached server list, after a star changes the default."""
+    _UPSTREAM_CACHE.update({"list": [], "fetched_at": 0.0})
 
 
 async def _running_slugs() -> set[str]:
@@ -102,11 +110,13 @@ async def _upstream(session: aiohttp.ClientSession, recipe) -> Upstream | None:
         entry.setdefault("capabilities", recipe.capabilities)
         entry["params_b"] = recipe.params_b
         entry["recipe"] = recipe.slug
+        entry["favorite"] = favorites_service.is_favorite(recipe.slug)
+        entry["weights"] = weights_of(recipe)
     return Upstream(recipe.slug, base, entries[0]["id"], entries) if entries else None
 
 
 async def _upstreams() -> list[Upstream]:
-    """Every model server that answers, largest first."""
+    """Every model server that answers: starred first, then largest first."""
     now = time.time()
     if _UPSTREAM_CACHE["list"] and (now - _UPSTREAM_CACHE["fetched_at"]) < _UPSTREAM_CACHE_TTL:
         return _UPSTREAM_CACHE["list"]
@@ -114,8 +124,9 @@ async def _upstreams() -> list[Upstream]:
     running = [recipes[s] for s in await _running_slugs() if s in recipes and recipes[s].is_llm]
     async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=2)) as session:
         found = await asyncio.gather(*(_upstream(session, r) for r in running))
-    size = {r.slug: (r.params_b or 0, r.memory_gb) for r in running}
-    ups = sorted((u for u in found if u), key=lambda u: size[u.slug], reverse=True)
+    # Starred builds first: the admin's pick is the default. Then by size.
+    rank = {r.slug: (favorites_service.is_favorite(r.slug), r.params_b or 0, r.memory_gb) for r in running}
+    ups = sorted((u for u in found if u), key=lambda u: rank[u.slug], reverse=True)
     # Two builds of one model (with and without a drafter, say) answer to the
     # same id. Listing it twice would leave all but one unreachable by name,
     # so each copy is listed under its recipe slug instead.
@@ -134,8 +145,9 @@ async def route(requested: Any) -> tuple[Upstream, str] | None:
     """The server for the model a request names, and the id to send it.
 
     A model is named by its listed id, its served id or its recipe slug; a
-    served id shared by several goes to the largest of them. Any other name
-    goes to the largest model up. None when nothing is running.
+    served id shared by several goes to the first of them. Any other name
+    goes to the default: the starred model up, else the largest. None when
+    nothing is running.
     """
     ups = await _upstreams()
     if not ups:
@@ -245,6 +257,7 @@ async def record_call(request: Request, endpoint: str, usage: dict | None) -> No
         completion_tokens=usage.get("completion_tokens", 0),
         total_tokens=usage.get("total_tokens", 0),
         source=getattr(request.state, "auth_source", "") or "",
+        recipe=getattr(request.state, "recipe", "") or "",
     )
 
 
@@ -324,6 +337,7 @@ async def proxy(path: str, request: Request):
     if not routed:
         return _no_model_running()
     upstream, model_id = routed
+    request.state.recipe = upstream.slug
     url = f"{upstream.base}/{path}"
 
     # Rewrite model field on JSON POST/PUT/PATCH bodies that carry one,

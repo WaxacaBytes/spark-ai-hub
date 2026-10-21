@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import CardRow from './CardRow'
+import FavoriteTiles from './FavoriteTiles'
 import Hint from './Hint'
 import ModelList, { ModelBlock, buildBlockWidth, useBuildColumns, useNarrow } from './ModelList'
 import { vendorKey, vendorLabel } from '../covers'
-import { formatDuration, groupModels, mediaKind, primaryArena } from '../models'
+import { formatDuration, groupModels, mediaKind, primaryArena, starredByLine } from '../models'
 
 // The model catalog as shelves. The Agents page draws two of them: the LLMs
 // agents talk to at /v1, and the media models they call as tools through
@@ -284,6 +285,8 @@ export default function ModelShelves({
     return out
   }, [visible, comparator, buildComparator, sort, groupByLab])
 
+  const favorites = useMemo(() => visible.filter((r) => r.favorite), [visible])
+
   if (models.length === 0) return null
 
   return (
@@ -323,6 +326,17 @@ export default function ModelShelves({
 
       {visible.length === 0 && (
         <p className="m-0 px-6 text-sm text-text-dim">No models match this search.</p>
+      )}
+
+      {/* What the admin says to use, before any table. */}
+      {favorites.length > 0 && (
+        <CardRow
+          title={<><span className="text-fav">★</span> Recommended on this Spark</>}
+          subtitle={starredByLine(favorites)}
+          wrap
+        >
+          <FavoriteTiles recipes={favorites} />
+        </CardRow>
       )}
 
       {/* Two shapes for two questions. Browsing by lab, you are choosing a

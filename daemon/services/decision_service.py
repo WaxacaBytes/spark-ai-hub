@@ -18,9 +18,10 @@ import json
 
 import aiohttp
 
-from daemon.services import proxy_service
+from daemon.services import favorites_service, proxy_service
 from daemon.services.docker_service import get_installed_slugs, is_ready, is_recipe_running
 from daemon.services.image_service import ImageError, load_input
+from daemon.models.recipe import weights_of
 from daemon.services.registry_service import get_recipes
 from daemon.services.video_service import MAX_VIDEO_INPUT_BYTES
 
@@ -53,13 +54,16 @@ async def list_models() -> list[dict]:
             "state": ("ready" if running and is_ready(slug)
                       else "starting" if running else "stopped"),
             "min_memory_gb": recipe.requirements.min_memory_gb,
+            **({"weights": weights} if (weights := weights_of(recipe)) else {}),
         })
     return out
 
 
 async def pick_backend(model: str | None) -> str:
-    """The model to ask: the one named, else one that is running."""
-    installed = sorted(backends() & await get_installed_slugs())
+    """The model to ask: the one named, else one that is running (a starred
+    one first)."""
+    installed = sorted(backends() & await get_installed_slugs(),
+                       key=lambda slug: (not favorites_service.is_favorite(slug), slug))
     if model:
         if model not in installed:
             raise ImageError(f"'{model}' is not an installed decision model. "

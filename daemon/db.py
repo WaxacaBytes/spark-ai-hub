@@ -107,6 +107,14 @@ CREATE TABLE IF NOT EXISTS media (
 );
 CREATE INDEX IF NOT EXISTS idx_media_user ON media(user_id);
 
+-- Builds an admin starred as the ones to use on this Spark
+-- (daemon/services/favorites_service.py): who starred each and when.
+CREATE TABLE IF NOT EXISTS favorites (
+    slug TEXT PRIMARY KEY,
+    set_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    set_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Short-lived upload/download links for agents that must not hold a Hub key
 -- (daemon/services/link_service.py). Token stored as its SHA-256.
 CREATE TABLE IF NOT EXISTS media_links (
@@ -134,6 +142,12 @@ ADDED_COLUMNS = [
     ("media", "seconds", "REAL"),
     ("media", "lora", "TEXT NOT NULL DEFAULT ''"),
     ("media", "prompt", "TEXT NOT NULL DEFAULT ''"),
+    # The recipe that answered a /v1 call. `model` is the id the server
+    # reported, which several builds of one model share.
+    ("usage_events", "recipe", "TEXT NOT NULL DEFAULT ''"),
+    # When it was last launched: the last use of an app, which has no calls
+    # or renders of its own to go by.
+    ("installed_recipes", "launched_at", "TEXT"),
 ]
 
 

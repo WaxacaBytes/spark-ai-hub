@@ -77,6 +77,14 @@ export function isMediaModel(recipe) {
 // What a media model makes, from the capabilities the daemon derives off its
 // tags. Render times only compare within one kind: 8 s is fast for a 3D model
 // and impossible for a 10 s clip.
+// What a recipe is to whoever uses it: an app they open, a language model
+// agents talk to at /v1, or a media model agents call through /mcp.
+export function kindOf(recipe) {
+  if (isAgentModel(recipe)) return 'llm'
+  if (isModel(recipe)) return 'media'
+  return 'app'
+}
+
 export function mediaKind(recipe) {
   const caps = recipe.media_capabilities || []
   if (caps.some((c) => c.endsWith('-to-video'))) return 'video'
@@ -196,6 +204,14 @@ function resolvedQuant(recipe) {
   return quant
 }
 
+// Who published the weights a build serves: the orgs of the Hugging Face
+// repos its build downloads (the daemon reads them off the compose file), in
+// download order. Two builds of one model differ most in this -- NVIDIA's
+// NVFP4 against a community INT4 -- and nothing else on a row says it.
+export function publishers(recipe) {
+  return [...new Set((recipe.weights || []).map((w) => w.repo.split('/')[0]))].join(', ')
+}
+
 export function buildLabel(recipe) {
   const quant = resolvedQuant(recipe)
   const drafter = DRAFTER_LABELS[recipe.speculative_method] || ''
@@ -226,4 +242,23 @@ export function groupModels(recipes, comparator, buildComparator = comparator) {
   // best build of it can do, then pick the build.
   out.sort((a, b) => comparator(a.lead, b.lead))
   return out
+}
+
+// What a star on a build means, for the bubble beside it.
+export function starredBy(recipe) {
+  const by = recipe.favorite?.by
+  return by ? `Recommended on this Spark · starred by ${by}` : 'Recommended on this Spark'
+}
+
+// "Starred by Abel": who picked a set of builds, for a shelf's subtitle.
+export function starredByLine(recipes) {
+  const names = [...new Set(recipes.map((r) => r.favorite?.by).filter(Boolean))]
+  return names.length ? `Starred by ${names.join(' and ')}` : null
+}
+
+// "35B-A3B" for MoE (total + active), plain "27B" for dense.
+export function formatParams(recipe) {
+  const b = (n) => (Number.isInteger(n) ? n : n.toFixed(1))
+  const total = `${b(recipe.params_b)}B`
+  return recipe.active_params_b != null ? `${total}-A${b(recipe.active_params_b)}B` : total
 }

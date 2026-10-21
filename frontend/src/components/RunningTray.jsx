@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
-import { buildLabel, displayName, isAgentModel, isModel } from '../models'
-import { openUrl } from './RecipeCard'
+import { buildLabel, displayName, kindOf } from '../models'
+import { openUrl } from '../lib/urls'
+import KindTag from './KindTag'
 
 // What is running on this Spark, in the header of every page.
 //
@@ -16,22 +17,11 @@ import { openUrl } from './RecipeCard'
 
 const MAX_PILLS = 4
 
-const KIND = {
-  app: { label: 'App', className: 'bg-surface-highest text-text-muted' },
-  llm: { label: 'LLM', className: 'bg-primary/15 text-primary' },
-  media: { label: 'Media', className: 'bg-tertiary/15 text-tertiary' },
-}
-
-function kindOf(recipe) {
-  if (isAgentModel(recipe)) return 'llm'
-  if (isModel(recipe)) return 'media'
-  return 'app'
-}
-
-// The /v1 default is the largest LLM up -- the same order the daemon's
-// router uses (params, then memory held).
-function bySize(a, b) {
-  return (b.params_b || 0) - (a.params_b || 0) || (b.memory_gb || 0) - (a.memory_gb || 0)
+// The /v1 default is the starred LLM up, else the largest -- the same order
+// the daemon's router uses (starred, then params, then memory held).
+function byDefault(a, b) {
+  return (!!b.favorite - !!a.favorite)
+    || (b.params_b || 0) - (a.params_b || 0) || (b.memory_gb || 0) - (a.memory_gb || 0)
 }
 
 const KIND_ORDER = { llm: 0, media: 1, app: 2 }
@@ -47,7 +37,7 @@ export default function RunningTray({ scroll = false }) {
   const building = recipes.filter((r) => installing[r.slug] || updating[r.slug])
   const up = recipes
     .filter((r) => (r.running || r.starting) && !installing[r.slug] && !updating[r.slug])
-    .sort((a, b) => KIND_ORDER[kindOf(a)] - KIND_ORDER[kindOf(b)] || bySize(a, b))
+    .sort((a, b) => KIND_ORDER[kindOf(a)] - KIND_ORDER[kindOf(b)] || byDefault(a, b))
   const defaultLlm = up.find((r) => kindOf(r) === 'llm' && r.running && r.ready)
 
   const items = [...building, ...up]
@@ -57,7 +47,7 @@ export default function RunningTray({ scroll = false }) {
   return (
     <div className={`flex items-center gap-1.5 ${scroll ? 'w-max' : 'min-w-0 flex-1'}`}>
       {items.length === 0 ? (
-        <Link to="/running" className="flex items-center gap-2 rounded-xl px-2 py-1 font-label text-[11px] text-text-dim no-underline hover:text-text">
+        <Link to="/library" className="flex items-center gap-2 rounded-xl px-2 py-1 font-label text-[11px] text-text-dim no-underline hover:text-text">
           <span className="h-1.5 w-1.5 rounded-full bg-text-dim" />
           Nothing running
         </Link>
@@ -74,8 +64,8 @@ export default function RunningTray({ scroll = false }) {
           ))}
           {hidden > 0 && (
             <Link
-              to="/running"
-              title="Everything running on this Spark"
+              to="/library"
+              title="Everything on this Spark"
               className="shrink-0 rounded-xl border border-outline-dim px-2.5 py-2 font-label text-[11px] font-bold text-text-muted no-underline hover:border-text-dim hover:text-text"
             >
               +{hidden}
@@ -130,11 +120,12 @@ function Pill({ recipe, building, isDefault, scroll }) {
           <span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-surface ${state.dot}`} />
         </span>
         <span className="flex min-w-0 flex-col leading-tight">
-          <span className="truncate text-[12px] font-semibold text-text">{name}</span>
+          <span className="flex min-w-0 items-center gap-1 text-[12px] font-semibold text-text">
+            {recipe.favorite && <span className="shrink-0 text-[11px] leading-none text-fav">★</span>}
+            <span className="truncate">{name}</span>
+          </span>
           <span className="flex min-w-0 items-center gap-1 font-label text-[10px] text-text-dim">
-            <span className={`shrink-0 rounded px-1 py-px text-[9px] font-bold uppercase tracking-wide ${KIND[kind].className}`}>
-              {KIND[kind].label}
-            </span>
+            <KindTag recipe={recipe} />
             {isDefault && <span className="shrink-0 font-bold text-primary">default</span>}
             <span className="truncate">{building ? 'building…' : !ready ? 'starting…' : detail}</span>
           </span>

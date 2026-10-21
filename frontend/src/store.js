@@ -496,6 +496,20 @@ export const useStore = create((set, get) => ({
     }
   },
 
+  // Star or unstar a build as the one to use on this Spark (admins only;
+  // the daemon refuses anyone else).
+  setFavorite: async (slug, on) => {
+    const favorite = on ? { by: '', at: '' } : null
+    set({ recipes: get().recipes.map(r => r.slug === slug ? { ...r, favorite } : r) })
+    try {
+      await fetch(`/api/recipes/${slug}/favorite`, { method: on ? 'PUT' : 'DELETE' })
+    } catch (e) {
+      console.error('Favorite failed:', e)
+    } finally {
+      await get().fetchRecipes()
+    }
+  },
+
   stopRecipe: async (slug) => {
     const override = { running: false, ready: false, starting: false }
     set({

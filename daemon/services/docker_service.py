@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from datetime import datetime, timezone
 import os
 import re
 import secrets
@@ -870,8 +871,13 @@ async def launch_recipe(slug: str, on_line=None, api_key: str | None = None,
     if proc.returncode == 0:
         db = await get_db()
         try:
+            # An upsert, so the launch is recorded (the last use of an app)
+            # without resetting when the recipe was installed.
             await db.execute(
-                "INSERT OR REPLACE INTO installed_recipes (slug, status, compose_project) VALUES (?, 'installed', ?)",
+                """INSERT INTO installed_recipes (slug, status, compose_project, launched_at)
+                   VALUES (?, 'installed', ?, datetime('now'))
+                   ON CONFLICT(slug) DO UPDATE SET status = 'installed',
+                       compose_project = excluded.compose_project, launched_at = excluded.launched_at""",
                 (slug, _compose_project(slug)),
             )
             await db.commit()
@@ -1034,6 +1040,34 @@ async def is_recipe_running(slug: str) -> bool:
     except Exception:
         return False
     return _compose_project(slug) in running
+
+
+async def up_since() -> dict[str, str]:
+    """When each running recipe's containers were created -- by its launch,
+    since stopping removes them -- as UTC "YYYY-MM-DD HH:MM:SS", the
+    database's own format. A recipe of several containers counts from its
+    first."""
+    try:
+        lines = await _docker_lines("running_created", [
+            "docker", "ps", "--format", '{{.Label "com.docker.compose.project"}}\t{{.CreatedAt}}',
+        ])
+    except Exception:
+        return {}
+    prefix = _compose_project("")
+    out: dict[str, str] = {}
+    for line in lines:
+        project, _, created = line.partition("\t")
+        if not project.startswith(prefix):
+            continue
+        try:
+            # "2026-10-20 15:50:50 -0600 MDT": the zone name is redundant.
+            at = datetime.strptime(created.rsplit(" ", 1)[0], "%Y-%m-%d %H:%M:%S %z")
+        except ValueError:
+            continue
+        at = at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        slug = project[len(prefix):]
+        out[slug] = min(at, out.get(slug, at))
+    return out
 
 
 async def get_container_name(slug: str) -> str | None:

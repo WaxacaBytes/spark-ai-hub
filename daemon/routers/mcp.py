@@ -29,6 +29,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 
 from daemon.routers import containers
 from daemon.services import (
+    favorites_service,
     audio_service, decision_service, image_service, link_service, media_store, mesh_service,
     upload_service, video_service, web_service,
 )
@@ -69,7 +70,9 @@ INSTRUCTIONS = (
     "Generates and edits images, generates and edits videos, turns pictures into 3D models, and composes "
     "music, with open models running on the user's DGX Spark. Call list_image_models / "
     "list_video_models / list_3d_models to see which are running and how much memory is free "
-    "(memory_free_gb; a stopped model's fits_now says whether it would start now). A stopped model can be started with start_model; when memory is short, "
+    "(memory_free_gb; a stopped model's fits_now says whether it would start now). A model "
+    "marked `favorite` is the one the Spark's admin recommends: use it unless the user "
+    "names another or it cannot do the job. A stopped model can be started with start_model; when memory is short, "
     "stop_model frees a media model that is not rendering. Every result is saved on the Hub and returned as a URL plus a "
     "preview. Show the user the URL. To refine an image, pass its URL to edit_image. "
     "The URLs are private: they open for the user signed in to the Hub, not for you. "
@@ -847,6 +850,10 @@ async def _with_memory(models: list[dict]) -> str:
     for model in models:
         if model.get("state") == "stopped" and model.get("min_memory_gb") is not None:
             model["fits_now"] = model["min_memory_gb"] <= free
+        if favorites_service.is_favorite(model["model"]):
+            model["favorite"] = True
+    # The ones the admin starred first: the order is a hint agents follow.
+    models.sort(key=lambda m: not m.get("favorite"))
     return json.dumps({"memory_free_gb": round(free), "memory_total_gb": round(available_memory_gb("MemTotal")),
                        "models": models}, indent=2)
 

@@ -2,9 +2,8 @@ import { useEffect, useState } from 'react'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { backdropFor } from '../covers'
-import { formatParams } from './RecipeCard'
-import { speedLabel } from '../models'
-import { openUrl as openUrlFor } from './RecipeCard'
+import { formatParams, speedLabel } from '../models'
+import { openUrl as openUrlFor } from '../lib/urls'
 
 const ROTATE_MS = 9000
 
@@ -73,7 +72,7 @@ export default function Hero({ picks }) {
             />
           )}
           <span className="rounded-full bg-primary px-2.5 py-0.5 font-label text-[10px] font-bold uppercase tracking-wider text-primary-on">
-            {recipe.running || recipe.starting ? 'Now Running' : 'Featured'}
+            {recipe.running || recipe.starting ? 'Now Running' : recipe.favorite ? '★ Recommended' : 'Featured'}
           </span>
         </div>
 

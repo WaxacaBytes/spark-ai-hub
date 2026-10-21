@@ -35,7 +35,7 @@ from PIL import Image, ImageOps
 
 from daemon.config import settings
 from daemon.models.recipe import media_figures
-from daemon.services import lora_service, media_store, proxy_service, web_service
+from daemon.services import favorites_service, lora_service, media_store, proxy_service, web_service
 from daemon.services.docker_service import get_installed_slugs, is_ready, is_recipe_running
 from daemon.services.registry_service import get_recipes
 
@@ -218,7 +218,9 @@ async def pick_backend(kind: str, model: str | None, lora=None) -> Backend:
 
 async def pick_ready(candidates: list, what: str):
     """The first of `candidates` (backends of any media kind) that is up and
-    ready; else an error that tells the agent what to start or install."""
+    ready, the admin's starred ones first; else an error that tells the agent
+    what to start or install."""
+    candidates = sorted(candidates, key=lambda b: not favorites_service.is_favorite(b.slug))
     starting = []
     for backend in candidates:
         if await is_recipe_running(backend.slug):

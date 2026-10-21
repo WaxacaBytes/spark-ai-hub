@@ -1,11 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useStore } from '../store'
-import RecipeCard from '../components/RecipeCard'
 import PosterCard from '../components/PosterCard'
 import CardRow from '../components/CardRow'
 import { byLab, byRelease } from '../components/ModelShelves'
-import { isLora, isModel } from '../models'
+import { isLora, isModel, starredByLine } from '../models'
 import Hero from '../components/Hero'
 
 const CATEGORIES = [
@@ -55,13 +54,14 @@ export default function Catalog({ search = '' }) {
   const shelves = useMemo(() => {
     const pick = (id) => filtered.filter((r) => getSectionId(r) === id)
     return {
+      starred: filtered.filter((r) => r.favorite).sort(byRelease),
       spark: pick('spark-ai-hub').sort(byRelease),
       official: pick('official').sort(byRelease),
     }
   }, [filtered])
 
-  // Hero picks: whatever is running, then the freshest Spark-optimized apps,
-  // capped at five so the dots stay meaningful.
+  // Hero picks: whatever is running, then the apps an admin starred, then the
+  // freshest Spark-optimized apps, capped at five so the dots stay meaningful.
   const heroPicks = useMemo(() => {
     const seen = new Set()
     const out = []
@@ -69,6 +69,7 @@ export default function Catalog({ search = '' }) {
       if (r && !seen.has(r.slug)) { seen.add(r.slug); out.push(r) }
     }
     recipes.filter((r) => r.running || r.starting).sort(byRelease).forEach(push)
+    recipes.filter((r) => r.favorite && !isModel(r) && !isLora(r)).sort(byRelease).forEach(push)
     recipes.filter((r) => !isModel(r) && !isLora(r) && getSectionId(r) === 'spark-ai-hub').sort(byRelease).forEach(push)
     return out.slice(0, 5)
   }, [recipes])
@@ -114,6 +115,16 @@ export default function Catalog({ search = '' }) {
         <ResultsGrid recipes={filtered} search={search} />
       ) : (
         <div className="space-y-9 pt-4">
+          {shelves.starred.length > 0 && (
+            <CardRow
+              title={<><span className="text-fav">★</span> Recommended on this Spark</>}
+              subtitle={starredByLine(shelves.starred)}
+              wrap
+            >
+              {shelves.starred.map((r) => <PosterCard key={r.slug} recipe={r} />)}
+            </CardRow>
+          )}
+
           {shelves.spark.length > 0 && (
             <CardRow title="Spark-Optimized" subtitle="Built & tested for DGX Spark" wrap>
               {shelves.spark.map((r) => <PosterCard key={r.slug} recipe={r} />)}
@@ -136,15 +147,16 @@ export default function Catalog({ search = '' }) {
 function ResultsGrid({ recipes, search }) {
   const sorted = useMemo(() => [...recipes].sort(byLab), [recipes])
   if (sorted.length === 0) return <Empty />
+  // The same posters as the shelves: an app looks the same wherever it is.
   return (
-    <div className="px-6 pt-4">
-      <h2 className="m-0 mb-4 font-display text-base font-bold tracking-tight text-text">
-        {sorted.length} {sorted.length === 1 ? 'result' : 'results'}
-        {search && <span className="text-text-dim font-normal"> for “{search}”</span>}
-      </h2>
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))' }}>
-        {sorted.map((r) => <RecipeCard key={r.slug} recipe={r} />)}
-      </div>
+    <div className="pt-4">
+      <CardRow
+        title={`${sorted.length} ${sorted.length === 1 ? 'result' : 'results'}`}
+        subtitle={search ? `for “${search}”` : null}
+        wrap
+      >
+        {sorted.map((r) => <PosterCard key={r.slug} recipe={r} />)}
+      </CardRow>
     </div>
   )
 }

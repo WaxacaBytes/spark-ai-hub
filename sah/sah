@@ -422,20 +422,23 @@ def running_models() -> list[dict]:
     return [i for i in data.get("data") or [] if isinstance(i, dict) and i.get("id")]
 
 
-def by_size(models: list[dict]) -> list[dict]:
-    """Biggest first. The Hub already lists them that way; sorting here keeps
-    sah right against a Hub that does not."""
-    return sorted(models, key=lambda i: i.get("params_b") or 0, reverse=True)
+def default_first(models: list[dict]) -> list[dict]:
+    """The Hub's default first: the model its admin starred, then the
+    biggest. The Hub already lists them that way; sorting here keeps sah
+    right against a Hub that does not."""
+    return sorted(models, key=lambda i: (bool(i.get("favorite")), i.get("params_b") or 0), reverse=True)
 
 
 def current_model_info() -> dict | None:
-    """The model `sah <client>` makes the default: the biggest running."""
-    return next(iter(by_size(running_models())), None)
+    """The model `sah <client>` makes the default: the starred one running,
+    else the biggest."""
+    return next(iter(default_first(running_models())), None)
 
 
 def require_model() -> Model:
-    """The biggest running model, with every running model in `.all`."""
-    models = [Model(info) for info in by_size(running_models())]
+    """The default running model (starred, else biggest), with every running
+    model in `.all`."""
+    models = [Model(info) for info in default_first(running_models())]
     if not models:
         sys.exit(
             f"No model is running on {hub_url()}.\n"
@@ -3091,7 +3094,7 @@ def cmd_models(_args) -> None:
     if not models:
         print(f"No model is running on {hub_url()}. Launch one from the Spark AI Hub web UI.")
         return
-    agent = next(iter(by_size(models)), None)
+    agent = next(iter(default_first(models)), None)
     rows = [{
         "id": m["id"],
         "size": f"{m['params_b']:g}B" if m.get("params_b") else "?",

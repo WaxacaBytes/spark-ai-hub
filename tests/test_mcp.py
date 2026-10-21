@@ -1499,3 +1499,17 @@ class ProxiedApiRecipeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FavoriteListTests(unittest.TestCase):
+    """The list_*_models answers mark the admin's starred models and put them first."""
+
+    def test_starred_models_are_marked_and_first(self):
+        import asyncio, json
+        from daemon.routers import mcp
+        models = [{"model": "a", "state": "ready"}, {"model": "b", "state": "ready"}]
+        with mock.patch.object(mcp, "memory_plan", mock.AsyncMock(return_value=(0, 40, []))), \
+             mock.patch.object(mcp, "available_memory_gb", return_value=128), \
+             mock.patch.object(mcp.favorites_service, "_stars", {"b": {"by": "admin", "at": ""}}):
+            listed = json.loads(asyncio.run(mcp._with_memory(models)))["models"]
+        self.assertEqual([(m["model"], m.get("favorite")) for m in listed], [("b", True), ("a", None)])

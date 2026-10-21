@@ -24,6 +24,8 @@
   --error-surface: rgba(255, 107, 107, 0.1);
   --warning: #FBBF24;
   --success: #34D399;
+  /* A build an admin starred as the one to use on this Spark. */
+  --fav: #FFC53D;
   --glass-bg: rgba(22, 22, 37, 0.8);
   --glass-border: rgba(255, 255, 255, 0.06);
   --card-shadow: 0 0 0 transparent;
@@ -62,6 +64,7 @@
   --error-surface: rgba(220, 53, 69, 0.08);
   --warning: #D97706;
   --success: #059669;
+  --fav: #B07800;
   --glass-bg: rgba(255, 255, 255, 0.8);
   --glass-border: rgba(0, 0, 0, 0.06);
   --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.03);
@@ -100,6 +103,7 @@
   --color-error-surface: var(--error-surface);
   --color-warning: var(--warning);
   --color-success: var(--success);
+  --color-fav: var(--fav);
   --color-glass-bg: var(--glass-bg);
   --color-glass-border: var(--glass-border);
   --color-sidebar-bg: var(--sidebar-bg);

@@ -3,9 +3,8 @@ import { Link } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { posterFor } from '../covers'
-import { formatParams } from './RecipeCard'
-import { speedLabel } from '../models'
-import { openUrl as openUrlFor } from './RecipeCard'
+import { formatParams, speedLabel } from '../models'
+import { openUrl as openUrlFor } from '../lib/urls'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -106,6 +105,11 @@ export default function PosterCard({ recipe, highlight = null }) {
         )}
 
         <div className="absolute right-2.5 top-2.5 flex flex-col items-end gap-1">
+          {recipe.favorite && (
+            <span className="rounded-full bg-black/55 px-2 py-0.5 font-label text-[10px] font-bold text-fav ring-1 ring-white/15 backdrop-blur-md">
+              ★ Recommended
+            </span>
+          )}
           {/* The sorted metric, unless that metric is speed — the pill below
               already carries speed, and louder. */}
           {badgeValue && !speedLeads && (

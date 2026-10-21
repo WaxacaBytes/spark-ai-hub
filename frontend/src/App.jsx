@@ -13,14 +13,14 @@ import Users from './pages/Users'
 import Files from './pages/Files'
 import Catalog from './pages/Catalog'
 import Agents, { AgentIcon } from './pages/Agents'
-import Running from './pages/Running'
+import Library from './pages/Library'
 import System from './pages/System'
 import RecipeDetail from './pages/RecipeDetail'
 
 const NAV_ITEMS = [
   { path: '/', label: 'Store', icon: StorefrontIcon },
   { path: '/agents', label: 'Agents', icon: AgentIcon },
-  { path: '/running', label: 'Running', icon: PlayIcon },
+  { path: '/library', label: 'Library', icon: LibraryIcon },
   { path: '/files', label: 'My files', icon: FolderIcon },
   { path: '/about', label: 'About', icon: InfoIcon },
 ]
@@ -32,7 +32,7 @@ const ADMIN_NAV_ITEM = { path: '/users', label: 'Users', icon: UsersIcon }
 const PAGE_TITLES = {
   '/': 'Store',
   '/agents': 'Agents',
-  '/running': 'Running',
+  '/library': 'Library',
   '/system': 'System',
   '/about': 'About',
   '/account': 'Account',
@@ -86,7 +86,8 @@ export default function App() {
   }, [fetchRecipes])
 
   const navItems = user?.role === 'admin' ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS
-  const searchPlaceholder = location.pathname === '/agents' ? 'Search models...' : 'Search apps...'
+  const searchPlaceholder = location.pathname === '/agents' ? 'Search models...'
+    : location.pathname === '/library' ? 'Search your library...' : 'Search apps...'
 
   // Phones get the same app with the chrome moved: the sidebar becomes a tab
   // bar along the bottom (where a thumb reaches), and the header stacks the
@@ -227,7 +228,7 @@ export default function App() {
                     placeholder={searchPlaceholder}
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="w-32 focus:w-44 sm:w-56 sm:focus:w-56 lg:w-72 lg:focus:w-72 py-2 pl-9 md:pl-10 pr-3 md:pr-4 bg-surface-high rounded-xl text-text text-sm outline-none border border-outline-dim focus:border-primary/40 focus:ring-2 focus:ring-primary/10 placeholder:text-text-dim transition-all"
+                    className="w-32 focus:w-44 sm:w-56 sm:focus:w-56 md:w-28 md:focus:w-56 lg:w-72 lg:focus:w-72 py-2 pl-9 md:pl-10 pr-3 md:pr-4 bg-surface-high rounded-xl text-text text-sm outline-none border border-outline-dim focus:border-primary/40 focus:ring-2 focus:ring-primary/10 placeholder:text-text-dim transition-all"
                   />
                 </div>
               )}
@@ -246,7 +247,8 @@ export default function App() {
           <Routes>
             <Route path="/" element={<div className="animate-fadeIn"><Catalog search={search} /></div>} />
             <Route path="/agents" element={<Agents search={search} />} />
-            <Route path="/running" element={<div className="animate-fadeIn"><Running /></div>} />
+            <Route path="/library" element={<div className="animate-fadeIn"><Library search={search} /></div>} />
+            <Route path="/running" element={<Navigate to="/library" replace />} />
             <Route path="/system" element={<div className="animate-fadeIn"><System /></div>} />
             <Route path="/about" element={<div className="animate-fadeIn"><About /></div>} />
             <Route path="/account" element={<Account />} />
@@ -427,10 +429,13 @@ function StorefrontIcon({ className }) {
   )
 }
 
-function PlayIcon({ className }) {
+// Books on a shelf: what you keep, beside the Store where you get it.
+function LibraryIcon({ className }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="5 3 19 12 5 21 5 3" />
+      <rect x="4" y="4" width="4" height="16" rx="1" />
+      <rect x="10" y="4" width="4" height="16" rx="1" />
+      <path d="M16.5 5.2l3.3-.9 3.2 14.8-3.3.9z" />
     </svg>
   )
 }

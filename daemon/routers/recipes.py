@@ -1,7 +1,11 @@
 import asyncio
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from daemon.db import get_db
 from daemon.models.recipe import Recipe
+from daemon.routers import openai_proxy
+from daemon.routers.auth import require_admin
+from daemon.services import favorites_service
 from daemon.services.registry_service import get_recipes, get_recipe, get_recipe_dir
 from daemon.services.docker_service import (
     get_installed_slugs,
@@ -11,6 +15,7 @@ from daemon.services.docker_service import (
     start_health_check,
     get_pending,
     get_startup_error,
+    up_since,
 )
 
 router = APIRouter(prefix="/api/recipes", tags=["recipes"])
@@ -70,6 +75,60 @@ async def list_recipes(category: str | None = None, search: str | None = None):
                 continue
         result.append(r)
     return result
+
+
+@router.get("/activity")
+async def activity():
+    """When each installed recipe was last used, and since when each running
+    one has been up, for the Library page. Kept out of the recipe list, which
+    every page polls: this one is read only where it is shown.
+
+    Last use is the latest of a /v1 call it answered, a render it made and a
+    launch, so an app (which has neither calls nor renders) counts too.
+    """
+    recipes = get_recipes()
+    db = await get_db()
+    try:
+        launches = await (await db.execute(
+            "SELECT slug, launched_at FROM installed_recipes WHERE launched_at IS NOT NULL")).fetchall()
+        renders = await (await db.execute(
+            "SELECT model, MAX(created_at) FROM media WHERE model != '' GROUP BY model")).fetchall()
+        calls = await (await db.execute(
+            "SELECT recipe, MAX(ts) FROM usage_events WHERE recipe != '' GROUP BY recipe")).fetchall()
+        # Calls from before the recipe was recorded name only the id the
+        # server reported. That is a recipe's served name, unless several
+        # builds share it -- then it can't be told whose call it was.
+        older = await (await db.execute(
+            "SELECT model, MAX(ts) FROM usage_events WHERE recipe = '' AND model != '' GROUP BY model")).fetchall()
+    finally:
+        await db.close()
+    by_name: dict[str, list[str]] = {}
+    for r in recipes.values():
+        if r.served_name:
+            by_name.setdefault(r.served_name, []).append(r.slug)
+    rows = [*launches, *renders, *calls,
+            *((by_name[m][0], t) for m, t in older if len(by_name.get(m, [])) == 1)]
+    last_used: dict[str, str] = {}
+    for slug, at in rows:
+        if slug in recipes and at and at > last_used.get(slug, ""):
+            last_used[slug] = at
+    return {"last_used": last_used, "up_since": await up_since()}
+
+
+@router.put("/{slug}/favorite")
+async def star(slug: str, admin: dict = Depends(require_admin)):
+    if not get_recipe(slug):
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    await favorites_service.set_favorite(slug, admin, True)
+    openai_proxy.invalidate_upstreams()
+    return {"favorite": favorites_service.star_of(slug)}
+
+
+@router.delete("/{slug}/favorite")
+async def unstar(slug: str, admin: dict = Depends(require_admin)):
+    await favorites_service.set_favorite(slug, admin, False)
+    openai_proxy.invalidate_upstreams()
+    return {"favorite": None}
 
 
 @router.get("/{slug}", response_model=Recipe)

@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
-import { formatParams } from './RecipeCard'
-import { buildLabel, displayName, formatDuration, isLora, primaryArena } from '../models'
-import { openUrl as openUrlFor } from './RecipeCard'
+import { buildLabel, displayName, formatDuration, formatParams, isLora, isModel, primaryArena, publishers } from '../models'
+import { openUrl as openUrlFor } from '../lib/urls'
+import FavStar from './FavStar'
 import Hint from './Hint'
 
 // Model builds, as rows of aligned numbers.
@@ -53,17 +53,20 @@ const VARIANTS = {
 // move under the name rather than disappearing, so every build stays on
 // screen and still tells itself apart. The third figure follows the sort —
 // sorted by params you see params — and is the size on disk otherwise.
+//
+// A phone leaves a row ~90px for the name beside four columns, which cut most
+// names and the longer build labels ("EXL3 3.0bpw DSpark"), and pushed the
+// Launch button off the screen. So the name, its build and engine take the
+// whole first line (wrapping if they must) and the figures share the second
+// line equally.
 const COMPACT = {
   build: {
-    columns: 'minmax(0,1fr) 42px 42px 48px 54px',
+    columns: 'minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 54px',
     first: 'Build',
     lead: null,
     wrap: false,
+    stack: true,
   },
-  // A phone leaves a ranked row ~86px for the model name beside four
-  // columns, which cut most names. So the name, its build and engine take
-  // the whole first line (wrapping if they must) and the figures share the
-  // second line equally.
   ranked: {
     columns: 'minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 54px',
     first: 'Model · build',
@@ -93,6 +96,7 @@ const LABEL_CLASS = 'font-label text-[11px] font-bold'
 const CELL_CLASS = 'font-label text-[11px] tabular-nums'
 const ENGINE_SIZE = 'text-[10px]'
 const DOT = 12           // the state dot and its gap, reserved on every row
+const STAR = 18          // the favorite star and its gap, reserved likewise
 const ROW_GAP = 6        // gap-x-1.5
 
 function widest(texts, className) {
@@ -155,13 +159,13 @@ const sum = (xs) => xs.reduce((a, b) => a + b, 0)
 // fixed figures, the gaps between them, and the row and block padding.
 export function buildBlockWidth(w, narrow, media = false) {
   const fixed = tracksAfterLabel(w, narrow, media)
-  return DOT + w.build + sum(fixed) + fixed.length * ROW_GAP + 16 + 24
+  return DOT + STAR + w.build + sum(fixed) + fixed.length * ROW_GAP + 16 + 24
 }
 
 function withWidths(v, w, narrow, variant = 'build') {
   if (!w || v.stack) return v
   const fixed = tracksAfterLabel(w, narrow, v.media, variant).map((x) => `${x}px`)
-  const lead = variant === 'ranked' ? ['26px', 'minmax(200px,1fr)'] : [`minmax(${DOT + w.build}px,1fr)`]
+  const lead = variant === 'ranked' ? ['26px', 'minmax(200px,1fr)'] : [`minmax(${DOT + STAR + w.build}px,1fr)`]
   return { ...v, columns: [...lead, ...fixed].join(' ') }
 }
 
@@ -292,6 +296,9 @@ function BuildRow({ recipe, variant, v, rank, highlight, onFrontier }) {
 
   const action = isBusy ? (
     <span className="font-label text-[10px] text-secondary">Building…</span>
+  ) : running && isModel(recipe) ? (
+    // Agents use a model; there is no page of its own to open.
+    <span className="block text-center font-label text-[10px] font-bold text-primary">Running</span>
   ) : running ? (
     <a
       href={openUrl}
@@ -330,7 +337,9 @@ function BuildRow({ recipe, variant, v, rank, highlight, onFrontier }) {
   return (
     <Link
       to={`/app/${recipe.slug}`}
-      className="grid items-center gap-x-1.5 rounded-lg px-2 py-1.5 no-underline text-inherit transition-colors hover:bg-surface-high"
+      className={`grid items-center gap-x-1.5 rounded-lg px-2 py-1.5 no-underline text-inherit transition-colors hover:bg-surface-high ${
+        recipe.favorite ? 'bg-fav/10' : ''
+      }`}
       style={{ gridTemplateColumns: v.columns }}
     >
       {v.lead === 'rank' && (
@@ -340,17 +349,21 @@ function BuildRow({ recipe, variant, v, rank, highlight, onFrontier }) {
         <span className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 pb-0.5" style={{ gridColumn: '1 / -1' }}>
           {rank != null && <span className="font-label text-[10px] tabular-nums text-text-dim">{rank}</span>}
           {state && <span className={`h-1.5 w-1.5 shrink-0 self-center rounded-full ${state.dot}`} />}
+          <FavStar recipe={recipe} tap={false} className="self-center text-[12px]" />
           <span className="font-label text-[11px] font-bold text-text">{label}</span>
           <span className="font-label text-[9px] text-text-dim">
-            {[buildLabel(recipe), recipe.engine].filter(Boolean).join(' · ')}
+            {[variant === 'ranked' && buildLabel(recipe), recipe.engine, publishers(recipe)].filter(Boolean).join(' · ')}
           </span>
-          {onFrontier && <span className="font-label text-[11px] font-bold leading-none text-success">★</span>}
+          {onFrontier && <span className="font-label text-[11px] font-bold leading-none text-success">◆</span>}
         </span>
       ) : (
       <span className="flex min-w-0 items-center gap-1.5">
-        {state && (
+        {/* The dot's place is kept on every row, so the stars and labels of
+            installed and uninstalled builds line up. */}
+        {state ? (
           <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${state.dot}`} title={state.label} />
-        )}
+        ) : <span className="w-1.5 shrink-0" />}
+        <FavStar recipe={recipe} slot tap={false} />
         {v.lead !== null && logoUrl && !logoFailed && (
           <img
             src={logoUrl}
@@ -372,10 +385,15 @@ function BuildRow({ recipe, variant, v, rank, highlight, onFrontier }) {
           >
             {label}
           </span>
-          {v.sub && (
+          {v.sub ? (
             <span className="truncate font-label text-[9px] text-text-dim">
-              {[variant === 'ranked' && buildLabel(recipe), recipe.engine].filter(Boolean).join(' · ')}
+              {[variant === 'ranked' && buildLabel(recipe), recipe.engine, publishers(recipe)].filter(Boolean).join(' · ')}
             </span>
+          ) : publishers(recipe) && (
+            // Whose weights, under the build: the wide row has no other room.
+            // It wraps: a build of several sources (Sol: six orgs) is wider
+            // than its label, and a cut list names the wrong set.
+            <span className="font-label text-[9px] leading-tight text-text-dim">{publishers(recipe)}</span>
           )}
         </span>
         {/* Marks a build no other one in the catalog beats on both axes that
@@ -387,7 +405,7 @@ function BuildRow({ recipe, variant, v, rank, highlight, onFrontier }) {
             className="shrink-0 font-label text-[11px] font-bold leading-none text-success"
             title="Pareto frontier: no build in the catalog both writes faster and scores higher on the AA Index"
           >
-            ★
+            ◆
           </span>
         )}
       </span>
@@ -580,7 +598,9 @@ export function ModelBlock({ group, frontier = null, widths = null, media = fals
           />
         )}
         <h3
-          className="m-0 min-w-0 flex-1 truncate font-display text-[13px] font-bold tracking-tight text-text"
+          // Wraps rather than cuts: "Nemotron-3 Nano Omni 30B-A3B Reasoning"
+          // loses the word that tells it from its siblings.
+          className="m-0 min-w-0 flex-1 font-display text-[13px] font-bold leading-snug tracking-tight text-text"
           title={group.label}
         >
           {group.label}

@@ -390,3 +390,19 @@ class SahCliTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DefaultModelTests(unittest.TestCase):
+    """sah opens each harness on the Hub's default: the starred model, else the biggest."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sah = _load_sah()
+
+    def test_a_starred_model_comes_first(self):
+        models = [{"id": "big", "params_b": 122}, {"id": "small", "params_b": 4, "favorite": True}]
+        self.assertEqual([m["id"] for m in self.sah.default_first(models)], ["small", "big"])
+
+    def test_without_a_star_the_biggest_comes_first(self):
+        models = [{"id": "small", "params_b": 4}, {"id": "big", "params_b": 122}]
+        self.assertEqual([m["id"] for m in self.sah.default_first(models)], ["big", "small"])
