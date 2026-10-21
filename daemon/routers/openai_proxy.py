@@ -14,6 +14,7 @@ import asyncio
 import base64
 import collections
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -315,6 +316,43 @@ def _normalize_pdf_file_parts(body: dict) -> bool:
     return mutated
 
 
+# vLLM refuses a request whose prompt plus requested output is over the
+# context, even by one token -- and agents ask for all the room they think is
+# left, counted with their own tokenizer estimate. The prompt fits; only the
+# output ceiling does not, so the Hub lowers the ceiling to what fits and asks
+# again, once. max_tokens is a ceiling, so nothing else about the answer moves.
+_OVER_CONTEXT_RES = (
+    # vLLM
+    re.compile(r"maximum context length is (?P<limit>\d+) tokens\. However, you requested \d+ output "
+               r"tokens and your prompt contains at least (?P<prompt>\d+) input tokens"),
+    # TensorFold
+    re.compile(r"maximum context length is (?P<limit>\d+) tokens, but the rendered prompt has "
+               r"(?P<prompt>\d+) tokens and requests \d+ reply tokens"),
+)
+
+
+def _fit_output(raw_body: bytes, error: bytes) -> bytes | None:
+    """`raw_body` with its output ceiling lowered to what the context has left,
+    when `error` is vLLM refusing it for that alone; else None."""
+    text = error.decode(errors="replace")
+    match = next((m for m in (r.search(text) for r in _OVER_CONTEXT_RES) if m), None)
+    if not match:
+        return None
+    limit, prompt = int(match["limit"]), int(match["prompt"])
+    if prompt >= limit:
+        return None
+    try:
+        body = json.loads(raw_body)
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
+        return None
+    if not isinstance(body, dict):
+        return None
+    keys = [k for k in ("max_tokens", "max_completion_tokens") if body.get(k)] or ["max_tokens"]
+    for key in keys:
+        body[key] = limit - prompt
+    return json.dumps(body).encode()
+
+
 @router.api_route(
     "/{path:path}",
     methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -417,30 +455,55 @@ async def proxy(path: str, request: Request):
     endpoint = f"openai:{path.strip('/')}"
 
     if streaming:
+        # The model's status decides the answer before any of it is sent: a
+        # refused request (400 for a prompt over the context, say) goes back
+        # with its own status and message. Sent as a 200 stream, the client
+        # only saw a stream with no events and no finish_reason, and retried.
+        s = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None, sock_read=None))
+        try:
+            r = await s.request(request.method, url, data=raw_body,
+                                headers=upstream_headers, params=params)
+            if r.status == 400 and (fitted := _fit_output(raw_body, await r.read())):
+                r.release()
+                r = await s.request(request.method, url, data=fitted,
+                                    headers=upstream_headers, params=params)
+        except BaseException:
+            await s.close()
+            raise
+        if r.status != 200:
+            try:
+                content = await r.read()
+            finally:
+                r.release()
+                await s.close()
+            print(f"[openai-proxy] {upstream.slug} refused {path}: HTTP {r.status} "
+                  f"{content[:500].decode(errors='replace')}", flush=True)
+            return Response(content=content, status_code=r.status,
+                            headers=_filter_headers(r.headers),
+                            media_type=r.headers.get("content-type"))
+
         async def gen():
             captured: dict | None = None
-            timeout = aiohttp.ClientTimeout(total=None, sock_read=None)
-            async with aiohttp.ClientSession(timeout=timeout) as s:
-                async with s.request(
-                    request.method, url, data=raw_body,
-                    headers=upstream_headers, params=params,
-                ) as r:
-                    # Line-buffered so a usage chunk split across two TCP reads
-                    # is still recognised as one SSE event.
-                    buf = b""
-                    async for chunk in r.content.iter_any():
-                        if not chunk:
-                            continue
-                        buf += chunk
-                        while b"\n" in buf:
-                            line, buf = buf.split(b"\n", 1)
-                            usage, drop = _inspect_sse_line(line, client_wants_usage)
-                            if usage:
-                                captured = usage
-                            if not drop:
-                                yield line + b"\n"
-                    if buf:
-                        yield buf
+            try:
+                # Line-buffered so a usage chunk split across two TCP reads
+                # is still recognised as one SSE event.
+                buf = b""
+                async for chunk in r.content.iter_any():
+                    if not chunk:
+                        continue
+                    buf += chunk
+                    while b"\n" in buf:
+                        line, buf = buf.split(b"\n", 1)
+                        usage, drop = _inspect_sse_line(line, client_wants_usage)
+                        if usage:
+                            captured = usage
+                        if not drop:
+                            yield line + b"\n"
+                if buf:
+                    yield buf
+            finally:
+                r.release()
+                await s.close()
             await record_call(request, endpoint, captured)
 
         return StreamingResponse(gen(), media_type="text/event-stream")
@@ -452,17 +515,17 @@ async def proxy(path: str, request: Request):
             headers=upstream_headers, params=params,
         ) as r:
             content = await r.read()
-            if r.status == 200 and request.method == "POST":
-                try:
-                    await record_call(
-                        request, endpoint, _usage_from(json.loads(content))
-                    )
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    pass
-            resp_headers = _filter_headers(r.headers)
-            return Response(
-                content=content,
-                status_code=r.status,
-                headers=resp_headers,
-                media_type=r.headers.get("content-type"),
-            )
+            status, resp_headers = r.status, _filter_headers(r.headers)
+            media_type = r.headers.get("content-type")
+        if status == 400 and (fitted := _fit_output(raw_body, content)):
+            async with s.request(request.method, url, data=fitted,
+                                 headers=upstream_headers, params=params) as r:
+                content = await r.read()
+                status, resp_headers = r.status, _filter_headers(r.headers)
+                media_type = r.headers.get("content-type")
+    if status == 200 and request.method == "POST":
+        try:
+            await record_call(request, endpoint, _usage_from(json.loads(content)))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
+    return Response(content=content, status_code=status, headers=resp_headers, media_type=media_type)

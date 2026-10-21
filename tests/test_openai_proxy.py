@@ -60,10 +60,6 @@ class OpenAIProxyTests(unittest.TestCase):
         self.assertEqual(body["messages"][0]["content"][0]["type"], "file")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class RoutingTests(unittest.TestCase):
     """Several LLMs run at once; /v1 routes by model and defaults to the largest."""
 
@@ -166,3 +162,97 @@ class LaunchPlanTests(unittest.TestCase):
 
     def test_never_stops_media_apps(self):
         self.assertEqual(self.plan("new", 0, ["img"]), [])
+
+
+class StreamErrorTests(unittest.TestCase):
+    """A model that refuses a streamed request: the client gets the model's own
+    status and message, not a 200 stream that ends without a finish_reason."""
+
+    def setUp(self):
+        import json
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from daemon.routers import openai_proxy
+
+        refuse = self.refuse = {"on": True}
+        seen = self.seen = []
+
+        class Model(BaseHTTPRequestHandler):
+            def do_POST(self):
+                sent = json.loads(self.rfile.read(int(self.headers["content-length"])))
+                seen.append(sent.get("max_tokens"))
+                # A 1000-token context and a 400-token prompt, worded as vLLM words it.
+                if sent.get("max_tokens") and 400 + sent["max_tokens"] > 1000:
+                    body = json.dumps({"error": {"message": (
+                        "This model's maximum context length is 1000 tokens. However, you requested "
+                        f"{sent['max_tokens']} output tokens and your prompt contains at least 400 input "
+                        "tokens, for a total of at least 1001 tokens."), "code": 400}}).encode()
+                    self.send_response(400)
+                    self.send_header("content-type", "application/json")
+                elif refuse["on"]:
+                    body = json.dumps({"error": {"message": "This model's maximum context length is 262144 tokens.",
+                                                 "type": "BadRequestError", "code": 400}}).encode()
+                    self.send_response(400)
+                    self.send_header("content-type", "application/json")
+                else:
+                    body = (b'data: {"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}\n\n'
+                            b"data: [DONE]\n\n")
+                    self.send_response(200)
+                    self.send_header("content-type", "text/event-stream")
+                self.send_header("content-length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args):
+                pass
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Model)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.shutdown)
+        up = openai_proxy.Upstream("llm", f"http://127.0.0.1:{server.server_port}/v1", "m", [])
+        for patch in (mock.patch.object(openai_proxy, "route", mock.AsyncMock(return_value=(up, "m"))),
+                      mock.patch.object(openai_proxy, "record_call", mock.AsyncMock())):
+            patch.start()
+            self.addCleanup(patch.stop)
+        app = FastAPI()
+        app.include_router(openai_proxy.router)
+        self.client = TestClient(app)
+
+    def _chat(self, stream=True, **extra):
+        return self.client.post("/v1/chat/completions", json={
+            "model": "m", "stream": stream, "messages": [{"role": "user", "content": "hi"}], **extra})
+
+    def test_both_engines_wordings_are_understood(self):
+        from daemon.routers.openai_proxy import _fit_output
+        import json
+        body = json.dumps({"max_tokens": 5000000}).encode()
+        tensorfold = (b'{"error": {"message": "This server\'s maximum context length is 262144 tokens, but the '
+                      b'rendered prompt has 54 tokens and requests 5000000 reply tokens, which exceeds the '
+                      b'context window."}}')
+        self.assertEqual(json.loads(_fit_output(body, tensorfold))["max_tokens"], 262090)
+        self.assertIsNone(_fit_output(body, b'{"error": {"message": "max_tokens is too large"}}'))
+
+    def test_an_output_ceiling_one_over_the_context_is_lowered_to_fit(self):
+        self.refuse["on"] = False
+        for stream in (True, False):
+            self.seen.clear()
+            r = self._chat(stream=stream, max_tokens=601)
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(self.seen, [601, 600])
+
+    def test_a_refused_stream_comes_back_as_the_models_error(self):
+        r = self._chat()
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("maximum context length", r.json()["error"]["message"])
+
+    def test_an_accepted_stream_still_streams(self):
+        self.refuse["on"] = False
+        r = self._chat()
+        self.assertEqual((r.status_code, r.headers["content-type"].split(";")[0]), (200, "text/event-stream"))
+        self.assertIn('"finish_reason":"stop"', r.text)
+
+
+if __name__ == "__main__":
+    unittest.main()
