@@ -25,18 +25,20 @@ from daemon.db import get_db
 
 
 async def record(name: str, user_id: int | None, model: str = "",
-                 seconds: float | None = None, lora: str = "", prompt: str = "") -> None:
+                 seconds: float | None = None, lora: str = "", prompt: str = "",
+                 seed: int | None = None) -> None:
     """Note that account `user_id` made the file <name> (e.g. '<32 hex>.png')
     with the model `model` (a recipe slug; empty for an upload) running the
-    LoRA `lora` (a LoRA recipe's slug; empty for none) from `prompt`, and that
-    making it took `seconds`, from the request to the finished file."""
+    LoRA `lora` (a LoRA recipe's slug; empty for none) from `prompt` and
+    `seed`, and that making it took `seconds`, from the request to the
+    finished file."""
     if user_id is None:
         return
     db = await get_db()
     try:
-        await db.execute("INSERT OR REPLACE INTO media (name, user_id, model, seconds, lora, prompt) "
-                         "VALUES (?, ?, ?, ?, ?, ?)",
-                         (name, user_id, model, seconds, lora or "", prompt or ""))
+        await db.execute("INSERT OR REPLACE INTO media (name, user_id, model, seconds, lora, prompt, seed) "
+                         "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                         (name, user_id, model, seconds, lora or "", prompt or "", seed))
         await db.commit()
     finally:
         await db.close()
@@ -77,21 +79,33 @@ def _entries() -> list[dict]:
         if not folder.is_dir():
             continue
         for path in folder.iterdir():
-            if not name_re.match(path.name):
-                continue
-            try:
-                st = path.stat()
-            except FileNotFoundError:
-                continue
-            if not path.is_file():
-                continue
-            created = int(st.st_mtime)
-            entries.append({
-                "name": path.name, "kind": kind, "upload": upload,
-                "path": f"{prefix}/{path.name}", "bytes": st.st_size, "created": created,
-                "_file": path,
-            })
+            if name_re.match(path.name) and (entry := _entry(path, kind, prefix, upload)):
+                entries.append(entry)
     return entries
+
+
+def _entry(path: Path, kind: str, prefix: str, upload: bool) -> dict | None:
+    try:
+        st = path.stat()
+    except FileNotFoundError:
+        return None
+    if not path.is_file():
+        return None
+    return {"name": path.name, "kind": kind, "upload": upload, "path": f"{prefix}/{path.name}",
+            "bytes": st.st_size, "created": int(st.st_mtime), "_file": path}
+
+
+def _fill(entry: dict, row) -> None:
+    """What the media row adds to a file: its model (and LoRA) as My files
+    labels it, the slugs an agent passes back, the time, prompt and seed."""
+    entry.update(_model_fields(row["model"], row["lora"]) if row else _model_fields(""))
+    entry["slug"] = row["model"] if row else ""
+    entry["lora_ids"] = [part for part in (row["lora"] if row else "").split("+") if part]
+    entry["seconds"] = round(row["seconds"], 1) if row and row["seconds"] is not None else None
+    entry["prompt"] = row["prompt"] if row else ""
+    entry["seed"] = row["seed"] if row else None
+    if entry["kind"] == "mesh":
+        entry["rendered"] = render_of(entry["_file"]).is_file()
 
 
 MEDIA_TYPES = {".png": "image/png", ".mp4": "video/mp4", ".wav": "audio/wav",
@@ -134,7 +148,7 @@ def find(name: str) -> Path | None:
 async def _rows() -> dict[str, dict]:
     db = await get_db()
     try:
-        rows = await (await db.execute("SELECT name, user_id, model, seconds, lora, prompt FROM media")).fetchall()
+        rows = await (await db.execute("SELECT name, user_id, model, seconds, lora, prompt, seed FROM media")).fetchall()
     finally:
         await db.close()
     return {row["name"]: row for row in rows}
@@ -198,17 +212,31 @@ async def list_files(user: dict | None) -> list[dict]:
     for entry in entries:
         row = rows.get(entry["name"])
         if _visible(row["user_id"] if row else None, user):
-            path = entry["_file"]
-            entry.update(_model_fields(row["model"], row["lora"]) if row else _model_fields(""))
-            entry["seconds"] = round(row["seconds"], 1) if row and row["seconds"] is not None else None
-            entry["prompt"] = row["prompt"] if row else ""
-            if entry["kind"] == "mesh":
-                entry["rendered"] = render_of(path).is_file()
+            _fill(entry, row)
             files.append(entry)
     shapes = await asyncio.gather(*(asyncio.to_thread(_shape, f.pop("_file"), f["bytes"]) for f in files))
     for entry, shape in zip(files, shapes):
         entry.update(shape)
     return sorted(files, key=lambda e: e["created"], reverse=True)
+
+
+async def describe(name: str) -> dict | None:
+    """One file as list_files shows it, by name; None when there is no such
+    file. The caller checks who may read it (can_read)."""
+    for folder, name_re, kind, prefix, upload in _locations():
+        if name_re.match(name) and (entry := _entry(folder / name, kind, prefix, upload)):
+            break
+    else:
+        return None
+    db = await get_db()
+    try:
+        row = await (await db.execute("SELECT name, user_id, model, seconds, lora, prompt, seed "
+                                      "FROM media WHERE name = ?", (name,))).fetchone()
+    finally:
+        await db.close()
+    _fill(entry, row)
+    entry.update(await asyncio.to_thread(_shape, entry.pop("_file"), entry["bytes"]))
+    return entry
 
 
 _shapes: dict[tuple[str, int], dict] = {}   # (path, bytes) -> shape; the files never change

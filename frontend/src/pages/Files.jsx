@@ -317,7 +317,7 @@ function FileCard({ file, picked, selecting, onToggle, onDelete, onOpen }) {
           <div className="text-sm font-semibold font-label text-text whitespace-nowrap truncate">{shapeOf(file)}</div>
         )}
         {file.seconds != null && <div className="text-xs text-text-dim whitespace-nowrap truncate">Took {took(file.seconds)}</div>}
-        {file.kind === 'image' && file.seconds != null && <TookBar seconds={file.seconds} />}
+        {TOOK_BAR[file.kind] && file.seconds != null && <TookBar seconds={file.seconds} scale={TOOK_BAR[file.kind]} />}
       </div>
     </div>
   )
@@ -467,6 +467,7 @@ function Viewer({ files, index, onIndex, onClose, details, onDetails }) {
           {file.prompt && <PromptDetail prompt={file.prompt} />}
           <Detail label="Made" value={when(file.created)} />
           {file.seconds != null && <Detail label="Took" value={took(file.seconds)} />}
+          {file.seed != null && <Detail label="Seed" value={file.seed} />}
           {shapeOf(file) && <Detail label={file.duration ? 'Length' : 'Size'} value={shapeOf(file)} />}
           {known?.triangles && (
             <Detail label="Mesh" value={`${fmtCount(known.triangles)} triangles · ${fmtCount(known.vertices)} vertices`} />
@@ -672,16 +673,23 @@ function took(seconds) {
   return `${Math.floor(s / 3600)} h${Math.round((s % 3600) / 60) ? ` ${Math.round((s % 3600) / 60)} min` : ''}`
 }
 
-// A picture's "Took" as a bar: the full track is 5 minutes, so pictures read
-// against each other at a glance. Longer ones fill it (the number above still
-// tells them apart); a few-second render
-// keeps a sliver so it never looks missing. Its colour says the same at a
-// glance: green under a minute, amber under three, red from three on.
-const TOOK_BAR_SECONDS = 5 * 60
+// "Took" as a bar, one scale per kind, so files read against their own kind
+// at a glance. Longer ones fill the track (the number above still tells them
+// apart); a few-second render keeps a sliver so it never looks missing. The
+// colour says the same: green under `fast`, amber under `slow`, red from
+// `slow` on, a shade darker from `far` on: still red, just too slow to be worth
+// it. Videos split into distilled (green), Turbo (amber) and full-step (red)
+// models. Songs have none: their time follows the song's length.
+const TOOK_BAR = {
+  image: { full: 5 * 60, fast: 60, slow: 3 * 60, far: 7 * 60 },
+  mesh: { full: 5 * 60, fast: 2 * 60, slow: 4 * 60 },
+  video: { full: 30 * 60, fast: 5 * 60, slow: 15 * 60 },
+}
 
-function TookBar({ seconds }) {
-  const share = Math.min(seconds / TOOK_BAR_SECONDS, 1)
-  const colour = seconds < 60 ? 'bg-primary' : seconds < 180 ? 'bg-warning' : 'bg-error'
+function TookBar({ seconds, scale }) {
+  const share = Math.min(seconds / scale.full, 1)
+  const colour = seconds < scale.fast ? 'bg-primary' : seconds < scale.slow ? 'bg-warning'
+    : seconds < (scale.far ?? Infinity) ? 'bg-error' : 'bg-error brightness-[.6]'
   return (
     <div className="mt-1 h-1.5 rounded-full bg-surface-high overflow-hidden">
       <div className={`h-full min-w-1 rounded-full ${colour}`} style={{ width: `${share * 100}%` }} />

@@ -94,8 +94,9 @@ CREATE INDEX IF NOT EXISTS idx_oauth_tokens_user ON oauth_tokens(user_id);
 -- loaded into that model for it (empty for none; before 2026-10-17 a LoRA
 -- render recorded the LoRA as its model), how many seconds making it took
 -- (NULL for an upload and for older results), and the prompt it was made from
--- (empty for an upload, a 3D model and results from before 2026-10-19). Media
--- is private to its owner (daemon/services/media_store.py).
+-- (empty for an upload, a 3D model and results from before 2026-10-19), and
+-- the seed that reproduces it (NULL for an upload and for results from before
+-- 2026-10-21). Media is private to its owner (daemon/services/media_store.py).
 CREATE TABLE IF NOT EXISTS media (
     name TEXT PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -103,7 +104,8 @@ CREATE TABLE IF NOT EXISTS media (
     model TEXT NOT NULL DEFAULT '',
     seconds REAL,
     lora TEXT NOT NULL DEFAULT '',
-    prompt TEXT NOT NULL DEFAULT ''
+    prompt TEXT NOT NULL DEFAULT '',
+    seed INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_media_user ON media(user_id);
 
@@ -142,6 +144,7 @@ ADDED_COLUMNS = [
     ("media", "seconds", "REAL"),
     ("media", "lora", "TEXT NOT NULL DEFAULT ''"),
     ("media", "prompt", "TEXT NOT NULL DEFAULT ''"),
+    ("media", "seed", "INTEGER"),
     # The recipe that answered a /v1 call. `model` is the id the server
     # reported, which several builds of one model share.
     ("usage_events", "recipe", "TEXT NOT NULL DEFAULT ''"),

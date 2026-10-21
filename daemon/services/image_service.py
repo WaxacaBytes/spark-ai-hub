@@ -537,6 +537,7 @@ class Result:
     preview_jpeg_b64: str
     steps: int | None = None
     preset: str | None = None
+    took_s: float | None = None   # request to file, as My files shows it
 
     @property
     def path(self) -> str:
@@ -619,11 +620,12 @@ async def run(kind: str, params: Params, images: list[str], model: str | None,
                     on_progress(f"rendering on {backend.slug}")
                 raw = await _render(session, backend, kind, params, inputs, seed)
     result = await asyncio.to_thread(store, raw, backend.slug, seed)
+    took = time.monotonic() - started
     await media_store.record(f"{result.image_id}.png", user and user["id"], backend.slug,
-                             time.monotonic() - started, lora=adapter.slug if adapter else "",
-                             prompt=params.prompt)
+                             took, lora=adapter.slug if adapter else "", prompt=params.prompt, seed=seed)
     result.steps = params.steps
     result.preset = getattr(backend.defaults, "preset", None)
+    result.took_s = round(took, 1)
     return result
 
 

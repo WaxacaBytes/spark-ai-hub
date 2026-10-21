@@ -490,7 +490,7 @@ async def check(job_id: str, wait: int = 0, on_progress=None, user: dict | None 
     base = {"job_id": job_id, "model": job["slug"], **_summary(job)}
     if job.get("video_id"):
         return {**base, "status": "completed", "video_id": job["video_id"],
-                "poster": job.get("poster"), "inference_time_s": job.get("inference_time_s")}
+                "poster": job.get("poster"), "took_s": job.get("took_s")}
 
     deadline = time.time() + max(0, min(wait, MAX_WAIT))
     url = f"{proxy_service.internal_url(job['slug'])}/v1/videos/{job['remote_id']}"
@@ -519,14 +519,15 @@ async def check(job_id: str, wait: int = 0, on_progress=None, user: dict | None 
                 took = (remote.get("completed_at") or time.time()) - job["created"]
                 # Both the model and the LoRA it ran: My files names the pair.
                 await media_store.record(f"{video_id}.mp4", job.get("user_id"), job["slug"], took,
-                                         lora=job.get("lora") or "", prompt=job.get("prompt") or "")
+                                         lora=job.get("lora") or "", prompt=job.get("prompt") or "",
+                                         seed=job.get("seed"))
                 makers = [get_recipes().get(s) for s in (job["slug"], *(job.get("lora") or "").split("+")) if s]
                 if any(r is not None and ORBIT_TAG in r.tags for r in makers):
                     await asyncio.to_thread(all_keyframes, path)
                 job["poster"] = await asyncio.to_thread(poster_jpeg_b64, path)
-                job["inference_time_s"] = remote.get("inference_time_s")
+                job["took_s"] = round(took, 1)
                 return {**base, "status": "completed", "video_id": video_id,
-                        "poster": job["poster"], "inference_time_s": job["inference_time_s"]}
+                        "poster": job["poster"], "took_s": job["took_s"]}
             if state == "failed":
                 job["failed"] = True
                 error = (remote.get("error") or {}).get("message") or "no detail given"

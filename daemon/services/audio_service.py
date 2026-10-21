@@ -108,9 +108,9 @@ async def generate(*, lyrics: str, style: str, seconds: int | None, seed: int | 
     audio_id = secrets.token_hex(16)
     (AUDIO_DIR / f"{audio_id}.wav").write_bytes(raw)
     # A song's prompt is its style, then its lyrics.
-    await media_store.record(f"{audio_id}.wav", user and user["id"], backend.slug,
-                             time.monotonic() - started,
-                             prompt="\n\n".join(part for part in (style, lyrics) if part))
+    took = time.monotonic() - started
+    await media_store.record(f"{audio_id}.wav", user and user["id"], backend.slug, took,
+                             prompt="\n\n".join(part for part in (style, lyrics) if part), seed=seed)
     length = wav_seconds(raw)
     return {"audio_id": audio_id, "model": backend.slug,
-            "seconds": round(length, 1) if length else seconds, "seed": seed}
+            "seconds": round(length, 1) if length else seconds, "seed": seed, "took_s": round(took, 1)}

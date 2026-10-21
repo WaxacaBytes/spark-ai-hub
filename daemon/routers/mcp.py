@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -78,7 +79,8 @@ INSTRUCTIONS = (
     "The URLs are private: they open for the user signed in to the Hub, not for you. "
     "Results and uploads stay on the Hub until the user deletes them; "
     "they can see and delete everything they made or uploaded at <Hub address>/files, "
-    "and delete_file removes one when they ask you to.\n\n"
+    "and delete_file removes one when they ask you to. get_file_info tells what made a file you were handed "
+    "(model, LoRA, prompt, seed).\n\n"
     "Files in your own workspace: tools take URLs, never file paths or file contents, "
     "because the models run on the Spark. To use a file you have, call create_upload "
     "and run the curl command it returns; the JSON it prints has the `url` to pass to "
@@ -487,6 +489,24 @@ TOOLS = [
         },
     },
     {
+        "name": "get_file_info",
+        "title": "Get file info",
+        "description": (
+            "What the Hub knows about one of the user's files, from its URL alone: the model and "
+            "LoRA that made it, the prompt, seed, size, how long it took and when. Use it on a "
+            "picture, clip, 3D model or song you were handed rather than made, e.g. to edit it "
+            "or make another like it."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"url": {"type": "string",
+                                   "description": "The Hub URL of the image, video, 3D model, song or upload."}},
+            "required": ["url"],
+            "additionalProperties": False,
+        },
+        "annotations": {"readOnlyHint": True, "idempotentHint": True},
+    },
+    {
         "name": "delete_file",
         "title": "Delete file",
         "description": (
@@ -707,7 +727,11 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             return _started("get_music", job_id, slug)
         if name in ("get_image", "get_music"):
             info = await image_service.check_job(_job_id(args), CHECK_WAIT, user)
-            return _music_result(info, origin) if info["kind"] == "music" else _image_result(info, origin)
+            if info["kind"] == "music":
+                return await _with_file(_music_result(info, origin), info, lambda r: f"{r['audio_id']}.wav")
+            return await _with_file(_image_result(info, origin), info, lambda r: f"{r.image_id}.png")
+        if name == "get_file_info":
+            return await _file_info(await _own_file(args, user), origin)
         if name == "list_video_models":
             return _text(await _with_memory(await video_service.list_models()))
         if name == "get_prompt_guide":
@@ -729,10 +753,12 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
                 model=slug, user=user), slug, user)
             return _started("get_3d", job_id, slug)
         if name == "get_3d":
-            return _mesh_result(await image_service.check_job(_job_id(args), CHECK_WAIT, user), origin)
+            info = await image_service.check_job(_job_id(args), CHECK_WAIT, user)
+            return await _with_file(_mesh_result(info, origin), info, lambda r: f"{r['mesh_id']}.glb")
         if name == "get_video":
             info = await video_service.check(_job_id(args), CHECK_WAIT, on_progress, user)
-            return _video_result(info, origin)
+            return await _with_file(_video_result(info, origin), {**info, "result": info},
+                                    lambda r: f"{r['video_id']}.mp4")
         if name == "generate_video":
             prompt = str(args.get("prompt") or "").strip()
             if not prompt:
@@ -934,6 +960,66 @@ async def _stop_model(args: dict) -> dict:
             "structuredContent": {"model": slug, "status": "stopped"}, "isError": False}
 
 
+async def _with_file(result: dict, info: dict, file_name) -> dict:
+    """A finished result plus what My files shows of its file and the result
+    leaves out: the LoRA, the file size and the prompt, so whoever holds the
+    result can make another like it."""
+    if result["isError"] or info.get("status") != "completed":
+        return result
+    details = await media_store.describe(file_name(info["result"]))
+    if details:
+        result["content"][0]["text"] += "\n" + "\n".join(_file_lines(details))
+        result["structuredContent"].update(_file_fields(details))
+    return result
+
+
+def _file_lines(details: dict) -> list[str]:
+    lines = [f"LoRA: {', '.join(details['lora_ids'])}"] if details["lora_ids"] else []
+    lines.append(f"File size: {details['bytes'] / 1e6:.1f} MB")
+    if details["prompt"]:
+        lines.append(f"Prompt: {details['prompt']}")
+    return lines
+
+
+def _file_fields(details: dict) -> dict:
+    return {"lora": details["lora_ids"], "bytes": details["bytes"], "prompt": details["prompt"]}
+
+
+async def _file_info(file_name: str, origin: str) -> dict:
+    """get_file_info: one file as My files shows it."""
+    d = await media_store.describe(file_name)
+    if d is None:
+        raise image_service.ImageError(f"No Hub file {file_name} for this account.")
+    lines = [f"File: {origin}{d['path']}",
+             f"Type: {_KIND_NAMES[d['kind']]}{' (an upload)' if d['upload'] else ''}"]
+    if d["slug"]:
+        lines.append(f"Model: {d['slug']} ({d['model']})")
+    if d.get("width"):
+        lines.append(f"Size: {d['width']}x{d['height']}")
+    if d.get("duration"):
+        lines.append(f"Length: {d['duration']}s")
+    if d["seed"] is not None:
+        lines.append(f"Seed: {d['seed']}")
+    if d["seconds"] is not None:
+        lines.append(_took(d["seconds"]))
+    lines.append(f"Made: {datetime.fromtimestamp(d['created'], timezone.utc):%Y-%m-%d %H:%M} UTC")
+    lines += _file_lines(d)
+    structured = {"url": f"{origin}{d['path']}", "kind": d["kind"], "upload": d["upload"],
+                  "model": d["slug"], "seed": d["seed"], "took_s": d["seconds"], "created": d["created"],
+                  **{k: d[k] for k in ("width", "height", "duration") if k in d}, **_file_fields(d)}
+    return {"content": [{"type": "text", "text": "\n".join(lines)}],
+            "structuredContent": structured, "isError": False}
+
+
+_KIND_NAMES = {"image": "image", "video": "video", "mesh": "3D model (GLB)", "audio": "song"}
+
+
+def _took(seconds: float) -> str:
+    """How long the file took, from the request to the finished file: the
+    number My files shows under each file."""
+    return f"Took: {round(seconds)}s"
+
+
 def _image_result(info: dict, origin: str) -> dict:
     """One shape for both paths: the finished image, or the job to collect."""
     if info["status"] == "failed":
@@ -955,6 +1041,8 @@ def _image_result(info: dict, origin: str) -> dict:
         lines.append(f"Steps: {result.steps}")
     if result.preset:
         lines.append(f"Preset: {result.preset}")
+    if result.took_s is not None:
+        lines.append(_took(result.took_s))
     lines.append("Pass this URL to edit_image to change it further.")
     lines.append("To save it into your workspace, call create_download with this URL; "
                  "the attached JPEG is a small preview, not the file.")
@@ -966,6 +1054,7 @@ def _image_result(info: dict, origin: str) -> dict:
         "structuredContent": {
             "url": url, "model": result.model, "width": result.width,
             "height": result.height, "seed": result.seed, "steps": result.steps,
+            "took_s": result.took_s,
         },
         "isError": False,
     }
@@ -984,8 +1073,8 @@ def _video_result(info: dict, origin: str) -> dict:
                          {k: v for k, v in info.items() if k != "poster"})
     url = f"{origin}{video_service.PUBLIC_PREFIX}/{info['video_id']}.mp4"
     lines = [f"Video: {url}", f"Model: {info['model']}", *details]
-    if info.get("inference_time_s"):
-        lines.append(f"Render time: {round(info['inference_time_s'])}s")
+    if info.get("took_s") is not None:
+        lines.append(_took(info["took_s"]))
     lines.append("To save it into your workspace, call create_download with this URL"
                  + ("; the attached JPEG is only a poster frame, not the video." if info.get("poster") else "."))
     content = [{"type": "text", "text": "\n".join(lines)}]
@@ -1004,10 +1093,9 @@ def _mesh_result(info: dict, origin: str) -> dict:
                          {k: v for k, v in info.items() if k != "result"})
     mesh = {k: v for k, v in info["result"].items() if k != "preview"}
     url = f"{origin}{mesh_service.PUBLIC_PREFIX}/{mesh['mesh_id']}.glb"
-    lines = [f"3D model (GLB): {url}", f"Model: {mesh['model']}", f"Seed: {mesh['seed']}",
-             f"File size: {mesh['bytes'] / 1e6:.1f} MB"]
-    if mesh.get("inference_time_s"):
-        lines.append(f"Build time: {round(mesh['inference_time_s'])}s")
+    lines = [f"3D model (GLB): {url}", f"Model: {mesh['model']}", f"Seed: {mesh['seed']}"]
+    if mesh.get("took_s") is not None:
+        lines.append(_took(mesh["took_s"]))
     lines.append("The user can turn it around in the Hub's My files. To save it into your "
                  "workspace, call create_download with this URL; the attached JPEG is the cut-out "
                  "picture it was built from, not a render of the model.")
@@ -1027,6 +1115,8 @@ def _music_result(info: dict, origin: str) -> dict:
     url = f"{origin}{audio_service.PUBLIC_PREFIX}/{song['audio_id']}.wav"
     lines = [f"Music: {url}", f"Model: {song['model']}",
              f"Length: {song['seconds']}s", f"Seed: {song['seed']}"]
+    if song.get("took_s") is not None:
+        lines.append(_took(song["took_s"]))
     return {"content": [{"type": "text", "text": "\n".join(lines)}],
             "structuredContent": {**song, "url": url}, "isError": False}
 

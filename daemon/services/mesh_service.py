@@ -226,9 +226,8 @@ async def generate(*, image: str, seed: int | None, steps: int | None, model: st
     mesh_id = secrets.token_hex(16)
     (MESH_DIR / f"{mesh_id}.png").write_bytes(cutout)
     (MESH_DIR / f"{mesh_id}.glb").write_bytes(glb)
-    await media_store.record(f"{mesh_id}.glb", user and user["id"], backend.slug,
-                             time.monotonic() - started)
+    took = time.monotonic() - started
+    await media_store.record(f"{mesh_id}.glb", user and user["id"], backend.slug, took, seed=seed)
     return {"mesh_id": mesh_id, "model": backend.slug, "seed": seed, "steps": steps,
-            "views": ["front", *views],
-            "bytes": len(glb), "inference_time_s": remote.get("inference_time_s"),
+            "views": ["front", *views], "bytes": len(glb), "took_s": round(took, 1),
             "preview": await asyncio.to_thread(preview_jpeg_b64, cutout)}

@@ -114,7 +114,7 @@ class McpProtocolTests(unittest.TestCase):
                                  "list_image_models", "generate_video", "get_video",
                                  "list_video_models", "get_prompt_guide", "generate_3d", "get_3d", "list_3d_models",
                                  "generate_music", "get_music",
-                                 "create_upload", "create_download", "delete_file",
+                                 "create_upload", "create_download", "delete_file", "get_file_info",
                                  "start_model", "stop_model", "web_search", "web_fetch",
                                  "decide", "list_decision_models"})
 
@@ -140,7 +140,7 @@ class McpToolCallTests(unittest.TestCase):
         self.client = _client()
         self.result = image_service.Result(
             image_id="a" * 32, model="qwen-image-2512", width=1328, height=1328,
-            seed=7, preview_jpeg_b64="AAAA",
+            seed=7, preview_jpeg_b64="AAAA", took_s=41.6,
         )
 
     def _generate(self, run, headers=None):
@@ -165,6 +165,9 @@ class McpToolCallTests(unittest.TestCase):
         result = r.json()["result"]
         self.assertFalse(result["isError"])
         self.assertIn(f"/images/{'a' * 32}.png", result["content"][0]["text"])
+        # What My files shows under the picture: model, size and time.
+        for line in ("Model: qwen-image-2512", "Size: 1328x1328", "Took: 42s"):
+            self.assertIn(line, result["content"][0]["text"])
         self.assertEqual(result["content"][1], {"type": "image", "data": "AAAA", "mimeType": "image/jpeg"})
         kind, params, images, model = run.call_args.args[:4]
         self.assertEqual((kind, params.prompt, params.seed, images, model),
@@ -498,12 +501,13 @@ class VideoToolTests(unittest.TestCase):
     def test_get_video_completed_has_url_and_poster(self):
         info = {"job_id": "j", "model": "wan", "status": "completed", "video_id": "a" * 32,
                 "poster": "AAAA", "seconds": 5, "size": "1280x704", "seed": 3, "steps": 50,
-                "inference_time_s": 301.2}
+                "took_s": 301.2}
         with mock.patch.object(video_service, "check", mock.AsyncMock(return_value=info)) as check:
             r = self.client.post("/mcp", json=_rpc("tools/call", {
                 "name": "get_video", "arguments": {"job_id": "j"}}))
         result = r.json()["result"]
         self.assertIn(f"/videos/{'a' * 32}.mp4", result["content"][0]["text"])
+        self.assertIn("Took: 301s", result["content"][0]["text"])
         self.assertEqual(result["content"][1]["mimeType"], "image/jpeg")
         self.assertEqual(check.call_args.args[:2], ("j", mcp.CHECK_WAIT))
 
@@ -852,12 +856,13 @@ class MeshTests(_MediaDirsTest):
     def test_get_3d_returns_the_glb_and_the_cut_out(self):
         info = {"job_id": "j", "status": "completed", "model": "h3d", "kind": "mesh", "error": None,
                 "elapsed": 90, "result": {"mesh_id": "c" * 32, "model": "h3d", "seed": 4, "steps": None,
-                                          "bytes": 2_500_000, "inference_time_s": 88.0, "preview": "AAAA"}}
+                                          "bytes": 2_500_000, "took_s": 88.0, "preview": "AAAA"}}
         with mock.patch.object(image_service, "check_job", mock.AsyncMock(return_value=info)):
             r = self.client.post("/mcp", json=_rpc("tools/call", {"name": "get_3d", "arguments": {"job_id": "j"}}))
         result = r.json()["result"]
         self.assertFalse(result["isError"])
         self.assertIn(f"/meshes/{'c' * 32}.glb", result["content"][0]["text"])
+        self.assertIn("Took: 88s", result["content"][0]["text"])
         self.assertEqual(result["content"][1]["mimeType"], "image/jpeg")
         self.assertNotIn("preview", result["structuredContent"])
 
@@ -866,10 +871,11 @@ class MeshTests(_MediaDirsTest):
         glb, png = mesh_service.MESH_DIR / f"{'d' * 32}.glb", mesh_service.MESH_DIR / f"{'d' * 32}.png"
         glb.write_bytes(b"glTF")
         png.write_bytes(self._picture(mode="RGBA"))
-        asyncio.run(media_store.record(glb.name, OWNER["id"], "h3d", 84.96))
+        asyncio.run(media_store.record(glb.name, OWNER["id"], "h3d", 84.96, seed=12345))
         self.assertEqual(media_store.name_in_url(f"https://hub/meshes/{glb.name}"), glb.name)
         (entry,) = self.client.get("/api/media").json()["files"]   # the picture is not a file of its own
-        self.assertEqual((entry["kind"], entry["path"], entry["seconds"]), ("mesh", f"/meshes/{glb.name}", 85.0))
+        self.assertEqual((entry["kind"], entry["path"], entry["seconds"], entry["seed"]),
+                         ("mesh", f"/meshes/{glb.name}", 85.0, 12345))
         self.assertEqual(self.client.get(f"/meshes/{glb.name}").headers["content-type"], "model/gltf-binary")
         self.assertEqual(self.client.get(f"/api/media/{glb.name}/thumb").headers["content-type"], "image/jpeg")
         # A browser hands back a render of the model; it stands for the model from then on.
@@ -972,6 +978,20 @@ class LinkTests(_MediaDirsTest):
         self.assertTrue(self._tool("delete_file", {"url": mine})["isError"])
         self.assertTrue(self._tool("delete_file", {"url": mine}, who="anon")["isError"])
 
+    def test_file_info_tells_what_made_a_file_from_its_url(self):
+        mine = urllib_path(self.client.post(self._upload_link(), content=_png()).json()["url"])
+        name = mine.rsplit("/", 1)[1]
+        asyncio.run(media_store.record(name, OWNER["id"], "qwen-image-2512", 41.6, lora="lora-a+lora-b",
+                                       prompt="a red fox", seed=77))
+        result = self._tool("get_file_info", {"url": "http://spark.local:9000" + mine})
+        self.assertFalse(result["isError"], result)
+        for line in ("Model: qwen-image-2512", "Seed: 77", "Took: 42s", "LoRA: lora-a, lora-b",
+                     "Prompt: a red fox", "File size: "):
+            self.assertIn(line, result["content"][0]["text"])
+        self.assertEqual((result["structuredContent"]["seed"], result["structuredContent"]["lora"]),
+                         (77, ["lora-a", "lora-b"]))
+        self.assertTrue(self._tool("get_file_info", {"url": mine}, who="other")["isError"])
+
     def test_links_need_an_account(self):
         self.assertTrue(self._tool("create_upload", who="anon")["isError"])
         self.assertTrue(self._tool("create_download", {"url": "/images/" + "a" * 32 + ".png"})["isError"])
@@ -1056,7 +1076,7 @@ class UnifiedVideoEditAndMusicTests(unittest.TestCase):
                 started.set()
                 await asyncio.sleep(0.3)
                 return SimpleNamespace(path="/images/abc.png", model="m", width=8, height=8,
-                                       seed=1, steps=None, preset=None, preview_jpeg_b64="x")
+                                       seed=1, steps=None, preset=None, took_s=None, preview_jpeg_b64="x")
 
             job_id = image_service.start_job("edit", slow_run, "m", OWNER)
             # The caller gives up while the render is still going.
@@ -1075,7 +1095,7 @@ class UnifiedVideoEditAndMusicTests(unittest.TestCase):
     def test_get_image_reports_pending_then_the_image(self):
         from types import SimpleNamespace
         result = SimpleNamespace(path="/images/abc.png", model="m", width=8, height=8,
-                                 seed=1, steps=None, preset=None, preview_jpeg_b64="x")
+                                 seed=1, steps=None, preset=None, took_s=None, preview_jpeg_b64="x")
         pending = mcp._image_result(
             {"job_id": "j1", "status": "rendering", "model": "m", "kind": "edit",
              "result": None, "error": None, "elapsed": 90}, "http://h")
@@ -1175,8 +1195,8 @@ class UnifiedVideoEditAndMusicTests(unittest.TestCase):
         """One shape for all media: start returns a job_id at once, get_* collects it."""
         from types import SimpleNamespace
         song = {"audio_id": "c" * 32, "model": "m", "seconds": 30.0, "seed": 3}
-        picture = SimpleNamespace(path="/images/abc.png", model="i", width=8, height=8,
-                                  seed=1, steps=None, preset=None, preview_jpeg_b64="x")
+        picture = SimpleNamespace(path="/images/abc.png", image_id="abc", model="i", width=8, height=8,
+                                  seed=1, steps=None, preset=None, took_s=None, preview_jpeg_b64="x")
         with mock.patch.object(audio_service, "pick_backend",
                                mock.AsyncMock(return_value=SimpleNamespace(slug="m"))), \
                 mock.patch.object(audio_service, "generate", mock.AsyncMock(return_value=song)), \

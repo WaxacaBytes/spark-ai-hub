@@ -12,9 +12,18 @@ import RecipeLogo from './RecipeLogo'
 export default function FavoriteTiles({ recipes }) {
   return (
     <div className="grid w-full gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 260px), 1fr))' }}>
-      {recipes.map((r) => <Tile key={r.slug} recipe={r} />)}
+      {[...recipes].sort(byIndexThenParams).map((r) => <Tile key={r.slug} recipe={r} />)}
     </div>
   )
+}
+
+// Highest Artificial Analysis Intelligence Index first; models without a
+// published score follow, largest first.
+function byIndexThenParams(a, b) {
+  const ai = a.artificial_analysis_index
+  const bi = b.artificial_analysis_index
+  if ((ai != null) !== (bi != null)) return ai != null ? -1 : 1
+  return (bi ?? 0) - (ai ?? 0) || (b.params_b ?? 0) - (a.params_b ?? 0) || a.name.localeCompare(b.name)
 }
 
 function Tile({ recipe }) {
