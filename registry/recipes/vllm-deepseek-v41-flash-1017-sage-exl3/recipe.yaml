@@ -1,0 +1,61 @@
+name: "DeepSeek-V4.1-Flash-1017"
+slug: vllm-deepseek-v41-flash-1017-sage-exl3
+version: "1.0.0"
+description: "DeepSeek-V4.1-Flash-1017 (DeepSeek, 2026-10-17, MIT): a 552B-backbone MoE with 384 routed experts, top-6, about 16B active while generating, plus Engram n-gram tables. This is vcruz305's SAGE-EXL3 pack, a mixed-precision EXL3 quant at 1.62 bits per weight for the routed experts, with every other linear kept at DeepSeek's native block-32 FP8. Its card measures it against DeepSeek's official FP8/FP4 release, teacher-forced on held-out text: 94.52% top-1 token agreement overall, 99.08% on code, 96.04% on reasoning, 95.56% on math and 89.94% on general text (read 2026-10-20). These are token-agreement figures, not benchmark scores. It runs on one Spark in vcruz305's measured vLLM setup, on Christopher Owen's spark-ds41f engine. The 1,380 least-used experts are read from disk on demand, and the Engram tables stream from disk, so the model reads the NVMe on every step: its first start right after the 361 GB install ran at about half speed (229 ms per decode step against 167) until it was stopped and started again. One request at a time with a 229K-token context. Decoding drafts five tokens a round with DeepSeek's DSpark head, each verified by the model, so output is unchanged. It needs the whole Spark: about 110 GiB of memory, with nothing else running. Text only: tool calling and reasoning work (reasoning arrives in reasoning_content), but images do not."
+author: "DeepSeek AI"
+source: "community"
+website: "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017"
+upstream: "https://github.com/vcruz305/DSV4.1-Flash-1017-EXL3-Spark-recipe"
+category: llm
+tags:
+  - llm
+  - moe
+  - deepseek
+  - deepseek-v41
+  - exl3
+  - trellis
+  - reasoning
+  - agentic
+  - tool-use
+  - long-context
+  - speculative-decoding
+  - dspark
+logo: "/logos/deepseek.png"
+requirements:
+  min_memory_gb: 112
+  recommended_memory_gb: 128
+  disk_gb: 380
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8000
+  proxy: true
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 126
+  gpu: true
+status: experimental
+engine: "vLLM"
+params_b: 552
+active_params_b: 16
+arch: moe
+quantization: "SAGE-EXL3 1.62bpw"
+speculative_method: "dspark"
+context_tokens: 229376
+weights_gb: 326.6
+release_date: "2026-10-17"
+requires_hf_token: true
+tokens_per_second: 15.0
+tokens_per_second_editing: 34.4
+editing_workload: "code-edit"
+benchmarks:
+  prose: 12.38
+  explainer: 16.08
+  code: 17.7
+  code-edit: 34.4
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "deepseek-v4.1-flash-1017"
+  api_key: "<API_KEY>"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"deepseek-v4.1-flash-1017\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a correct Python function that returns the first n Fibonacci numbers.\"}], \"max_tokens\": 512}'"
