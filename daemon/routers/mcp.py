@@ -101,8 +101,8 @@ INSTRUCTIONS = (
     "id in `lora` to edit_image, generate_image or generate_video and follow its recommended "
     "notes; the Hub loads it into the model. Several LoRAs of one model run together when "
     "listed together, such as a Turbo (fewer steps) plus an effect; a Turbo's step count "
-    "and shift are the ones used. A video model marked `prompt_guide` was trained on prompts "
-    "in a set format: call get_prompt_guide for it before writing its prompt.\n\n"
+    "and shift are the ones used. An image or video model marked `prompt_guide` was trained "
+    "on prompts in a set format: call get_prompt_guide for it before writing its prompt.\n\n"
     "Makes decisions with decide: a decision model on the Spark, such as Cloudflare's Clef "
     "(list_decision_models names them), answers typed questions "
     "(a choice among named options, a score, a yes/no) about text, JSON, images and videos "
@@ -342,13 +342,13 @@ TOOLS = [
     {
         "name": "get_prompt_guide",
         "title": "Get a model's prompt guide",
-        "description": ("How to write a prompt for a video model that list_video_models marks "
-                        "with prompt_guide: the format it was trained on (sections, timing, "
-                        "speech and sound), condensed from its maker's docs. Read it before "
-                        "writing that model's prompt."),
+        "description": ("How to write a prompt for a model that list_image_models or "
+                        "list_video_models marks with prompt_guide: the format it was trained "
+                        "on (a JSON caption, or sections, timing, speech and sound), condensed "
+                        "from its maker's docs. Read it before writing that model's prompt."),
         "inputSchema": {
             "type": "object",
-            "properties": {"model": {"type": "string", "description": "A model id from list_video_models."}},
+            "properties": {"model": {"type": "string", "description": "A model id from list_image_models or list_video_models."}},
             "required": ["model"],
             "additionalProperties": False,
         },
@@ -711,7 +711,7 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
         if name == "list_video_models":
             return _text(await _with_memory(await video_service.list_models()))
         if name == "get_prompt_guide":
-            return _text(video_service.prompt_guide(str(args.get("model") or "").strip()))
+            return _text(image_service.prompt_guide(str(args.get("model") or "").strip()))
         if name == "list_3d_models":
             return _text(await _with_memory(await mesh_service.list_models()))
         if name == "generate_3d":
@@ -769,10 +769,15 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
                 raise image_service.ImageError("'images' must list one to three images.")
             images = [str(i) for i in images]
         lora = _loras(args)
+        model = str(args.get("model") or "").strip() or None
+        # A named model's prompt is checked before "start it" can send the
+        # agent off to load a model it would then be refused by.
+        if model:
+            image_service.check_prompt(model, prompt)
         # Picked now, so "no model is running" comes back from this call, not the first get.
         slug = (await image_service.pick_backend(
-            kind, str(args.get("model") or "").strip() or None,
-            await image_service.installed_lora(lora))).slug
+            kind, model, await image_service.installed_lora(lora))).slug
+        image_service.check_prompt(slug, prompt)
         job_id = image_service.start_job(
             kind, lambda: image_service.run(kind, params, images, slug, user=user, lora=lora), slug, user)
         return _started("get_image", job_id, slug)

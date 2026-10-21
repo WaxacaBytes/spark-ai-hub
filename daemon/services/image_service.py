@@ -171,9 +171,39 @@ async def list_models() -> list[dict]:
             "min_memory_gb": recipe.requirements.min_memory_gb,
             **media_figures(recipe),
             **({"recommended": rec} if (rec := recommended(backend)) else {}),
+            **({"prompt_guide": True} if getattr(recipe, "prompt_guide", "") else {}),
             **({"loras": loras} if (loras := await _loras_of(slug)) else {}),
         })
     return out
+
+
+def prompt_guide(slug: str) -> str:
+    """The model's prompt-writing guide, for get_prompt_guide (image and video
+    models alike)."""
+    recipe = get_recipes().get(slug)
+    if recipe is None:
+        raise ImageError(f"'{slug}' is not a model in the catalog.")
+    if not recipe.prompt_guide:
+        return (f"{slug} has no prompt guide: write a plain description and follow the "
+                "`recommended` notes its model list gives for it.")
+    return (settings.registry_path.parent / "prompt_guides" / f"{recipe.prompt_guide}.md").read_text()
+
+
+def check_prompt(slug: str, prompt: str) -> None:
+    """Refuse plain text for an image model that has a prompt guide: the one
+    such model, Ideogram 4, was trained on JSON captions only and answers a
+    plain sentence with a gray "Image blocked by safety filter" picture most
+    of the time, after a render of minutes."""
+    recipe = get_recipes().get(slug)
+    if recipe is None or not recipe.prompt_guide:
+        return
+    try:
+        caption = json.loads(prompt)
+    except ValueError:
+        caption = None
+    if not isinstance(caption, dict):
+        raise ImageError(f"{slug} takes a JSON caption, not plain text: call get_prompt_guide "
+                         f"with model {slug} and write the prompt the way it says.")
 
 
 async def _loras_of(slug: str) -> list[dict]:

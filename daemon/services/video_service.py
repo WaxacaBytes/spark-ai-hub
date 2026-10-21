@@ -143,17 +143,6 @@ async def list_models() -> list[dict]:
     return out
 
 
-def prompt_guide(slug: str) -> str:
-    """The model's prompt-writing guide, for get_prompt_guide."""
-    recipe = get_recipes().get(slug)
-    if recipe is None:
-        raise ImageError(f"'{slug}' is not a model in the catalog.")
-    if not recipe.prompt_guide:
-        return (f"{slug} has no prompt guide: write a plain description and follow the "
-                "`recommended` notes list_video_models gives for it.")
-    return (settings.registry_path.parent / "prompt_guides" / f"{recipe.prompt_guide}.md").read_text()
-
-
 async def _loras_of(slug: str) -> list[dict]:
     """The installed LoRAs a model takes, for list_video_models: what each
     adds, the settings it brings, and how long a render with it took."""

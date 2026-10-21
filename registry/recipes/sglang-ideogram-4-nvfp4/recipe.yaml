@@ -49,6 +49,10 @@ requires_hf_token: true
 # Ideogram 4 Non-Commercial license: the token's account must accept it on the web.
 gated_repos:
   - "ideogram-ai/ideogram-4-fp8"
+# Trained on JSON captions only: a plain sentence often comes back as a gray
+# "Image blocked by safety filter" picture (Ideogram's docs/prompting.md). Agents
+# read the format with get_prompt_guide; the Hub refuses plain text for it.
+prompt_guide: "ideogram-4"
 # Ideogram 4 takes a sampler preset instead of steps/guidance. Ideogram's
 # inference docs: "V4_QUALITY_48 is the default. Fewer steps trade quality for
 # speed."
