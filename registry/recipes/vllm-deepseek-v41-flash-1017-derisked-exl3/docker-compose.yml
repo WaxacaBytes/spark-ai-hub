@@ -1,0 +1,274 @@
+services:
+  deepseek-v41-flash:
+    # DeepSeek-V4.1-Flash-1017 as vcruz305 and Blackfrost-AI's DERISKED
+    # SAGE-EXL3 1.61 bpw pack on ONE DGX Spark, served exactly like his SAGE
+    # pack, by his one-Spark recipe at commit 63220db:
+    #   https://github.com/vcruz305/DSV4.1-Flash-1017-EXL3-Spark-recipe
+    # The engine is his serving image (scripts/build_image.sh on his
+    # redistributable base), published once as
+    # ghcr.io/waxacabytes/dsv41-exl3-spark-ai-hub:63220db. Every step below is
+    # one of his scripts, in order: base/Dockerfile.cutlass-dsl,
+    # download_and_verify.sh, build_cold_alias.sh, then serve.sh and
+    # serve_inner.sh's container and invocation. What differs is noted where it
+    # is set: the Hub's model id, no host port, no host-side sysctls or page
+    # cache drop (they need root), and the JIT cache living in the container.
+    # His recipe covers the SAGE pack; for this one the pack, its checksums
+    # (the publisher's per-shard hashes, SHA256SUMS beside this file) and one
+    # config.json fix below are what change.
+    #
+    # The pack does not fit resident under vLLM on one Spark, so the 1,418
+    # least-routed experts and the embedding are gathered into a cold-expert
+    # side file the GPU reads through a read-only mapping; every hot expert
+    # stays resident. The Engram n-gram tables stream from disk too, so this
+    # model reads the NVMe on every step: keep big copies and builds off the
+    # disk while it serves.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS recipe
+        # His recipe at the engine's commit, for the files the steps below use:
+        # the CUTLASS DSL lock, the pack's SHA256SUMS, the cold-expert tool and
+        # its measured expert list.
+        RUN python3 -c "import tarfile, urllib.request; p = '/tmp/recipe.tar.gz'; urllib.request.urlretrieve('https://github.com/vcruz305/DSV4.1-Flash-1017-EXL3-Spark-recipe/archive/63220db0a7cc62dd8b783f71c9cf28f909c9b09b.tar.gz', p); tarfile.open(p).extractall('/tmp/src')" \
+         && mv /tmp/src/DSV4.1-Flash-1017-EXL3-Spark-recipe-63220db0a7cc62dd8b783f71c9cf28f909c9b09b /recipe
+
+        FROM ghcr.io/waxacabytes/dsv41-exl3-spark-ai-hub@sha256:50427e3273c5dd48625d421e29c6b22333f8763c62ac900eff0cd4562157453a
+        COPY --from=recipe /recipe/base/cutlass-dsl.lock /opt/dsv41-recipe/base/cutlass-dsl.lock
+        COPY SHA256SUMS /opt/dsv41-derisked-SHA256SUMS
+        COPY --from=recipe /recipe/tools /opt/dsv41-recipe/tools
+        COPY --from=recipe /recipe/configs /opt/dsv41-recipe/configs
+        COPY --from=recipe /recipe/LICENSE /recipe/README.md /opt/dsv41-recipe/
+
+        # base/Dockerfile.cutlass-dsl: NVIDIA CUTLASS DSL 4.7.1 from PyPI, the
+        # five wheels pinned by URL and sha256. Its licence allows redistributing
+        # only the Python source, so the published engine ships without it and
+        # each install fetches it from NVIDIA's release here.
+        RUN python3 -m pip install --no-cache-dir --no-deps --force-reinstall --require-hashes -r /opt/dsv41-recipe/base/cutlass-dsl.lock
+        RUN LIBRARY_PATH=/usr/local/cuda/lib64/stubs python3 -c "import importlib.metadata as m; assert m.version('nvidia-cutlass-dsl') == '4.7.1'; import cutlass.base_dsl.enums, quack.compile_utils, b12x.attention.compressed_sparse_mla, b12x.comm.roce, b12x.integration.vllm.loader, b12x.sequence.engram; print('imports ok')"
+
+        # download_and_verify.sh: the pinned pack revision with two download
+        # workers (more grows swap on a 128 GB unified-memory part), checked
+        # against the publisher's per-shard hashes, 326.6 GB. Model weights are part of the app
+        # artifact, baked into this image. Two shards are ~101.5 GB, which
+        # Hugging Face serves only over Xet, so hf_xet is installed beside the
+        # engine for this step alone and removed with it.
+        RUN --mount=type=secret,id=hf_token \
+            set -eu; \
+            HF_TOKEN="$$(cat /run/secrets/hf_token 2>/dev/null || true)"; export HF_TOKEN; \
+            pip install --no-cache-dir --target /tmp/xet hf_xet==1.7.0; \
+            PYTHONPATH=/tmp/xet HF_XET_HIGH_PERFORMANCE=1 python3 -c "import os; from huggingface_hub import snapshot_download; snapshot_download('vcruz305/DSV4.1-Flash-1017-DERISKED-EXL3-1.61bpw', revision='b2d6b13944128c84dde85e88d666a6e5e5229533', local_dir='/models/dsv41-derisked-1.61bpw', max_workers=2, etag_timeout=60, token=os.environ.get('HF_TOKEN') or None)"; \
+            rm -rf /tmp/xet /models/dsv41-derisked-1.61bpw/.cache /root/.cache/huggingface; \
+            cd /models/dsv41-derisked-1.61bpw && sha256sum -c /opt/dsv41-derisked-SHA256SUMS
+
+        # At this revision the pack's config.json still carries the base
+        # model's FP8 quantization_config. --hf-overrides below corrects it for
+        # the model, but the DSpark draft reads config.json itself and refuses
+        # to start (deepseek_v41_fp8 vs exl3_dsv41). Write the block the SAGE
+        # pack ships, {"quant_method": "exl3"}; no weight changes. Reported
+        # upstream: https://huggingface.co/vcruz305/DSV4.1-Flash-1017-DERISKED-EXL3-1.61bpw/discussions/1
+        RUN python3 -c "import json; p = '/models/dsv41-derisked-1.61bpw/config.json'; c = json.load(open(p)); assert c['quantization_config']['quant_method'] in ('fp8', 'exl3'), c['quantization_config']; c['quantization_config'] = {'quant_method': 'exl3'}; json.dump(c, open(p, 'w'), indent=2)"
+
+        # build_cold_alias.sh: the cold-expert side file (embed.weight + the
+        # 1,418 experts his measured list names; its size follows this pack's
+        # per-expert bit widths), then serve.sh's check that it holds exactly
+        # that list.
+        RUN python3 /opt/dsv41-recipe/tools/ats_build_alias.py \
+              --model-dir /models/dsv41-derisked-1.61bpw --out /alias \
+              --experts-json /opt/dsv41-recipe/configs/cold-alias-selection.json \
+              --embed --align 64 \
+         && test -s /alias/experts.bin \
+         && python3 -c "import json; norm = lambda d: {k: sorted(int(e) for e in v) for k, v in d.items()}; assert norm(json.load(open('/alias/manifest.json'))['experts']) == norm(json.load(open('/opt/dsv41-recipe/configs/cold-alias-selection.json')))"
+
+        # serve.sh's JIT cache layout. Here it lives and dies with the container
+        # (the Hub keeps no cache volumes), so every boot is serve.sh's cold-cache
+        # boot: see the compile workers below.
+        RUN mkdir -p /cache/kkref/jit/b12x/compile /cache/kkref/jit/b12x/cute \
+              /cache/kkref/jit/cute-dsl /cache/kkref/jit/tilelang /cache/kkref/jit/triton \
+              /cache/kkref/jit/nv-compute /cache/kkref/jit/vllm-r5o
+      secrets:
+        - hf_token
+    image: spark-ai-hub/vllm-deepseek-v41-flash-1017-derisked-exl3:63220db-b2d6b139
+    container_name: spark-ai-hub-vllm-deepseek-v41-flash-1017-derisked-exl3
+    # No published port: the Hub reaches this container by name through its
+    # front door, so it never collides with another model.
+    networks:
+      - spark-ai-hub-net
+    # serve.sh's docker run: shared memory, the Engram reader's io_uring (the
+    # default seccomp profile aborts it), pinned memory, no core dumps, and
+    # the memory fence that makes a prefill transient kill the container
+    # rather than the Spark. (serve.sh also tunes three vm.* sysctls, turns
+    # swap off and on, and drops the page cache before a boot; those need
+    # root and are left alone here.)
+    shm_size: 2gb
+    security_opt:
+      - seccomp=unconfined
+      - label=disable
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      core: 0
+    mem_limit: 118g
+    memswap_limit: 118g
+    oom_score_adj: 1000
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - B12X_AUTOTUNE=0
+      # serve.sh's cold-JIT-cache setting, which every boot here is: compile
+      # workers serialised, measured at +1.24 GiB of headroom for the same
+      # ready time (302 s vs 305 s).
+      - B12X_BIND_COMPILE_WORKERS=1
+      - B12X_STATE_COMPILE_WORKERS=1
+      - B12X_WEIGHTS_COMPILE_WORKERS=1
+      - TVM_NUM_THREADS=1
+      - TVM_BIND_THREADS=1
+      - B12X_COMPILE_CACHE_DIR=/cache/kkref/jit/b12x/compile
+      - B12X_CUTE_COMPILE_CACHE_DIR=/cache/kkref/jit/b12x/cute
+      - B12X_DENSE_SPLITK_TURBO=1
+      - B12X_W4A8_TINY_DECODE=0
+      - CUDA_CACHE_MAXSIZE=4294967296
+      - CUDA_CACHE_PATH=/cache/kkref/jit/nv-compute
+      - CUTE_DSL_ARCH=sm_121a
+      - CUTE_DSL_CACHE_DIR=/cache/kkref/jit/cute-dsl
+      - TILELANG_CACHE_DIR=/cache/kkref/jit/tilelang
+      - TRITON_CACHE_DIR=/cache/kkref/jit/triton
+      - XDG_CACHE_HOME=/cache/kkref/jit
+      - VLLM_CACHE_ROOT=/cache/kkref/jit/vllm-r5o
+      - CUDA_DEVICE_MAX_CONNECTIONS=32
+      - VLLM_ALLOW_LONG_MAX_MODEL_LEN=1
+      - VLLM_DS41_ATTENTION_COMPUTE=auto
+      - VLLM_DS41_KERNEL_BACKEND=tilelang
+      - VLLM_DS41_HEAD_DTYPE=float32
+      - VLLM_DS41_PACKED_BF16_LM_HEAD=0
+      - VLLM_L2_PREFETCH_KERNELS=tilelang
+      - VLLM_MULTI_STREAM_GEMM_TOKEN_THRESHOLD=1024
+      - VLLM_USE_FLASHINFER_SAMPLER=1
+      - VLLM_DISABLE_PYNCCL=0
+      - VLLM_ENABLE_PCIE_ALLREDUCE=0
+      - VLLM_ENGINE_READY_TIMEOUT_S=3600
+      - VLLM_EXECUTE_MODEL_TIMEOUT_SECONDS=900
+      - VLLM_EXL3_MOE_KERNEL=exllamav3
+      - VLLM_EXL3_V41_NATIVE_MOE=0
+      - VLLM_EXL3_MIXEDK_LEGACY=1
+      - VLLM_EXL3_MIXEDK_MODE=unified
+      - VLLM_EXL3_TRIM_AFTER_LAYER=1
+      - VLLM_EXL3_MODEL_DIR=/models/dsv41-derisked-1.61bpw
+      - VLLM_EXL3_ATS_ALIAS=1
+      - VLLM_EXL3_ATS_ALIAS_DIR=/alias
+      - VLLM_EXL3_ATS_ALIAS_LAYERS=38,39
+      - VLLM_EXL3_ATS_ALIAS_MTP=1
+      - VLLM_EXL3_ATS_ALIAS_EMBED=1
+      - VLLM_EXL3_ATS_PREFETCH=1
+      - VLLM_DS41_ROPE_TRIM=1
+      - VLLM_DS41_MARKOV_NVFP4=1
+      - VLLM_DS41_L2_PREFETCH=0
+      - VLLM_MEMORY_PROFILER_ESTIMATE_CUDAGRAPHS=1
+      - VLLM_USE_BREAKABLE_CUDAGRAPH=0
+      - DSV41_MEM_PROBE=1
+      # The shim's tool-call repairs: end a tool-call reply at the first
+      # closing tag after a DSML invoke, and strip junk closing-tag runs from
+      # a parameter whose closer is missing.
+      - DSV41_DSML_STOP=1
+      - DSV41_DSML_PARAM_REPAIR=1
+      - VLLM_EXL3_MEM_WATERFALL=0
+      - VLLM_EXL3_MEM_WATERFALL_PATH=
+      - MAXLEN=524288
+    # serve_inner.sh's invocation.
+    command:
+      - vllm
+      - serve
+      - /models/dsv41-derisked-1.61bpw
+      # The Hub's model id (his SERVED_MODEL_NAME, "for a front end that
+      # requires its own id").
+      - --served-model-name
+      - deepseek-v4.1-flash-1017-derisked
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --tokenizer-mode
+      - deepseek_v41
+      - --dtype
+      - bfloat16
+      - --tensor-parallel-size
+      - "1"
+      - --distributed-executor-backend
+      - uni
+      - --quantization
+      - exl3_dsv41
+      - --block-size
+      - "256"
+      # A request that repeats a cached prefix (follow-up turns, new questions
+      # on one document) skips its prefill.
+      - --enable-prefix-caching
+      - --enable-chunked-prefill
+      - --max-model-len
+      - "524288"
+      - --max-num-seqs
+      - "1"
+      - --max-parallel-prefills
+      - "1"
+      - --max-num-batched-tokens
+      - "2112"
+      - --gpu-memory-utilization
+      - "0.90"
+      - --kv-cache-memory-bytes
+      - "1073741824"
+      - --generation-config
+      - vllm
+      # His request defaults, for clients that send none (a client's own value
+      # wins): replies capped at 32,768 tokens, temperature 0.6, top_p 0.95.
+      - --override-generation-config
+      - '{"max_new_tokens": 32768, "temperature": 0.6, "top_p": 0.95}'
+      - --engram-config
+      - '{"table_memory":"disk","disk_resident_scales":false,"projection_tp":true}'
+      - --attention-backend
+      - tilelang
+      - --linear-backend
+      - tilelang
+      - --moe-backend
+      - tilelang
+      - --jit-monitor-mode
+      - warn
+      - --compilation-config
+      - '{"cudagraph_mode":"FULL_DECODE_ONLY","custom_ops":["all"],"cudagraph_capture_sizes":[1,2,3,4,5,6,7]}'
+      - --max-cudagraph-capture-size
+      - "7"
+      - --speculative-config
+      - '{"method":"dspark","num_speculative_tokens":5,"draft_tensor_parallel_size":1,"attention_backend":"tilelang","draft_sample_method":"greedy","rejection_sample_method":"block","enable_adaptive_verification":true,"adaptive_verification_row_cost":0.01}'
+      - --reasoning-parser
+      - deepseek_v41
+      - --tool-call-parser
+      - deepseek_v41
+      - --enable-auto-tool-choice
+      - --long-prefill-token-threshold
+      - "2047"
+      - --async-scheduling
+      - --no-scheduler-reserve-full-isl
+      - --no-enable-flashinfer-autotune
+      - --language-model-only
+      - --mm-processor-cache-gb
+      - "0"
+      - --hf-overrides
+      - '{"quantization_config":{"quant_method":"exl3","bits":2,"codebook":"mcg","scope":"deepseek_v41_routed_experts","non_routed_quantization":{"quant_method":"deepseek_v41_fp8","weight_block_size":[32,32],"is_checkpoint_fp8_serialized":true,"activation_scheme":"dynamic"},"mtp_experts":"exl3"}}'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # NOT unless-stopped: the server holds ~110 GiB of unified memory, so a
+    # boot that dies must stop after one failure rather than loop.
+    restart: on-failure:1
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

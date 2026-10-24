@@ -40,6 +40,10 @@ const BUILD_TOKENS = new Set([
   // memory-mapped rather than resident. Same checkpoint lineage, same decode
   // path — a build of the model, not another model.
   'mmap',
+  // vcruz305's EXL3 packs of DeepSeek-V4.1-Flash-1017: SAGE is the quantizer,
+  // DERISKED its later pack with Blackfrost-AI. Both are quantizations of the
+  // same weights, so both are builds in the DeepSeek-V4.1-Flash-1017 row.
+  'sage', 'derisked',
 ])
 
 // ── Kinds ─────────────────────────────────────────────────────────────

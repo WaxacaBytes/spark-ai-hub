@@ -1,7 +1,7 @@
 name: "DeepSeek-V4.1-Flash-1017"
 slug: vllm-deepseek-v41-flash-1017-sage-exl3
 version: "1.0.0"
-description: "DeepSeek-V4.1-Flash-1017 (DeepSeek, 2026-10-17, MIT): a 552B-backbone MoE with 384 routed experts, top-6, about 16B active while generating, plus Engram n-gram tables. This is vcruz305's SAGE-EXL3 pack, a mixed-precision EXL3 quant at 1.62 bits per weight for the routed experts, with every other linear kept at DeepSeek's native block-32 FP8. Its card measures it against DeepSeek's official FP8/FP4 release, teacher-forced on held-out text: 94.52% top-1 token agreement overall, 99.08% on code, 96.04% on reasoning, 95.56% on math and 89.94% on general text (read 2026-10-20). These are token-agreement figures, not benchmark scores. It runs on one Spark in vcruz305's measured vLLM setup, on Christopher Owen's spark-ds41f engine. The 1,380 least-used experts are read from disk on demand, and the Engram tables stream from disk, so the model reads the NVMe on every step: its first start right after the 361 GB install ran at about half speed (229 ms per decode step against 167) until it was stopped and started again. One request at a time with a 229K-token context. Decoding drafts five tokens a round with DeepSeek's DSpark head, each verified by the model, so output is unchanged. It needs the whole Spark: about 110 GiB of memory, with nothing else running. Text only: tool calling and reasoning work (reasoning arrives in reasoning_content), but images do not."
+description: "DeepSeek-V4.1-Flash-1017 (DeepSeek, 2026-10-17, MIT): a 552B-backbone MoE with 384 routed experts, top-6, about 16B active while generating, plus Engram n-gram tables. This is vcruz305's SAGE-EXL3 pack, a mixed-precision EXL3 quant at 1.62 bits per weight for the routed experts, with every other linear kept at DeepSeek's native block-32 FP8. Its card measures it against DeepSeek's official FP8/FP4 release, teacher-forced on held-out text: 94.52% top-1 token agreement overall, 99.08% on code, 96.04% on reasoning, 95.56% on math and 89.94% on general text (read 2026-10-20). These are token-agreement figures, not benchmark scores. It runs on one Spark on vcruz305's own engine, rebuilt here from his recipe at 63220db: his vLLM-EXL3 and ExLlamaV3 builds with the 2-bit trellis kernel, on his published base image. The 1,380 least-used experts are read from disk on demand, and the Engram tables stream from disk, so the model reads the NVMe on every step. One request at a time with a 524K-token context, answers capped at 32K tokens. Decoding drafts five tokens a round with DeepSeek's DSpark head, each verified by the model, so output is unchanged. It needs the whole Spark: about 110 GiB of memory, with nothing else running, and loads in about 6 minutes. Measured 2026-10-24 through the Hub: 13.1 tokens/s writing, 35.7 editing. Text only: tool calling and reasoning work (reasoning arrives in reasoning_content), but images do not."
 author: "DeepSeek AI"
 source: "community"
 website: "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash-1017"
@@ -42,18 +42,18 @@ active_params_b: 16
 arch: moe
 quantization: "SAGE-EXL3 1.62bpw"
 speculative_method: "dspark"
-context_tokens: 229376
+context_tokens: 524288
 weights_gb: 326.6
 release_date: "2026-10-17"
 requires_hf_token: true
-tokens_per_second: 15.0
-tokens_per_second_editing: 34.4
+tokens_per_second: 13.1
+tokens_per_second_editing: 35.7
 editing_workload: "code-edit"
 benchmarks:
-  prose: 12.38
-  explainer: 16.08
-  code: 17.7
-  code-edit: 34.4
+  prose: 8.38
+  explainer: 18.91
+  code: 17.41
+  code-edit: 35.68
 integration:
   api_url: "<HUB>/v1"
   model_id: "deepseek-v4.1-flash-1017"

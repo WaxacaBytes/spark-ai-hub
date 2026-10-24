@@ -1,0 +1,61 @@
+name: "DeepSeek-V4.1-Flash-1017 DERISKED EXL3"
+slug: vllm-deepseek-v41-flash-1017-derisked-exl3
+version: "1.0.0"
+description: "DeepSeek-V4.1-Flash-1017 in vcruz305 and Blackfrost-AI's DERISKED SAGE-EXL3 1.61 bpw pack. The publisher reports 94.68% assistant-turn top-1 token agreement with DeepSeek's official FP8/FP4 release; those are teacher-forced agreement figures, not benchmark scores. It runs on the same engine as the SAGE pack: vcruz305's own, rebuilt here from his recipe at 63220db (his vLLM-EXL3 and ExLlamaV3 builds with the 2-bit trellis kernel, on his published base image), with cold-expert disk mapping, Engram streaming and DSpark speculation. Text, tools and reasoning; the pack's vision path is not enabled. The 326.6 GB of weights are baked into the image for offline launch. It needs the whole Spark (about 110 GiB, nothing else running), one request at a time with a 524K-token context and answers capped at 32K tokens, and loads in about 6 minutes. Measured 2026-10-24 through the Hub: 16.3 tokens/s writing, 38.2 editing."
+author: "DeepSeek AI"
+source: "community"
+website: "https://huggingface.co/vcruz305/DSV4.1-Flash-1017-DERISKED-EXL3-1.61bpw"
+upstream: "https://github.com/vcruz305/DSV4.1-Flash-1017-EXL3-Spark-recipe"
+category: llm
+tags:
+  - llm
+  - moe
+  - deepseek
+  - deepseek-v41
+  - exl3
+  - trellis
+  - reasoning
+  - agentic
+  - tool-use
+  - long-context
+  - speculative-decoding
+  - dspark
+logo: "/logos/deepseek.png"
+requirements:
+  min_memory_gb: 112
+  recommended_memory_gb: 128
+  disk_gb: 380
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8000
+  proxy: true
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 126
+  gpu: true
+status: experimental
+engine: "vLLM"
+params_b: 552
+active_params_b: 16
+arch: moe
+quantization: "DERISKED SAGE-EXL3 1.61bpw"
+speculative_method: "dspark"
+context_tokens: 524288
+weights_gb: 326.6
+release_date: "2026-10-20"
+requires_hf_token: false
+tokens_per_second: 16.3
+tokens_per_second_editing: 38.2
+editing_workload: "code-edit"
+benchmarks:
+  prose: 13.64
+  explainer: 16.93
+  code: 19.25
+  code-edit: 38.22
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "deepseek-v4.1-flash-1017-derisked"
+  api_key: "<API_KEY>"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"deepseek-v4.1-flash-1017-derisked\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a correct Python function that returns the first n Fibonacci numbers.\"}], \"max_tokens\": 512}'"
