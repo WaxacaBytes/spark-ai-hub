@@ -30,8 +30,9 @@ _health_tasks: dict[str, asyncio.Task] = {}
 # slug -> "launching" | "stopping" | "installing"
 _pending_actions: dict[str, str] = {}
 # Why the last launch of a slug died, in words a user can act on. Set by the
-# health check when a container exits before it ever answers, cleared when the
-# same slug is launched again. slug -> message
+# health check when a container exits before it ever answers, and by a failed
+# install; cleared when the same slug is installed or launched again.
+# slug -> message
 _startup_errors: dict[str, str] = {}
 
 
@@ -144,6 +145,73 @@ def classify_startup_failure(logs: str) -> str | None:
             "against it. Stop any other running app and launch again."
         )
     return None
+
+
+# A registry turning the pull down. BuildKit: "failed to authorize: failed to
+# fetch oauth token: denied: denied"; `compose pull`: "pull access denied",
+# "unauthorized", or a bare "denied" after the manifest URL.
+_REGISTRY_DENIED_RE = re.compile(
+    r"failed to (?:authorize|fetch oauth token)|pull access denied"
+    r"|unauthorized: authentication required|manifests/\S+\": denied",
+    re.I,
+)
+# The registry host an image line names: "load metadata for ghcr.io/x/y",
+# "FROM ghcr.io/x/y", "https://ghcr.io/v2/...". A bare "python:3.12" is
+# Docker Hub and names no host.
+_REGISTRY_HOST_RE = re.compile(
+    r"(?:load metadata for |FROM |https://)([a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d+)?)/", re.I
+)
+_NO_SPACE_RE = re.compile(r"no space left on device", re.I)
+
+
+def _saved_registry_login(host: str) -> bool:
+    """Whether Docker holds a login for `host` -- and so sends it, even for a
+    public image, where a dead one gets the pull refused."""
+    config = Path(os.environ.get("DOCKER_CONFIG", Path.home() / ".docker")) / "config.json"
+    try:
+        data = json.loads(config.read_text())
+    except (OSError, ValueError):
+        return False
+    keys = {host, f"https://{host}"}
+    if host in ("docker.io", "index.docker.io", "registry-1.docker.io"):
+        keys.add("https://index.docker.io/v1/")
+    return any(k in data.get("auths", {}) or k in data.get("credHelpers", {}) for k in keys)
+
+
+def classify_install_failure(lines: list[str]) -> str:
+    """Turn a failed build or pull into one sentence a user can act on.
+
+    Unrecognised failures fall back to Docker's own last error line rather
+    than an invented cause.
+    """
+    for i, line in enumerate(lines):
+        if _REGISTRY_DENIED_RE.search(line):
+            host = "docker.io"
+            for prev in reversed(lines[:i + 1]):
+                m = _REGISTRY_HOST_RE.search(prev)
+                if m:
+                    host = m.group(1).lower()
+                    break
+            if _saved_registry_login(host):
+                return (
+                    f"{host} turned down the login saved on this Spark: it has expired "
+                    f"or been revoked, and Docker sends it even for public images. Run "
+                    f"`docker logout {host}` on the Spark (or log in again with a "
+                    f"current token), then install again."
+                )
+            return (
+                f"{host} would not hand over the image: it is private or no longer "
+                f"there. Log in on the Spark with `docker login {host}` as an account "
+                f"that can read it, then install again."
+            )
+    if any(_NO_SPACE_RE.search(line) for line in lines):
+        return (
+            "The disk filled up during the build. Uninstall an app you are not "
+            "using to free space, then install again."
+        )
+    errors = [ln for ln in lines if re.match(r"(?:failed to solve|error|#\d+ ERROR)", ln, re.I)]
+    tail = errors[-1:] or [ln for ln in lines if ln.strip()][-3:]
+    return f"The build stopped: {' '.join(tail)[:300] if tail else 'no output'}"
 
 
 # How many times a container may be restarted before the launch counts as
@@ -642,15 +710,24 @@ async def install_recipe(slug: str, api_key: str | None = None,
         cmd = _compose_cmd(slug, recipe_dir) + ["pull"]
     yield f"[spark-ai-hub] Running: {' '.join(cmd)}"
     rc = None
+    output: list[str] = []
     # _launch_env() carries the auto-detected HF token, which the build needs
     # to pull gated checkpoints.
     async for text, code in _stream_proc(cmd, str(recipe_dir), env=_launch_env(api_key, hub_url)):
         if text:
+            output.append(text)
             yield text
         if code is not None:
             rc = code
     if rc != 0:
         yield f"[spark-ai-hub] Install failed with exit code {rc}"
+        yield f"[spark-ai-hub] Build cache {await _prune_build_cache()}"
+        yield f"[spark-ai-hub] Pruning orphaned images... {await _prune_orphaned_images()}"
+        # The reason goes on the recipe (the page's banner, the cards) and
+        # last in the log, where the panel is scrolled to.
+        message = classify_install_failure(output)
+        set_startup_error(slug, message)
+        yield f"[spark-ai-hub] {message}"
         return
 
     if build_recipe:

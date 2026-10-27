@@ -234,6 +234,7 @@ function runState(recipe, busy) {
   if (recipe.running && recipe.ready) return { label: 'Running', dot: 'bg-primary' }
   if (recipe.running || recipe.starting) return { label: 'Starting', dot: 'bg-warning animate-pulse' }
   if (recipe.installed) return { label: 'Installed', dot: 'bg-text-dim' }
+  if (recipe.error) return { label: 'Install failed', dot: 'bg-error' }
   return null
 }
 
@@ -314,6 +315,12 @@ function BuildRow({ recipe, variant, v, rank, highlight, onFrontier }) {
   ) : isLora(recipe) && recipe.installed ? (
     // Nothing to launch: renders that ask for it load it into its model.
     <span className="font-label text-[10px] text-text-dim">Installed</span>
+  ) : !recipe.installed && recipe.error ? (
+    // Not a button: the row's link opens the page whose banner says why, and
+    // Install is there again once that is fixed.
+    <span className="block w-full rounded-lg border border-error py-1 text-center font-label text-[10px] font-bold text-error">
+      Failed
+    </span>
   ) : (
     <button
       onClick={(e) => {

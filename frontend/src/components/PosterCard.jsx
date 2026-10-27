@@ -50,7 +50,9 @@ export default function PosterCard({ recipe, highlight = null }) {
         ? { label: 'Starting', dot: 'bg-warning animate-pulse' }
         : recipe.installed
           ? { label: 'Installed', dot: 'bg-text-dim' }
-          : null
+          : recipe.error
+            ? { label: 'Install failed', dot: 'bg-error' }
+            : null
 
   // The facts that actually differentiate one build of a model from another.
   // They are chips rather than a dim run-on line: at 196px a dot-joined line

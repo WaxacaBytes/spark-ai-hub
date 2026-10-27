@@ -137,9 +137,13 @@ function Action({ recipe }) {
   if (!recipe.installed) {
     return (
       <>
-        <span className="font-label text-[12px] text-text-dim">
-          {recipe.weights_gb != null ? `${recipe.weights_gb} GB download` : 'Not installed'}
-        </span>
+        {recipe.error ? (
+          <span className="font-label text-[12px] font-bold text-error">Install failed</span>
+        ) : (
+          <span className="font-label text-[12px] text-text-dim">
+            {recipe.weights_gb != null ? `${recipe.weights_gb} GB download` : 'Not installed'}
+          </span>
+        )}
         <button type="button" onClick={(e) => { stop(e); installRecipe(recipe.slug) }}
           className="cursor-pointer rounded-xl border border-outline bg-transparent px-3.5 py-1.5 font-label text-[12px] font-bold text-text-muted hover:border-primary hover:text-primary">
           Install

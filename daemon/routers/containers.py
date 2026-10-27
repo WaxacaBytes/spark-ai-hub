@@ -53,6 +53,7 @@ async def install(slug: str, request: Request, user: dict = Depends(current_user
 
     set_pending(slug, "installing")
     clear_ready(slug)
+    clear_startup_error(slug)
     _builds[slug] = {"lines": [], "done": False}
 
     async def _run_build():

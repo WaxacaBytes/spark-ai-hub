@@ -391,7 +391,9 @@ function RecipeDetailPage({ slug }) {
           <div className="flex items-start gap-3">
             <span className="text-error text-base leading-6">⚠</span>
             <div className="min-w-0">
-              <div className="text-error text-sm font-semibold font-label">Couldn't start</div>
+              <div className="text-error text-sm font-semibold font-label">
+                {recipe.installed ? "Couldn't start" : "Couldn't install"}
+              </div>
               <div className="text-text-muted text-sm mt-0.5">{recipe.error}</div>
             </div>
           </div>
