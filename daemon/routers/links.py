@@ -36,8 +36,8 @@ async def download(token: str):
     target = await link_service.download_target(token)
     if target is not None:
         name, owner = target
-        path = media_store.find(name)
-        if path is not None and await media_store.can_read(name, owner):
+        path = await media_store.locate(name) if await media_store.can_read(name, owner) else None
+        if path is not None:
             return FileResponse(path, media_type=media_store.MEDIA_TYPES[path.suffix], filename=name,
                                 headers={"Cache-Control": "no-store"})
     return JSONResponse({"detail": "This download link is expired or invalid, or the file "

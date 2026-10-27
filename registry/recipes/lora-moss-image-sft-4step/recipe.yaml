@@ -45,5 +45,5 @@ lora:
 image_defaults:
   steps: 4
   guidance_scale: 1.0
-  notes: "Fast text-to-image: 4 steps, no CFG (guidance 1), strength 1, per its card; above 1024x1024 it recommends 6-8 steps. The default 25-50 steps with CFG gives smudged, overcooked pictures with this LoRA."
+  notes: "Fast text-to-image: 4 steps, no CFG (guidance 1), strength 1, per its card; above 1024x1024 it recommends 6-8 steps. The default 25-50 steps with CFG gives smudged, overcooked pictures with this LoRA. Tested 2026-10-24 against SFT at 50 steps and akhaliq's 3-step draft LoRA (same prompts, seed 7): the only fast option that wrote a chart's 62% / 38% correctly; 7 s a picture against 69 s for SFT; the 3-step saved one second and garbled the numbers, so it was not kept."
   source: "https://huggingface.co/akhaliq/MOSS-Image-SFT-4-steps"

@@ -39,6 +39,8 @@ docker:
   gpu: true
 status: community-verified
 engine: "vLLM"
+# Effort levels its chat template takes (daemon/models/reasoning.py).
+reasoning: "switch"
 params_b: 31
 arch: dense
 quantization: "NVFP4"

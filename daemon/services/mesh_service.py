@@ -23,18 +23,33 @@ Models are stored in the Hub's data dir and served at /meshes/<id>.glb, private
 to the account that made them (media_store). The cut-out picture is kept beside
 each as <id>.png: My files shows it as the model's thumbnail, and the agent
 gets it as the preview.
+
+An agent picks the file format it needs: GLB (the model as made), OBJ (zipped
+with its .mtl and texture), STL (shape only, Z-up as slicers expect) or PLY
+(shape with the texture sampled onto the vertices). Every engine returns a GLB,
+and the others are written from it with trimesh -- the library those engines
+save with themselves -- at /meshes/<id>.obj.zip, .stl and .ply, the first time
+they are asked for. One case asks the model for more: STL has no colour, and a
+model tagged `texture-optional` (Hi3D, Hunyuan3D-2mv) can skip painting and
+return its full-detail shape (Hi3D paints a 200,000-face copy of a
+1,000,000-face mesh), so an STL is built from that, and sooner.
 """
 from __future__ import annotations
 
 import asyncio
 import base64
 import io
+import os
 import re
 import secrets
 import time
+import zipfile
 from dataclasses import dataclass
+from pathlib import Path
 
 import aiohttp
+import numpy as np
+import trimesh
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
 
 from daemon.config import settings
@@ -47,10 +62,15 @@ from daemon.services.registry_service import get_recipes
 MESH_DIR = settings.data_dir / "meshes"
 PUBLIC_PREFIX = "/meshes"
 MESH_NAME_RE = re.compile(r"^([0-9a-f]{32})\.glb$")
+# The other formats, written from the GLB beside it.
+EXPORT_NAME_RE = re.compile(r"^([0-9a-f]{32})\.(obj\.zip|stl|ply)$")
+EXTENSIONS = {"glb": ".glb", "obj": ".obj.zip", "stl": ".stl", "ply": ".ply"}
+FORMAT_OF = {ext.lstrip("."): fmt for fmt, ext in EXTENSIONS.items()}
 
 OPENAI_MESHES_TAG = "openai-meshes"
 MULTI_VIEW_TAG = "multi-view"
 OWN_CUTOUT_TAG = "background-removal"
+TEXTURE_OPTIONAL_TAG = "texture-optional"
 VIEWS = ("left", "back", "right")        # besides the front `image`
 POLL_SECONDS = 3
 JOB_TIMEOUT = 30 * 60
@@ -71,12 +91,14 @@ class Backend:
     summary: str
     multi_view: bool = False
     cuts_out: bool = False                   # removes backgrounds itself
+    texture_optional: bool = False           # takes texture=false: the bare full-detail shape
 
 
 def backends() -> dict[str, Backend]:
     """Every 3D model the catalog offers: recipes tagged `openai-meshes` + `image-to-3d`."""
     return {slug: Backend(slug=slug, summary=recipe.name, multi_view=MULTI_VIEW_TAG in recipe.tags,
-                          cuts_out=OWN_CUTOUT_TAG in recipe.tags)
+                          cuts_out=OWN_CUTOUT_TAG in recipe.tags,
+                          texture_optional=TEXTURE_OPTIONAL_TAG in recipe.tags)
             for slug, recipe in sorted(get_recipes().items())
             if OPENAI_MESHES_TAG in recipe.tags and "image-to-3d" in recipe.tags}
 
@@ -96,7 +118,7 @@ async def list_models() -> list[dict]:
             "name": recipes[slug].name,
             "accepts": ["image-to-3d"] + (["multi-view"] if backend.multi_view else []),
             **({"views": ["front (image)", *VIEWS]} if backend.multi_view else {}),
-            "output": "GLB with textures",
+            "output": "textured GLB; also OBJ, STL or PLY (generate_3d format)",
             "background": ("any: the model cuts the object out itself" if backend.cuts_out
                            else "plain: the Hub cuts it away first"),
             "state": ("ready" if running and is_ready(slug)
@@ -175,8 +197,11 @@ def preview_jpeg_b64(cutout: bytes) -> str:
 
 
 async def generate(*, image: str, seed: int | None, steps: int | None, model: str | None,
-                   views: dict[str, str] | None = None, user: dict | None = None) -> dict:
+                   views: dict[str, str] | None = None, user: dict | None = None,
+                   fmt: str = "glb") -> dict:
     started = time.monotonic()
+    if fmt not in EXTENSIONS:
+        raise ImageError(f"Unknown format {fmt!r}: use one of {', '.join(EXTENSIONS)}.")
     views = {k: v for k, v in (views or {}).items() if v}
     if unknown := set(views) - set(VIEWS):
         raise ImageError(f"Unknown view {', '.join(sorted(unknown))}: views are {', '.join(VIEWS)}.")
@@ -199,6 +224,11 @@ async def generate(*, image: str, seed: int | None, steps: int | None, model: st
                 form.add_field(name, view, filename=f"{name}.png", content_type="image/png")
             form.add_field("seed", str(seed))
             form.add_field("output_format", "glb")
+            # Shape only: skip the paint step where the model can, for its
+            # full-detail mesh.
+            untextured = fmt == "stl" and backend.texture_optional
+            if untextured:
+                form.add_field("texture", "false")
             if steps:
                 form.add_field("num_inference_steps", str(steps))
             async with session.post(base, data=form, headers=headers) as r:
@@ -226,8 +256,58 @@ async def generate(*, image: str, seed: int | None, steps: int | None, model: st
     mesh_id = secrets.token_hex(16)
     (MESH_DIR / f"{mesh_id}.png").write_bytes(cutout)
     (MESH_DIR / f"{mesh_id}.glb").write_bytes(glb)
+    if fmt != "glb":
+        await asyncio.to_thread(export, mesh_id, fmt)
     took = time.monotonic() - started
     await media_store.record(f"{mesh_id}.glb", user and user["id"], backend.slug, took, seed=seed)
     return {"mesh_id": mesh_id, "model": backend.slug, "seed": seed, "steps": steps,
             "views": ["front", *views], "bytes": len(glb), "took_s": round(took, 1),
+            "format": fmt, "textured": not untextured,
             "preview": await asyncio.to_thread(preview_jpeg_b64, cutout)}
+
+
+def export(mesh_id: str, fmt: str) -> Path:
+    """The model <mesh_id> as `fmt`, written from its GLB the first time it is
+    asked for. Blocking: call it in a thread."""
+    glb_path = MESH_DIR / f"{mesh_id}.glb"
+    if fmt == "glb":
+        return glb_path
+    path = MESH_DIR / f"{mesh_id}{EXTENSIONS[fmt]}"
+    if not path.is_file():
+        data = {"obj": _obj_zip, "stl": _stl, "ply": _ply}[fmt](glb_path.read_bytes())
+        partial = path.with_name(f".{path.name}.{secrets.token_hex(4)}")
+        partial.write_bytes(data)
+        os.replace(partial, path)
+    return path
+
+
+def _parts(glb: bytes) -> list:
+    """Each mesh in the GLB with its place in the scene applied."""
+    return list(trimesh.load(io.BytesIO(glb), file_type="glb", force="scene").dump())
+
+
+def _stl(glb: bytes) -> bytes:
+    mesh = trimesh.util.concatenate([trimesh.Trimesh(p.vertices, p.faces, process=False)
+                                     for p in _parts(glb)])
+    # glTF is Y-up; slicers and CAD read STL as Z-up.
+    mesh.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0]))
+    return mesh.export(file_type="stl")
+
+
+def _ply(glb: bytes) -> bytes:
+    parts = _parts(glb)
+    for part in parts:
+        if isinstance(part.visual, trimesh.visual.TextureVisuals):
+            part.visual = part.visual.to_color()     # the texture, sampled at each vertex
+    return trimesh.util.concatenate(parts).export(file_type="ply")
+
+
+def _obj_zip(glb: bytes) -> bytes:
+    obj, files = trimesh.exchange.obj.export_obj(trimesh.Scene(_parts(glb)), include_texture=True,
+                                                 return_texture=True, mtl_name="model.mtl")
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("model.obj", obj)
+        for name, data in files.items():
+            archive.writestr(name, data)
+    return out.getvalue()

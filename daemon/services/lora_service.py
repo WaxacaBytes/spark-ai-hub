@@ -37,7 +37,9 @@ why each LoRA recipe ships its file in its model family's names.
 from __future__ import annotations
 
 import asyncio
+import re
 import secrets
+import time
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -91,17 +93,28 @@ def parts(lora) -> tuple[Recipe, ...]:
     return lora.parts if isinstance(lora, Stack) else (lora,) if lora else ()
 
 
-async def resolve(slugs: list[str]) -> Recipe | Stack | None:
-    """The installed LoRA, or stack of them, that `slugs` name."""
-    slugs = list(dict.fromkeys(s for s in slugs if s))
+async def resolve(slugs: list[str], user: dict | None = None, model: str | None = None) -> Recipe | Stack | None:
+    """The installed LoRA, or stack of them, that `slugs` name. `user`'s own
+    link LoRAs count too, and a Civitai or Hugging Face URL is added as one
+    first (for `model`, when the caller named it)."""
+    from daemon.services import link_lora_service
+    slugs = list(dict.fromkeys(s.strip() for s in slugs if s and s.strip()))
     if not slugs:
         return None
-    have = await installed()
+    have = {**await installed(), **await link_lora_service.mine(user)}
+    for i, s in enumerate(slugs):
+        if s.startswith(("http://", "https://")):
+            try:
+                link = await link_lora_service.add(s, user, model)
+            except link_lora_service.LinkLoraError as exc:
+                raise LoraError(str(exc)) from None
+            have[link.slug] = link
+            slugs[i] = link.slug
     missing = [s for s in slugs if s not in have]
     if missing:
         names = ", ".join(sorted(have)) or "none installed"
         raise LoraError(f"{', '.join(repr(s) for s in missing)} {'is not an installed LoRA' if len(missing) == 1 else 'are not installed LoRAs'}. "
-                        f"Installed LoRAs: {names}.")
+                        f"Installed LoRAs: {names}. A Civitai or Hugging Face LoRA page's URL also works.")
     if len(slugs) == 1:
         return have[slugs[0]]
     stack = Stack(tuple(have[s] for s in slugs))
@@ -129,9 +142,11 @@ async def installed() -> dict[str, Recipe]:
     return {slug: r for slug, r in catalog().items() if slug in have}
 
 
-async def for_base(slug: str) -> list[Recipe]:
-    """The installed LoRAs that load into `slug`."""
-    return [r for r in (await installed()).values() if slug in r.lora.bases]
+async def for_base(slug: str, user: dict | None = None) -> list[Recipe]:
+    """The installed LoRAs that load into `slug`, and `user`'s link LoRAs."""
+    from daemon.services import link_lora_service
+    found = {**await installed(), **await link_lora_service.mine(user)}
+    return [r for r in found.values() if slug in r.lora.bases]
 
 
 def takes_loras(slug: str) -> bool:
@@ -182,6 +197,12 @@ async def _copy_in(container: str, lora: Recipe, source: str | None = None,
     dest = f"{CONTAINER_DIR}/{lora.slug}{suffix}.safetensors"
     if (await _run("docker", "exec", container, "test", "-f", dest))[0] == 0:
         return dest
+    if lora.lora.host_file:
+        await _run("docker", "exec", container, "mkdir", "-p", CONTAINER_DIR)
+        rc, out = await _run("docker", "cp", lora.lora.host_file, f"{container}:{dest}")
+        if rc != 0:
+            raise LoraError(f"Copying {lora.name} into {container} failed: {out[-300:]}")
+        return dest
     images = _parse_compose_images(lora.slug)
     if not images:
         raise LoraError(f"{lora.slug} names no image in its docker-compose.yml.")
@@ -227,7 +248,11 @@ for i in range(0, len(args), 3):
         t = f.get_tensor(key)
         if t.dtype == torch.float32:
             dtype = torch.float32
-        pairs.setdefault(m[1], {})[{"lora_down": "A", "lora_up": "B"}.get(m[2], m[2][-1])] = t
+        # ComfyUI and diffusers files prefix the same layer differently
+        # (diffusion_model. / transformer.); the server reads it either way,
+        # so the parts match on the bare name.
+        name = re.sub(r"^(?:diffusion_model|transformer|base_model\.model)\.", "", m[1])
+        pairs.setdefault(name, {})[{"lora_down": "A", "lora_up": "B"}.get(m[2], m[2][-1])] = t
     layers = {}
     for name, t in pairs.items():
         a, b = t["A"].float(), t["B"].float()
@@ -341,7 +366,49 @@ async def use(slug: str, lora: Recipe | Stack | None, busy) -> None:
                 if special.lora.text_embeddings:
                     request["text_embeddings_path"] = await _copy_in(
                         container, special, special.lora.text_embeddings, suffix=".text-embeddings")
+            since = str(int(time.time()) - 1)
             status, body = await _call(session, "POST", slug, "/v1/set_lora", request)
+            if status == 200 and not isinstance(lora, Stack) and lora.lora.host_file:
+                await _check_coverage(session, slug, container, lora, since)
         if status != 200:
             raise LoraError(f"{slug} refused to switch to {wanted or 'no LoRA'} "
                             f"(HTTP {status}): {str(body)[:400]}")
+
+
+_COVERS = re.compile(r"covers (\d+)/(\d+) LoRA layers")
+
+
+async def _check_coverage(session: aiohttp.ClientSession, slug: str, container: str,
+                          lora: Recipe, since: str) -> None:
+    """A link LoRA SGLang matched to too few of its layers fits another model
+    (or a layout the Hub cannot rewrite): switch it off, delete it, say so.
+    SGLang reports the count in its log when it loads an adapter."""
+    from daemon.services import link_lora_service
+    rc, log = await _run("docker", "logs", "--since", since, container)
+    line = next((l for l in log.splitlines() if f"{lora.slug}.safetensors" in l and _COVERS.search(l)), None)
+    if line is None:
+        return                       # an engine that does not report it
+    matched = int(_COVERS.search(line)[1])
+    wanted = link_lora_service.modules_in(Path(lora.lora.host_file))
+    if wanted and matched >= 0.9 * wanted:
+        return
+    await _call(session, "POST", slug, "/v1/unmerge_lora_weights", {"target": "all"})
+    await _run("docker", "exec", container, "rm", "-f", f"{CONTAINER_DIR}/{lora.slug}.safetensors")
+    await link_lora_service.remove(lora)
+    raise LoraError(f"{lora.name} matched only {matched} of its {wanted} layers in {slug}, so it was made "
+                    "for another model or saved in a layout the Hub cannot read. It was switched off and "
+                    "deleted.")
+
+
+async def forget(name: str) -> None:
+    """A deleted link LoRA: switch it off in any running base that holds it."""
+    slug = "link-" + name[:12]
+    for base in get_recipes().values():
+        container = await get_container_name(base.slug)
+        if not container or (await _run("docker", "exec", container, "test", "-f",
+                                        f"{CONTAINER_DIR}/{slug}.safetensors"))[0] != 0:
+            continue
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120)) as session:
+            if await active(base.slug, session) == slug:
+                await _call(session, "POST", base.slug, "/v1/unmerge_lora_weights", {"target": "all"})
+        await _run("docker", "exec", container, "rm", "-f", f"{CONTAINER_DIR}/{slug}.safetensors")

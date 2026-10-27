@@ -35,6 +35,8 @@ docker:
   gpu: true
 status: community-verified
 engine: "vLLM"
+# Effort levels its chat template takes (daemon/models/reasoning.py).
+reasoning: "muse"
 params_b: 29.6
 arch: dense
 quantization: "BF16"

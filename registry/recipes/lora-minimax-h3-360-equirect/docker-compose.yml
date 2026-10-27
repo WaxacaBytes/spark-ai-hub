@@ -1,0 +1,32 @@
+services:
+  lora:
+    # fal's 360° equirectangular LoRA for MiniMax-H3 (rehan-fal), file B
+    # (h3-360-equirect-lora-v1, the card's recommended one), pinned to
+    # revision d96d19fa. PEFT rank 32 on the attention projections of all 50
+    # DiT blocks plus the two token-refiner blocks, trained by fal's hosted
+    # H3 text-to-video trainer -- the FL2VA weights, which is
+    # sglang-minimax-h3-fp8 here.
+    #
+    # Published in MiniMax-H3's native layer names (diffusion_model.blocks.N.
+    # attn.qkv_proj...), which SGLang loads as a silent no-op, so it is
+    # REKEYED by convert_lora.py beside this file (the converter the other H3
+    # LoRAs use): renames and slices of the raw bytes, nothing recomputed.
+    #
+    # A LoRA recipe holds the adapter and nothing else: the image is the file
+    # under /lora, so installing it adds a few hundred MB and uninstalling it
+    # removes them. Nothing of it runs. When a render asks for it, the Hub
+    # copies the file into a running base model's container and switches it
+    # on there through SGLang's /v1/set_lora (daemon/services/lora_service.py).
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub numpy
+        RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('rehan-fal/minimax-h3-360-equirect-lora', 'h3-360-equirect-lora-v1.safetensors', revision='d96d19fa730cf7e54c09fb329d998b436d98d439', local_dir='/src')"
+        COPY convert_lora.py /tmp/convert_lora.py
+        RUN python3 /tmp/convert_lora.py /src/h3-360-equirect-lora-v1.safetensors \
+              /lora/minimax_h3_360_equirect_diffusers.safetensors
+        FROM scratch
+        COPY --from=weights /lora /lora
+    image: spark-ai-hub/lora-minimax-h3-360-equirect:d96d19fa

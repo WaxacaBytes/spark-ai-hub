@@ -38,6 +38,8 @@ docker:
   gpu: true
 status: experimental
 engine: "vLLM"
+# Effort levels its chat template takes (daemon/models/reasoning.py).
+reasoning: "glm-5.3"
 params_b: 320
 active_params_b: 18
 arch: moe

@@ -12,13 +12,13 @@ from unittest import mock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from daemon import db as db_module
 from daemon.routers import files, links, mcp, uploads
 from daemon.services import (
-    audio_service, decision_service, docker_service, image_service, link_service, media_store, mesh_service,
-    upload_service, video_service, web_service,
+    audio_service, decision_service, docker_service, image_service, link_lora_service, link_service,
+    media_store, mesh_service, upload_service, video_service, web_service,
 )
 
 # Stand-ins for AuthMiddleware's request.state.user. Rows 1-3 exist in the
@@ -114,7 +114,7 @@ class McpProtocolTests(unittest.TestCase):
                                  "list_image_models", "generate_video", "get_video",
                                  "list_video_models", "get_prompt_guide", "generate_3d", "get_3d", "list_3d_models",
                                  "generate_music", "get_music",
-                                 "create_upload", "create_download", "delete_file", "get_file_info",
+                                 "create_upload", "create_download", "delete_file", "delete_lora", "get_file_info",
                                  "start_model", "stop_model", "web_search", "web_fetch",
                                  "decide", "list_decision_models"})
 
@@ -276,6 +276,36 @@ class ImageServiceTests(unittest.TestCase):
         self.assertEqual(found["sglang-flux2-klein-9b"].kinds, {"generate", "edit"})
         self.assertEqual(found["sglang-z-image-turbo"].kinds, {"generate"})
 
+    @staticmethod
+    def _png(card: bool) -> bytes:
+        """Ideogram's blocked card (flat gray, a line of light text across the
+        middle), or a picture that only resembles it (gray, no text)."""
+        img = Image.new("RGB", (1024, 1024), (123, 123, 123))
+        if card:
+            ImageDraw.Draw(img).text((512, 512), "Image blocked by safety filter", fill=(225, 225, 225),
+                                     font=ImageFont.load_default(size=56), anchor="mm")
+        out = io.BytesIO()
+        img.save(out, format="PNG")
+        return out.getvalue()
+
+    def test_the_blocked_card_is_told_from_a_plain_gray_picture(self):
+        self.assertTrue(image_service.is_blocked_card(self._png(card=True)))
+        self.assertFalse(image_service.is_blocked_card(self._png(card=False)))
+
+    def test_a_blocked_card_is_an_error_not_a_file(self):
+        backend = image_service.Backend(slug="ideo", kinds=frozenset({"generate"}), summary="ideo")
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(image_service, "IMAGE_DIR", Path(tmp)), \
+                mock.patch.object(image_service, "pick_backend", mock.AsyncMock(return_value=backend)), \
+                mock.patch.object(image_service, "get_recipes", return_value={"ideo": SimpleNamespace(blocked_card=True)}), \
+                mock.patch.object(image_service.lora_service, "use", mock.AsyncMock()), \
+                mock.patch.object(image_service, "_render", mock.AsyncMock(return_value=self._png(card=True))), \
+                mock.patch.object(image_service.media_store, "record", mock.AsyncMock()) as record:
+            with self.assertRaisesRegex(image_service.ImageError, r"blocked this picture .*\(seed 5\)"):
+                asyncio.run(image_service.run("generate", image_service.Params(prompt="{}", seed=5), [], "ideo"))
+            self.assertEqual(list(Path(tmp).iterdir()), [])
+        record.assert_not_called()
+
     def test_generation_body(self):
         body = image_service.generation_body(
             image_service.Params(prompt="p", aspect_ratio="16:9", steps=4), seed=11)
@@ -314,13 +344,18 @@ class ImageServiceTests(unittest.TestCase):
         self.assertIsNone(image_service.with_defaults(backend, image_service.Params(prompt="p")).steps)
         self.assertIsNone(image_service.recommended(backend))
 
+    def test_moss_custom_dimensions_reach_image_request(self):
+        body = image_service.generation_body(
+            image_service.Params(prompt="high resolution", width=2048, height=2048), 7)
+        self.assertEqual(body["size"], "2048x2048")
+
     def test_recipe_yaml_parses_image_defaults(self):
         from daemon.models.recipe import Recipe
         r = Recipe(name="x", slug="x", image_defaults={"steps": 50, "true_cfg_scale": 4.0})
         self.assertEqual((r.image_defaults.steps, r.image_defaults.true_cfg_scale), (50, 4.0))
 
     def test_edit_size_keeps_aspect_at_one_megapixel(self):
-        self.assertEqual(image_service.edit_size(_png(1920, 1080)), (1360, 768))
+        self.assertEqual(image_service.edit_size(_png(1920, 1080)), (1376, 768))
         self.assertEqual(image_service.edit_size(_png(500, 500)), (1024, 1024))
         w, h = image_service.edit_size(_png(3000, 1000))
         self.assertEqual((w % 16, h % 16), (0, 0))
@@ -657,6 +692,7 @@ class _MediaDirsTest(unittest.TestCase):
             mock.patch.object(audio_service, "AUDIO_DIR", root / "audio"),
             mock.patch.object(audio_service, "UPLOAD_DIR", root / "audio" / "uploads"),
             mock.patch.object(mesh_service, "MESH_DIR", root / "meshes"),
+            mock.patch.object(link_lora_service, "LORA_DIR", root / "loras"),
         ]
         for patch in self.patches:
             patch.start()
@@ -1016,7 +1052,7 @@ class UnifiedVideoEditAndMusicTests(unittest.TestCase):
         self.assertEqual(len(content), 3)
         self.assertTrue(content[1]["image_url"]["url"].startswith("data:image/png;base64,"))
         self.assertEqual((body["modalities"], body["width"], body["height"], body["cfg_scale"],
-                          body["num_inference_steps"]), (["image"], 1360, 768, 4.0, 50))
+                          body["num_inference_steps"]), (["image"], 1376, 768, 4.0, 50))
         gen = image_service.chat_body(image_service.Params(prompt="p", aspect_ratio="16:9"), 5, None, [])
         self.assertEqual((gen["width"], gen["height"]), (1344, 768))
         self.assertNotIn("cfg_scale", gen)

@@ -1,0 +1,50 @@
+name: "Qwen-Image-2.1 Lightning LoRA"
+slug: lora-qwen-image-21-lightning
+version: "1.0.0"
+description: "lightx2v's 4-step Lightning LoRA for Qwen-Image-2.1: DMD distillation of the 40-step model into 4 steps at CFG 1, for text-to-image and editing. Rank 16, attention only. Listed with another Qwen-Image-2.1 LoRA it runs that one in 4 steps too. An add-on, not a model: install it and the Hub's image tools offer it on Qwen-Image-2.1 (generate_image / edit_image with lora). Qwen-Image-2.1's license."
+author: "lightx2v · for Qwen-Image-2.1"
+source: "community"
+website: "https://huggingface.co/lightx2v/Qwen-Image-2.1-Lightning"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/qwen.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - text-to-image
+  - image-edit
+  - qwen
+  - turbo
+  - distilled
+weights_gb: 0.04
+render_seconds: 8
+render_workload: "one 1024x1024 edit or picture, 4 steps, CFG 1, on Qwen-Image-2.1 (the first after loading it: 90 s)"
+requires_hf_token: false
+lora:
+  bases:
+    - sglang-qwen-image-21
+  file: "/lora/qwen-image-21-lightning.safetensors"
+  strength: 1.0
+  alpha: 16
+# The card's settings: 4 steps, CFG 1. Tagged turbo, so in a stack its steps win.
+image_defaults:
+  steps: 4
+  true_cfg_scale: 1.0
+  notes: "4 steps at CFG 1 (the card's settings), for text-to-image and editing. List it with another Qwen-Image-2.1 LoRA to run that one in 4 steps. Tested 2026-10-24 against the 40-step base and Qwen's own 8-step Turbo (same prompts and edits, seed 7): the cleanest of the three on a neon sign's lettering, as detailed as the base on a close-up portrait, the same edits (a red top, a winter scene) as the base; 6-8 s a picture against 38-47 s for the base and 9-12 s for the Turbo. Stacked with the Outpaint LoRA (2026-10-24, seed 7): 12 s against 39 s for Outpaint alone, same fill."
+  source: "https://huggingface.co/lightx2v/Qwen-Image-2.1-Lightning"

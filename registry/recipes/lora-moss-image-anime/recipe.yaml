@@ -1,0 +1,48 @@
+name: "MOSS-Image Anime LoRA"
+slug: lora-moss-image-anime
+version: "1.0.0"
+description: "A seinen-style anime LoRA for MOSS-Image by axiomofmind: adult anime characters in dramatic action, cinematic light, strong silhouettes and dense backgrounds. Trained on MOSS-Image Base; its author found it best on SFT. Rank 16, 2,000 steps. An add-on, not a model: install it and the Hub's image tools offer it on MOSS-Image SFT and Base (generate_image with lora). Apache 2.0."
+author: "axiomofmind · for MOSS-Image"
+source: "community"
+website: "https://huggingface.co/axiomofmind/Moss-image-anime-lora"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/openmoss.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - text-to-image
+  - anime
+  - moss
+weights_gb: 0.07
+render_seconds: 80
+render_workload: "1024x1024, the base model's 50 steps, on MOSS-Image SFT (the first image after loading it: 144 s)"
+requires_hf_token: false
+# Where it loads (the first is the one it was made and measured on), and how.
+lora:
+  bases:
+    - sglang-moss-image-sft
+    - sglang-moss-image-base
+  file: "/lora/moss-image-anime.safetensors"
+  strength: 1.0
+  alpha: 16
+# The card's settings: strength 1.0 on SFT, no trigger; the base model's steps and CFG.
+image_defaults:
+  notes: "Describe adult anime characters in plain words (an adult woman anime character ...), with clothing, action, setting and light. The card found natural wording better than its trigger moss_seinen_style; with the trigger at the start, use strength 0.7. Tested 2026-10-23 on MOSS-Image SFT, 1024x1024, seed 7, three prompts (two from the card, one new) against SFT alone: SFT already draws clean anime; the LoRA gives the seinen look the card describes, with more dramatic camera angles, grittier line work, denser backgrounds and darker, more cinematic light. 80 s per image against 68 s."
+  source: "https://huggingface.co/axiomofmind/Moss-image-anime-lora"

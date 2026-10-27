@@ -1,0 +1,50 @@
+name: "MiniMax-H3 FL2VA 360° Equirect LoRA"
+slug: lora-minimax-h3-360-equirect
+version: "1.0.0"
+description: "A LoRA for MiniMax-H3 that makes 360° video: the whole sphere around the viewer unwrapped into one equirectangular frame -- straight ahead in the centre, directly behind at the left and right edges -- with H3's native sound. Squeeze the 21:9 clip to 2:1, tag it as 360, and it plays as a full sphere in a Quest, DeoVR, Skybox or YouTube 360. fal's B file (the card's recommended one), rank 32, trained 3,500 steps on real 360 footage. An add-on, not a model: install it and the Hub's video tools offer it on its base model (generate_video with lora). MiniMax-H3 Community License."
+author: "rehan-fal (fal) · for MiniMax-H3"
+source: "community"
+website: "https://huggingface.co/rehan-fal/minimax-h3-360-equirect-lora"
+category: video-gen
+categories:
+  - video-gen
+icon: "\U0001F3AC"
+logo: "/logos/minimax.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-09"
+engine: "SGLang"
+tags:
+  - lora
+  - 360-video
+  - equirectangular
+  - vr
+  - text-to-video
+  - video-audio
+  - minimax
+weights_gb: 0.13
+render_seconds: 713
+render_workload: "5 s 21:9 360 clip, stacked with the 8-step Turbo LoRA, on MiniMax-H3 FL2VA FP8"
+requires_hf_token: false
+# Where it loads (the first is the one it was made and measured on), and how.
+lora:
+  bases:
+    - sglang-minimax-h3-fp8
+  file: "/lora/minimax_h3_360_equirect_diffusers.safetensors"
+  strength: 0.75
+  alpha: 32
+# Settings it brings on top of its base model's.
+video_defaults:
+  notes: "360 video from text: start the prompt with the trigger and layout sentence it was trained on, then the scene, describing what is ahead, to the sides, behind and overhead: eqr360 360-degree equirectangular panorama video: the whole sphere around the viewer unwrapped into one frame, straight ahead in the centre, directly behind at the left and right edges which join seamlessly, the horizon running straight across the middle. <scene>. Use aspect_ratio 21:9 and the highest resolution you can afford (the sphere spreads pixels thin); 5 s gives the tightest seam. Strength 0.75 is the card's sweet spot. To play it in a headset, scale the clip to an exact 2:1 frame and add Spherical V2 equirectangular metadata. Tested 2026-10-22 on the card's rainforest prompt, 5 s 21:9, seed 7, both runs with the TaoMate FL2VA speed LoRA (since removed for grain): the base model made an ordinary wide shot (left and right edges correlate 0.62, mean edge difference 58.8); with this LoRA the edges join (correlation 0.96, difference 12.5, pole spread 11.0 against 18.5), the card's own 0.95. Retested 2026-10-24 stacked with the 8-step Turbo LoRA instead (same prompt, seed 7, scored by one script for both pairs): without it an ordinary wide shot (seam correlation 0.66, difference 37.7, pole spread 43.5); with it a wrapped 360 frame (0.92, 14.6, 22.2), in 713 s; the waterfall asked for straight ahead came out faint."
+  source: "https://huggingface.co/rehan-fal/minimax-h3-360-equirect-lora"

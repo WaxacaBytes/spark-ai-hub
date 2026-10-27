@@ -32,6 +32,8 @@ docker:
   gpu: true
 status: community-verified
 engine: "vLLM"
+# Effort levels its chat template takes (daemon/models/reasoning.py).
+reasoning: "gpt-oss"
 params_b: 117
 active_params_b: 5.1
 arch: moe

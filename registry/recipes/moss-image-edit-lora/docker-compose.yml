@@ -1,0 +1,53 @@
+services:
+  moss-edit:
+    # chinoll's MOSS Image Edit LoRA on OpenMOSS's MOSS-Image-SFT, sampled by
+    # the publisher's own code (Chenkin-x/Moss-Image-Edit, pinned) behind
+    # server.py, which keeps the model resident and speaks OpenAI's
+    # images-edit API.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS assets
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('OpenMOSS-Team/MOSS-Image-SFT', revision='fc5de0d56fc910cbca6f6625a70f5f582b26deb1', local_dir='/models/MOSS-Image-SFT', ignore_patterns=['assets/*'], max_workers=8)"
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('chinoll/Moss-Image-Edit', revision='3be9c40037e1b89b17aa85ff6f8ee805872aa558', local_dir='/adapter', allow_patterns=['adapter_config.json','adapter_model.safetensors'])"
+        RUN python3 -c "import tarfile,urllib.request; p='/tmp/source.tar.gz'; urllib.request.urlretrieve('https://github.com/Chenkin-x/Moss-Image-Edit/archive/d735569c936ebbfaf274bee5cbff4297c533d133.tar.gz',p); tarfile.open(p).extractall('/tmp/source'); import shutil; shutil.move('/tmp/source/Moss-Image-Edit-d735569c936ebbfaf274bee5cbff4297c533d133','/moss-edit')"
+        FROM lmsysorg/sglang@sha256:0b3e39704480c423d8a00ca15ebee63154defc62944df2d4b11c594563bab457
+        # The sampler's pinned diffusers commit (its requirements.txt): MOSS-Image's
+        # FLUX.2 VAE needs diffusers >= 0.38, newer than this image's 0.37.
+        RUN pip install --no-cache-dir --no-deps https://github.com/huggingface/diffusers/archive/c943837899b16cbae2f619b8dd4f7bb6f07dd81a.tar.gz
+        COPY --from=assets /models /models
+        COPY --from=assets /adapter /adapter
+        COPY --from=assets /moss-edit /app/moss-edit
+        COPY server.py /app/server.py
+        COPY infer.json /app/infer.json
+        ENV PYTHONPATH=/app/moss-edit
+        # Everything the server imports, so a missing piece fails the build
+        # rather than the first launch.
+        RUN cd /app && python3 -c "import server, infer, moss_edit.sampling, moss_edit.processing"
+    image: spark-ai-hub/moss-image-edit-lora:d735569c
+    container_name: spark-ai-hub-moss-image-edit-lora
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/moss-image-edit-lora/.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+    ipc: host
+    shm_size: 16gb
+    command: ["python3", "-m", "uvicorn", "server:app", "--app-dir", "/app", "--host", "0.0.0.0", "--port", "30000"]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

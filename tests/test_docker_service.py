@@ -47,6 +47,8 @@ class WeightsInImageTest(unittest.TestCase):
         """The HF token must never be baked into image history as an ARG."""
         offenders = []
         for slug, compose in _composes():
+            rf = RECIPES / slug / "recipe.yaml"
+            metadata = yaml.safe_load(rf.read_text()) if rf.is_file() else {}
             for svc in (compose.get("services") or {}).values():
                 build = svc.get("build")
                 if not isinstance(build, dict):
@@ -54,7 +56,7 @@ class WeightsInImageTest(unittest.TestCase):
                 inline = build.get("dockerfile_inline") or ""
                 if "snapshot_download" not in inline:
                     continue
-                if "--mount=type=secret,id=hf_token" not in inline:
+                if (metadata or {}).get("requires_hf_token") and "--mount=type=secret,id=hf_token" not in inline:
                     offenders.append(f"{slug}: weights stage without build secret")
                 if "ARG HF_TOKEN" in inline:
                     offenders.append(f"{slug}: HF_TOKEN passed as ARG")

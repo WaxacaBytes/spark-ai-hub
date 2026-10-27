@@ -1,0 +1,77 @@
+services:
+  iris:
+    # Iris-3B Turbo (speridlabs, Apache 2.0): a 3B pixel-space text-to-image
+    # model -- no VAE, the network paints every pixel -- distilled to 4 steps
+    # with guidance baked in. speridlabs' own iris3b package does the work,
+    # behind a small server (server.py, beside this file) that speaks the
+    # OpenAI images API SGLang Diffusion speaks, so the Hub drives it like its
+    # other image models.
+    #
+    # Why its own code: no engine runs Iris yet (no SGLang, diffusers or
+    # vLLM-Omni support as of 2026-10-21); speridlabs ships a Python package
+    # (src/iris3b), pinned here at commit 13fcf6a4. Installed without its
+    # training-only dependencies (wandb, the Dion optimizer).
+    #
+    # Built locally from this recipe (no published engine image). Torch for
+    # the GB10 comes from the stable SGLang image, used only as a CUDA 13 /
+    # aarch64 PyTorch base, as ltxpipelines-ltx25-bf16 does.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        # The Turbo export (turbo/, 6 GB) and the Qwen3-VL 4B text encoder it
+        # reads, which iris3b loads by repo id, so it goes in the HF cache.
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60 HF_HOME=/hf
+        RUN pip install --no-cache-dir huggingface_hub
+        # A download pinned to a commit writes no refs/main, and offline,
+        # transformers resolves the repo id through refs/main; the ref is
+        # written by hand, pointing at the same pinned commit.
+        RUN python3 -c "from huggingface_hub import snapshot_download as get; get('speridlabs/iris-3b', revision='adc05b909fb05d4276d26aae5a52b36406b2ef26', local_dir='/models/iris-3b', allow_patterns=['turbo/*']); get('Qwen/Qwen3-VL-4B-Instruct', revision='ebb281ec70b05090aa6165b016eac8ec08e71b17')" \
+         && mkdir -p /hf/hub/models--Qwen--Qwen3-VL-4B-Instruct/refs \
+         && printf ebb281ec70b05090aa6165b016eac8ec08e71b17 > /hf/hub/models--Qwen--Qwen3-VL-4B-Instruct/refs/main
+        FROM lmsysorg/sglang:v0.5.22-cu130
+        # GitHub's source archive of the pinned commit (plain HTTPS, no git).
+        RUN pip install --no-cache-dir omegaconf python-multipart \
+         && pip install --no-cache-dir --no-deps "iris-3b @ https://github.com/speridlabs/iris-3b/archive/13fcf6a4f7fcb36561eac3daa5ad30d0b0a1822e.tar.gz"
+        COPY --from=weights /models /models
+        COPY --from=weights /hf /root/.cache/huggingface
+        COPY server.py /opt/iris/server.py
+    image: spark-ai-hub/iris3b-turbo:13fcf6a4
+    container_name: spark-ai-hub-iris3b-turbo
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/iris3b-turbo/.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - IRIS_CHECKPOINT=/models/iris-3b/turbo
+      - IRIS_SERVED_NAME=speridlabs/iris-3b-turbo
+    ipc: host
+    shm_size: 8gb
+    working_dir: /opt/iris
+    command:
+      - python3
+      - -m
+      - uvicorn
+      - server:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "30000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

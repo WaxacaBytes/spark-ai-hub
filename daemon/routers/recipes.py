@@ -5,8 +5,8 @@ from daemon.db import get_db
 from daemon.models.recipe import Recipe
 from daemon.routers import openai_proxy
 from daemon.routers.auth import require_admin
-from daemon.services import favorites_service
-from daemon.services.registry_service import get_recipes, get_recipe, get_recipe_dir
+from daemon.services import favorites_service, proxy_service
+from daemon.services.registry_service import get_recipes, get_recipe, get_recipe_dir, load_recipes
 from daemon.services.docker_service import (
     get_installed_slugs,
     is_recipe_running,
@@ -113,6 +113,17 @@ async def activity():
         if slug in recipes and at and at > last_used.get(slug, ""):
             last_used[slug] = at
     return {"last_used": last_used, "up_since": await up_since()}
+
+
+@router.post("/reload")
+async def reload_registry(admin: dict = Depends(require_admin)):
+    """Read registry/ again, so a recipe added or edited on disk shows up
+    without restarting the daemon (a restart kills renders and builds in
+    flight), and give the front door a /run/ route for any new one."""
+    count = len(load_recipes())
+    openai_proxy.invalidate_upstreams()
+    await proxy_service.ensure_proxy()
+    return {"recipes": count}
 
 
 @router.put("/{slug}/favorite")

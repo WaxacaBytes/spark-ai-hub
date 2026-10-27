@@ -810,6 +810,8 @@ async def update_recipe(slug: str, api_key: str | None = None,
             yield f"[spark-ai-hub] {slug} rebuilt successfully!"
         else:
             yield f"[spark-ai-hub] Rebuild failed with exit code {proc.returncode}"
+            yield f"[spark-ai-hub] Build cache {await _prune_build_cache()}"
+            yield f"[spark-ai-hub] Pruning orphaned images... {await _prune_orphaned_images()}"
         return
 
     # Phase 1: Pull latest images

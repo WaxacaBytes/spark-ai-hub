@@ -1,0 +1,46 @@
+name: "Hi3D v1.0"
+slug: sparc3d-hi3d-v1
+version: "1.0.0"
+description: "Turn one picture of an object into a detailed, textured 3D model (GLB). Hi3D v1.0 (hi3d-official, released 2026-10-23) refines a coarse mesh into high-resolution geometry, conditioned on the picture: it samples sparse latents on the coarse shape, decodes them with a self-pruning sparse VAE and extracts the surface, at an effective grid of 1024 (two passes) by default. Built on Sparc3D and trained on about two million 3D assets, per its card. The coarse mesh comes from Tencent's Hunyuan3D-2mini Turbo, the generator Hi3D's own demo uses. Hi3D makes geometry only, so Hunyuan3D-2's paint and delight models then texture it from the same picture, on a 200,000-face copy that keeps Hi3D's surface detail (Tencent's own 40,000 turns it faceted); texture=false returns the full 1,000,000-face shape untextured. Hi3D Open License 1.0: commercial use is allowed up to 200,000 monthly users or USD 1M monthly revenue (above that a separate license); a commercial product built on it must show \"Powered by Hi3D 1.0\"; its acceptable-use schedule applies. Tested 2026-10-23 through the Hub: a sculpted head came out smooth with fine skin folds where Pixal3D's mesh of the same picture is faceted; it builds whatever the Hub's background cut leaves, so a shadow left on the backdrop becomes a sheet behind the object. With the texture step the same head came out with its eye, nose ring, teeth and lips painted in place. Hunyuan3D-2mini and Hunyuan3D-2 are under Tencent's Hunyuan Community License."
+author: "hi3d-official"
+source: "spark-ai-hub"
+website: "https://huggingface.co/hi3d-official/Hi3Dv1.0"
+upstream: "https://github.com/hi3d-official/Hi3Dv1.0"
+category: 3d-gen
+categories:
+  - 3d-gen
+tags:
+  - openai-meshes
+  - image-to-3d
+  - hi3d
+  # texture=false returns the bare shape (mesh_service: STL at full detail).
+  - texture-optional
+  - sparc3d
+icon: "\U0001F9CA"
+logo: "/logos/hi3d.png"
+requirements:
+  min_memory_gb: 48
+  recommended_memory_gb: 64
+  disk_gb: 40
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP 3D tools call its API. Proxied so
+  # the Hub reaches it at /run/sparc3d-hi3d-v1/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 60
+  gpu: true
+status: experimental
+release_date: "2026-10-23"
+engine: "Hi3D"
+quantization: "FP32/BF16"
+weights_gb: 19.3
+render_seconds: 663
+render_workload: "one 1024x1024 picture, 1024 grid (two passes), 25 steps, painted at 200,000 faces (7.2 MB GLB); untextured 1,000,000 faces took 517 s"
+load_seconds: 54
+requires_hf_token: false

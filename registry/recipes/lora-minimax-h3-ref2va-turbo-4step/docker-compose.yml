@@ -1,0 +1,14 @@
+services:
+  lora:
+    # Pinned Ref2VA 4-step v1.0 BF16 adapter. The image contains the weights;
+    # the Hub copies them into the running base model when selected.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('lightx2v/Minimax-h3-Turbo', 'minimax_h3_ref2v_turbo_4step_v1.0_768p_bf16.safetensors', revision='30f485ed874aa44c8183348ad361c5eabad318da', local_dir='/lora')"
+        FROM scratch
+        COPY --from=weights /lora /lora
+    image: spark-ai-hub/lora-minimax-h3-ref2va-turbo-4step:30f485ed

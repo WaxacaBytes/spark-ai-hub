@@ -44,6 +44,14 @@ async def record(name: str, user_id: int | None, model: str = "",
         await db.close()
 
 
+def master(name: str) -> str:
+    """The recorded file a name stands for: a 3D model's other formats
+    (<id>.stl, .ply, .obj.zip) are its <id>.glb's."""
+    from daemon.services import mesh_service
+    match = mesh_service.EXPORT_NAME_RE.match(name)
+    return f"{match.group(1)}.glb" if match else name
+
+
 async def can_read(name: str, user: dict | None) -> bool:
     if not settings.auth_enabled:
         return True
@@ -51,7 +59,7 @@ async def can_read(name: str, user: dict | None) -> bool:
         return False
     db = await get_db()
     try:
-        row = await (await db.execute("SELECT user_id FROM media WHERE name = ?", (name,))).fetchone()
+        row = await (await db.execute("SELECT user_id FROM media WHERE name = ?", (master(name),))).fetchone()
     finally:
         await db.close()
     return _visible(row["user_id"] if row else None, user)
@@ -60,7 +68,7 @@ async def can_read(name: str, user: dict | None) -> bool:
 def _locations() -> list[tuple[Path, re.Pattern, str, str, bool]]:
     """(folder, name pattern, kind, public prefix, holds uploads) for every store."""
     # Imported here: image_service checks ownership through this module.
-    from daemon.services import audio_service, image_service, mesh_service, video_service
+    from daemon.services import audio_service, image_service, link_lora_service, mesh_service, video_service
     return [
         (image_service.IMAGE_DIR, image_service.IMAGE_NAME_RE, "image", image_service.PUBLIC_PREFIX, False),
         (image_service.UPLOAD_DIR, image_service.IMAGE_NAME_RE, "image", image_service.PUBLIC_PREFIX, True),
@@ -69,6 +77,7 @@ def _locations() -> list[tuple[Path, re.Pattern, str, str, bool]]:
         (audio_service.AUDIO_DIR, audio_service.AUDIO_NAME_RE, "audio", audio_service.PUBLIC_PREFIX, False),
         (audio_service.UPLOAD_DIR, audio_service.AUDIO_NAME_RE, "audio", audio_service.PUBLIC_PREFIX, True),
         (mesh_service.MESH_DIR, mesh_service.MESH_NAME_RE, "mesh", mesh_service.PUBLIC_PREFIX, False),
+        (link_lora_service.LORA_DIR, link_lora_service.NAME_RE, "lora", link_lora_service.PUBLIC_PREFIX, False),
     ]
 
 
@@ -95,10 +104,10 @@ def _entry(path: Path, kind: str, prefix: str, upload: bool) -> dict | None:
             "bytes": st.st_size, "created": int(st.st_mtime), "_file": path}
 
 
-def _fill(entry: dict, row) -> None:
+def _fill(entry: dict, row, link_titles: dict[str, str] | None = None) -> None:
     """What the media row adds to a file: its model (and LoRA) as My files
     labels it, the slugs an agent passes back, the time, prompt and seed."""
-    entry.update(_model_fields(row["model"], row["lora"]) if row else _model_fields(""))
+    entry.update(_model_fields(row["model"], row["lora"], link_titles) if row else _model_fields(""))
     entry["slug"] = row["model"] if row else ""
     entry["lora_ids"] = [part for part in (row["lora"] if row else "").split("+") if part]
     entry["seconds"] = round(row["seconds"], 1) if row and row["seconds"] is not None else None
@@ -106,13 +115,26 @@ def _fill(entry: dict, row) -> None:
     entry["seed"] = row["seed"] if row else None
     if entry["kind"] == "mesh":
         entry["rendered"] = render_of(entry["_file"]).is_file()
+    if entry["kind"] == "lora":
+        # A link LoRA (link_lora_service): what to call it, where it came
+        # from (its tile opens that page), the bases it loads into, and the
+        # id an agent passes as `lora`.
+        entry.update(title=row["title"] if row else "", source=row["source"] if row else "",
+                     bases=[b for b in (row["bases"] if row else "").split(",") if b],
+                     lora_id="link-" + entry["name"][:12])
+        if entry["source"]:
+            entry["path"] = entry["source"]
 
+
+# A model or LoRA whose pictures or clips are 360° equirectangular frames.
+SPHERE_TAG = "equirectangular"
 
 MEDIA_TYPES = {".png": "image/png", ".mp4": "video/mp4", ".wav": "audio/wav",
-               ".glb": "model/gltf-binary"}
+               ".glb": "model/gltf-binary", ".stl": "model/stl", ".ply": "application/x-ply",
+               ".zip": "application/zip"}
 # A Hub media URL from any address the Hub is reached on (LAN, Tailscale,
 # tunnel), so a file made through one can be used through another.
-_URL_NAME_RE = re.compile(r"/(?:images|videos|audio|meshes)/([0-9a-f]{32}\.(?:png|mp4|wav|glb))(?:$|[?#])")
+_URL_NAME_RE = re.compile(r"/(?:images|videos|audio|meshes)/([0-9a-f]{32}\.(?:png|mp4|wav|glb|stl|ply|obj\.zip))(?:$|[?#])")
 
 
 def name_in_url(url: str) -> str | None:
@@ -145,10 +167,24 @@ def find(name: str) -> Path | None:
     return None
 
 
+async def locate(name: str) -> Path | None:
+    """find(), and a 3D model's other format (<id>.stl / .ply / .obj.zip),
+    written from its GLB the first time it is asked for (mesh_service.export)."""
+    from daemon.services import mesh_service
+    match = mesh_service.EXPORT_NAME_RE.match(name)
+    if match is None:
+        return find(name)
+    if find(master(name)) is None:
+        return None
+    return await asyncio.to_thread(mesh_service.export, match.group(1),
+                                   mesh_service.FORMAT_OF[match.group(2)])
+
+
 async def _rows() -> dict[str, dict]:
     db = await get_db()
     try:
-        rows = await (await db.execute("SELECT name, user_id, model, seconds, lora, prompt, seed FROM media")).fetchall()
+        rows = await (await db.execute("SELECT name, user_id, model, seconds, lora, prompt, seed, title, source, bases "
+                                       "FROM media")).fetchall()
     finally:
         await db.close()
     return {row["name"]: row for row in rows}
@@ -170,30 +206,44 @@ def build_label(recipe) -> str:
     return " ".join(words)
 
 
-def _model_fields(slug: str, lora: str = "") -> dict:
+def _model_fields(slug: str, lora: str = "", link_titles: dict[str, str] | None = None) -> dict:
     """What the page shows of the file's model: the build it was made with
     (build_label, or the slug when the catalog no longer has the recipe), the
-    LoRA loaded into it, and whether its videos are 360° orbits to drag around."""
+    LoRA loaded into it, whether its videos are 360° orbits to drag around, and
+    whether its pictures and clips are equirectangular, to look around from
+    inside a sphere. A LoRA that no longer exists (its recipe or link LoRA was
+    deleted) stays out of the label and is listed in `removed_loras`, for the
+    file's details."""
     if not slug:
-        return {"model": "", "orbit": False}
+        return {"model": "", "orbit": False, "sphere": False, "removed_loras": []}
     # Imported here: the registry loads the recipes at startup.
     from daemon.services.registry_service import get_recipe
     from daemon.services.video_service import ORBIT_TAG
     recipe = get_recipe(slug)
     # A stack of LoRAs is recorded as their slugs joined by "+".
     adapters = [(part, get_recipe(part)) for part in lora.split("+") if part]
+    link_titles = link_titles or {}
     label = build_label(recipe) if recipe else slug
     base = label.split()
+    removed = []
     for part, adapter in adapters:
         # "MiniMax-H3 Ref2VA Character Swap LoRA" on "MiniMax-H3 Ref2VA INT8 Turbo":
         # the words the base already says are not said twice.
-        name = (adapter.name if adapter else part).split()
+        if adapter:
+            display = adapter.name
+        elif part in link_titles:
+            display = f"LoRA: {link_titles[part]}"
+        else:
+            removed.append(part)
+            continue
+        name = display.split()
         shared = 0
         while shared < min(len(name) - 1, len(base)) and name[shared] == base[shared]:
             shared += 1
         label = f"{label} + {' '.join(name[shared:])}"
-    orbit = any(r is not None and ORBIT_TAG in r.tags for r in (recipe, *(a for _, a in adapters)))
-    return {"model": label, "orbit": orbit}
+    makers = [r for r in (recipe, *(a for _, a in adapters)) if r is not None]
+    return {"model": label, "orbit": any(ORBIT_TAG in r.tags for r in makers),
+            "sphere": any(SPHERE_TAG in r.tags for r in makers), "removed_loras": removed}
 
 
 def _visible(owner: int | None, user: dict | None) -> bool:
@@ -208,11 +258,16 @@ def _visible(owner: int | None, user: dict | None) -> bool:
 async def list_files(user: dict | None) -> list[dict]:
     """`user`'s own files, newest first."""
     entries, rows = await asyncio.to_thread(_entries), await _rows()
+    # Link LoRAs are personal media rows, not catalog recipes. Use the owner's
+    # saved title when an image names one, instead of exposing only link-<id>.
+    link_titles = {"link-" + row["name"][:12]: row["title"] for row in rows.values()
+                   if row["name"].endswith(".safetensors") and row["title"]
+                   and _visible(row["user_id"], user)}
     files = []
     for entry in entries:
         row = rows.get(entry["name"])
         if _visible(row["user_id"] if row else None, user):
-            _fill(entry, row)
+            _fill(entry, row, link_titles)
             files.append(entry)
     shapes = await asyncio.gather(*(asyncio.to_thread(_shape, f.pop("_file"), f["bytes"]) for f in files))
     for entry, shape in zip(files, shapes):
@@ -229,12 +284,18 @@ async def describe(name: str) -> dict | None:
     else:
         return None
     db = await get_db()
+    link_titles = {}
     try:
-        row = await (await db.execute("SELECT name, user_id, model, seconds, lora, prompt, seed "
+        row = await (await db.execute("SELECT name, user_id, model, seconds, lora, prompt, seed, title, source, bases "
                                       "FROM media WHERE name = ?", (name,))).fetchone()
+        if row and any(part.startswith("link-") for part in row["lora"].split("+")):
+            linked = await (await db.execute(
+                "SELECT name, title FROM media WHERE user_id = ? AND name LIKE '%.safetensors'",
+                (row["user_id"],))).fetchall()
+            link_titles = {"link-" + item["name"][:12]: item["title"] for item in linked if item["title"]}
     finally:
         await db.close()
-    _fill(entry, row)
+    _fill(entry, row, link_titles)
     entry.update(await asyncio.to_thread(_shape, entry.pop("_file"), entry["bytes"]))
     return entry
 
@@ -290,10 +351,15 @@ async def delete(name: str, user: dict | None) -> bool:
     path = find(name)
     if path is None or not await can_read(name, user):
         return False
+    if path.suffix == ".safetensors":           # a link LoRA: off in any base holding it
+        from daemon.services import lora_service
+        await lora_service.forget(name)
     path.unlink(missing_ok=True)
-    if path.suffix == ".glb":                   # its cut-out and its render
+    if path.suffix == ".glb":                   # its cut-out, its render and its other formats
         path.with_suffix(".png").unlink(missing_ok=True)
         render_of(path).unlink(missing_ok=True)
+        for other in (".stl", ".ply", ".obj.zip"):
+            path.with_name(path.stem + other).unlink(missing_ok=True)
     db = await get_db()
     try:
         await db.execute("DELETE FROM media WHERE name = ?", (name,))

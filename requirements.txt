@@ -9,3 +9,5 @@ Pillow
 pillow-heif
 markdownify
 beautifulsoup4
+numpy
+trimesh==5.1.1

@@ -40,6 +40,22 @@ class SahCliTests(unittest.TestCase):
             ["text", "image"],
         )
 
+    def test_model_efforts_reach_codex_droid_and_opencode(self):
+        model = self.sah.Model({"id": "q", "reasoning": {
+            "efforts": ["none", "low", "medium", "xhigh"], "default": "xhigh"}})
+        self.assertEqual([lvl["effort"] for lvl in self.sah.codex_levels(model)],
+                         ["none", "low", "medium", "xhigh"])
+        self.assertEqual(model.default_effort_in(self.sah.CODEX_EFFORTS), "xhigh")
+        # Droid has no xhigh: its nearest word.
+        self.assertEqual(model.default_effort_in(self.sah.DROID_EFFORTS), "high")
+        self.assertEqual(self.sah.OpenCode.entry(model)["variants"]["low"], {"reasoningEffort": "low"})
+
+    def test_a_model_without_efforts_offers_none(self):
+        model = self.sah.Model({"id": "m"})
+        self.assertEqual(self.sah.codex_levels(model), [])
+        self.assertIsNone(model.default_effort_in(self.sah.DROID_EFFORTS))
+        self.assertNotIn("variants", self.sah.OpenCode.entry(model))
+
     def test_split_codex_exec_prompt_keeps_options(self):
         exec_args, prompt = self.sah._split_codex_exec_prompt(
             [

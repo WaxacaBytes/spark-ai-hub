@@ -19,7 +19,8 @@ import aiohttp
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from daemon.routers.openai_proxy import _no_model_running, _usage_from, record_call, route
+from daemon.routers.openai_proxy import _apply_effort, _no_model_running, _usage_from, record_call, route
+from daemon.services.registry_service import get_recipes
 from daemon.services import proxy_service
 
 router = APIRouter(tags=["anthropic"])
@@ -73,6 +74,25 @@ def _hoist_system_messages(messages: list[dict]) -> list[dict]:
     return [{"role": "system", "content": "\n\n".join(system_texts)}, *rest]
 
 
+def _effort_of(body: dict) -> str | None:
+    """The effort a Messages request asks for, in OpenAI's words: Claude
+    Code's effort setting (output_config.effort: low ... max) when it sends
+    one, else its thinking block -- disabled, or a token budget sized into a
+    level. None when it asks for nothing, so the model's own default stands."""
+    config = body.get("output_config")
+    if isinstance(config, dict) and isinstance(config.get("effort"), str):
+        return config["effort"]
+    thinking = body.get("thinking")
+    if not isinstance(thinking, dict):
+        return None
+    if thinking.get("type") == "disabled":
+        return "none"
+    budget = thinking.get("budget_tokens")
+    if thinking.get("type") == "enabled" and isinstance(budget, int):
+        return "low" if budget <= 4096 else "medium" if budget <= 16384 else "high"
+    return None
+
+
 def _anthropic_to_openai(body: dict, model: str) -> dict:
     out: dict[str, Any] = {"model": model, "stream": bool(body.get("stream"))}
 
@@ -83,6 +103,8 @@ def _anthropic_to_openai(body: dict, model: str) -> dict:
             out[k] = body[k]
     if stops := body.get("stop_sequences"):
         out["stop"] = stops
+    if (effort := _effort_of(body)) is not None:
+        out["reasoning_effort"] = effort
     if out["stream"]:
         out["stream_options"] = {"include_usage": True}
 
@@ -441,6 +463,10 @@ async def messages(request: Request):
     request.state.recipe = upstream.slug
 
     upstream_payload = _anthropic_to_openai(body, current)
+    # The effort, as the nearest level this model's template takes (or
+    # dropped, for a model with none).
+    if not _apply_effort(upstream_payload, get_recipes().get(upstream.slug)):
+        upstream_payload.pop("reasoning_effort", None)
     url = f"{upstream.base}/chat/completions"
     headers = proxy_service.probe_headers()
 

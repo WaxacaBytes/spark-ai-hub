@@ -39,6 +39,8 @@ docker:
   gpu: true
 status: community-verified
 engine: "vLLM"
+# Effort levels its chat template takes (daemon/models/reasoning.py).
+reasoning: "nemotron-medium"
 params_b: 120
 active_params_b: 12
 arch: moe

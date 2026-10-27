@@ -1,0 +1,47 @@
+name: "MiniMax-H3 Ref2VA Turbo 4-step LoRA"
+slug: lora-minimax-h3-ref2va-turbo-4step
+version: "1.0.0"
+description: "lightx2v's Ref2VA Turbo 4-step v1.0 768p LoRA for MiniMax-H3's reference-conditioned video and audio model. Install it alongside a Ref2VA base model, then select it with generate_video's lora option. Apache 2.0."
+author: "lightx2v · for MiniMax-H3"
+source: "community"
+website: "https://huggingface.co/lightx2v/Minimax-h3-Turbo"
+category: video-gen
+categories:
+  - video-gen
+icon: "\U0001F3AC"
+logo: "/logos/minimax.png"
+requirements:
+  min_memory_gb: 0
+  disk_gb: 3
+  cuda_compute: "12.1"
+ui:
+  type: none
+docker:
+  build: true
+  build_time_minutes: 6
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - turbo
+  - image-to-video
+  - multi-reference
+  - video-audio
+  - minimax
+weights_gb: 1.3
+render_seconds: 487
+render_workload: "5 s 16:9 clip from one reference picture, 1344x768, 5 steps, on MiniMax-H3 Ref2VA FP8"
+requires_hf_token: false
+lora:
+  bases:
+    - sglang-minimax-h3-ref2va-fp8
+    - sglang-minimax-h3-ref2va-singularity-int8
+  file: "/lora/minimax_h3_ref2v_turbo_4step_v1.0_768p_bf16.safetensors"
+  strength: 1.0
+  alpha: 8
+video_defaults:
+  steps: 5
+  notes: "Ref2V 4-step v1.0 768p: 4 transformer evaluations (steps 5 on this server). Supply a reference picture, clip or sound. Keep the Ref2VA base model's flow shift; the publisher's shift 6 recommendation is for FL2V only. Tested 2026-10-23 through the Hub on a red balloon rising over a field, seed 1234: a clean clip in 487 s against 863 s for the 8-step v1.1, with no visible loss (if anything more natural trees)."
+  source: "https://huggingface.co/lightx2v/Minimax-h3-Turbo/discussions/57"

@@ -34,12 +34,28 @@ class LabelTests(unittest.TestCase):
         self.assertEqual(self.fields("h3-ref2va", "charswap")["model"],
                          "MiniMax-H3 Ref2VA INT8 Turbo + Character Swap LoRA")
 
+    def test_a_link_lora_render_names_the_saved_lora(self):
+        with mock.patch("daemon.services.registry_service.get_recipe", RECIPES.get):
+            fields = media_store._model_fields(
+                "h3-ref2va", "link-abcdef012345",
+                {"link-abcdef012345": "Retro sci-fi style"},
+            )
+        self.assertEqual(fields["model"], "MiniMax-H3 Ref2VA INT8 Turbo + LoRA: Retro sci-fi style")
+
     def test_an_orbit_lora_makes_the_file_an_orbit(self):
         self.assertTrue(self.fields("h3-fl2va", "orbit")["orbit"])
         self.assertFalse(self.fields("h3-fl2va")["orbit"])
 
     def test_a_removed_recipe_still_shows_its_slug(self):
         self.assertEqual(self.fields("gone", "charswap")["model"], "gone + MiniMax-H3 Character Swap LoRA")
+
+    def test_a_removed_lora_leaves_the_label_for_the_details(self):
+        fields = self.fields("h3-ref2va", "charswap+lora-gone")
+        self.assertEqual(fields["model"], "MiniMax-H3 Ref2VA INT8 Turbo + Character Swap LoRA")
+        self.assertEqual(fields["removed_loras"], ["lora-gone"])
+
+    def test_a_deleted_link_lora_is_a_removed_lora(self):
+        self.assertEqual(self.fields("h3-ref2va", "link-abcdef012345")["removed_loras"], ["link-abcdef012345"])
 
 
 if __name__ == "__main__":

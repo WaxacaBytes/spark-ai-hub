@@ -1,0 +1,47 @@
+name: "MOSS-Image NSFW Uncensored LoRA"
+slug: lora-moss-image-nsfw
+version: "1.0.0"
+description: "An adult-content LoRA for MOSS-Image SFT by axiomofmind: explicit adult photographic portraiture, nude poses, indoor scenes and close compositions, which the stock model does not draw. Rank 16; the card's preferred strength is 0.7 on SFT. Adults only, where such content is lawful; never minors, real people without consent, or non-consensual acts. An add-on, not a model: install it and the Hub's image tools offer it on MOSS-Image SFT and Base (generate_image with lora). Apache 2.0."
+author: "axiomofmind · for MOSS-Image"
+source: "community"
+website: "https://huggingface.co/axiomofmind/Moss-image-nsfw-uncensored-lora"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/openmoss.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - text-to-image
+  - nsfw
+  - uncensored
+  - moss
+weights_gb: 0.07
+requires_hf_token: false
+# Where it loads (the first is the one it was made and measured on), and how.
+lora:
+  bases:
+    - sglang-moss-image-sft
+    - sglang-moss-image-base
+  file: "/lora/moss-image-nsfw-uncensored.safetensors"
+  strength: 0.7
+  alpha: 16
+# The card's settings: strength 0.7 on SFT; the base model's steps and CFG.
+image_defaults:
+  notes: "Adult photography: start the prompt with the trigger moss_xvstyle, then describe an adult subject, pose, setting and light as a photograph. Strength 0.7 is the card's preferred scale on SFT. Adults only; never minors, real people without their consent, or non-consensual acts. Checked 2026-10-21 only with a non-explicit prompt (seed 7), where it looks much like the base model; its purpose, explicit adult imagery, was not tested by the Hub."
+  source: "https://huggingface.co/axiomofmind/Moss-image-nsfw-uncensored-lora"

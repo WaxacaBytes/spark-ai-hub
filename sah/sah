@@ -333,6 +333,17 @@ def resolved_api_base() -> str:
 # ------------------------------------------------------------------- the model
 
 
+# The Hub's effort scale (daemon/models/reasoning.py), least thinking first.
+EFFORT_SCALE = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
+# Codex's catalog takes every word of the scale (its ReasoningEffort enum).
+CODEX_EFFORTS = EFFORT_SCALE
+DROID_EFFORTS = ("none", "low", "medium", "high")
+
+
+def codex_levels(model: "Model") -> list[dict]:
+    return [{"effort": e, "description": f"{e} reasoning"} for e in model.efforts_in(CODEX_EFFORTS)]
+
+
 class Model:
     """The model sah points agents at — the biggest one the Hub is serving,
     sah's equivalent of Ollama's LaunchModel, built from one `/v1/models` entry.
@@ -360,6 +371,14 @@ class Model:
             self.context_length = 0
         caps = info.get("capabilities")
         self.capabilities: tuple[str, ...] = tuple(caps) if isinstance(caps, list) else ()
+        # The effort levels the Hub says this model's template takes, least
+        # thinking first, and the one it uses when asked for none. The Hub
+        # maps any effort word to the nearest of these, so a client can only
+        # be wrong about which levels are worth offering, never fail on one.
+        effort = info.get("reasoning")
+        effort = effort if isinstance(effort, dict) else {}
+        self.efforts: list[str] = [e for e in effort.get("efforts") or [] if isinstance(e, str)]
+        self.default_effort: str | None = effort.get("default") if isinstance(effort.get("default"), str) else None
         self.all: list[Model] = [self]
 
     def has(self, capability: str) -> bool:
@@ -373,6 +392,22 @@ class Model:
 
     def input_modalities(self) -> list[str]:
         return ["text", "image"] if self.has("vision") else ["text"]
+
+    def efforts_in(self, words: tuple[str, ...]) -> list[str]:
+        """This model's effort levels that a client can name, in its order."""
+        return [e for e in self.efforts if e in words]
+
+    def default_effort_in(self, words: tuple[str, ...]) -> str | None:
+        """The model's default level in a client's words: itself when the
+        client knows it, else the client's level nearest to it."""
+        if self.default_effort is None:
+            return None
+        if self.default_effort in words:
+            return self.default_effort
+        scale = EFFORT_SCALE
+        want = scale.index(self.default_effort) if self.default_effort in scale else len(scale) - 1
+        known = [w for w in words if w in scale and w != "none"]
+        return min(known, key=lambda w: (abs(scale.index(w) - want), -scale.index(w))) if known else None
 
 
 def describe(model: Model) -> str:
@@ -1039,6 +1074,11 @@ class OpenCode(Integration):
             entry["modalities"] = {"input": model.input_modalities(), "output": ["text"]}
         if model.has("thinking"):
             entry["reasoning"] = True
+        # One variant per effort level the model takes (cycled with OpenCode's
+        # variant_cycle key); @ai-sdk/openai-compatible sends it as
+        # reasoning_effort, which the Hub maps onto the model's template.
+        if model.efforts:
+            entry["variants"] = {e: {"reasoningEffort": e} for e in model.efforts}
         if model.context_length:
             entry["limit"] = {"context": model.context_length, "output": model.max_output()}
         return entry
@@ -1210,7 +1250,8 @@ class Codex(Integration):
             "default_verbosity": "low",
             "supports_parallel_tool_calls": False,
             "supports_reasoning_summaries": False,
-            "supported_reasoning_levels": [],
+            "supported_reasoning_levels": codex_levels(model),
+            "default_reasoning_level": model.default_effort_in(CODEX_EFFORTS),
             "experimental_supported_tools": [],
         }
 
@@ -1946,18 +1987,6 @@ class Muse(Integration):
         self.write_credential()
         return {"XDG_CONFIG_HOME": str(self.config_home())}
 
-    def argv(self, model: Model, extra: list[str]) -> list[str]:
-        args = list(extra)
-        # DIVERGENCE (defect workaround, not preference): Muse defaults
-        # --reasoning-effort to "high", which the Hub's SGLang backend rejects
-        # with 400 ("Supported types are xhigh, medium, low") — and Muse
-        # silently retry-loops on that error instead of reporting it, so the
-        # launch just hangs. "medium" is accepted by every backend the Hub
-        # serves. The user's own flag always wins.
-        if not has_flag(args, "--reasoning-effort"):
-            args += ["--reasoning-effort", "medium"]
-        return args
-
     def extras(self) -> tuple[tuple[str, str], ...]:
         return (("Muse config root", str(self.config_home())),)
 
@@ -2304,8 +2333,11 @@ class Droid(Integration):
         session = settings.get("sessionDefaultSettings")
         session = session if isinstance(session, dict) else {}
         session["model"] = self.model_id(model)
-        if session.get("reasoningEffort") not in ("high", "medium", "low", "none"):
-            session["reasoningEffort"] = "none"
+        # Droid's own effort words. Unset (or unknown), it starts at the
+        # model's own default level; the Hub maps whatever Droid then sends
+        # to the nearest level the model takes.
+        if session.get("reasoningEffort") not in DROID_EFFORTS:
+            session["reasoningEffort"] = model.default_effort_in(DROID_EFFORTS) or "none"
         settings["sessionDefaultSettings"] = session
         write_json(self.config_path(), settings)
 
@@ -2375,8 +2407,8 @@ class ChatGPT(Integration):
             "slug": model.name,
             "display_name": model.name,
             "description": f"Served by {PROVIDER_NAME}",
-            "default_reasoning_level": None,
-            "supported_reasoning_levels": [],
+            "default_reasoning_level": model.default_effort_in(CODEX_EFFORTS),
+            "supported_reasoning_levels": codex_levels(model),
             "shell_type": "default",
             "visibility": "list",
             "supported_in_api": True,

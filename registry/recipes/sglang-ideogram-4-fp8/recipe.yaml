@@ -50,6 +50,11 @@ gated_repos:
 # "Image blocked by safety filter" picture (Ideogram's docs/prompting.md). Agents
 # read the format with get_prompt_guide; the Hub refuses plain text for it.
 prompt_guide: "ideogram-4"
+json_prompt: true
+# Its safety filter is in the weights: it paints a gray "Image blocked" card,
+# on some seeds even for harmless JSON captions (the same caption renders on
+# another seed). The Hub returns an error for the card instead of a file.
+blocked_card: true
 # Ideogram 4 takes a sampler preset instead of steps/guidance. Ideogram's
 # inference docs: "V4_QUALITY_48 is the default. Fewer steps trade quality for
 # speed."

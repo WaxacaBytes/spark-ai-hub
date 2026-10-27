@@ -1,0 +1,49 @@
+name: "MiniMax-H3 Ref2VA Character Swap BFS LoRA"
+slug: lora-minimax-h3-charswap-bfs
+version: "1.0.0"
+description: "A second character-swap LoRA for MiniMax-H3's reference-conditioning (Ref2VA) models, by Alissonerdx (BFS): give it a clip and one picture of a character, and it regenerates the clip with that character -- face, hair, body and clothing -- in place of its main subject, keeping the scene, camera and performance. v1.1, the card's recommended file, an SVD extraction with a rank per layer (4 to 34) tuned for likeness. An add-on, not a model: install it and the Hub's video tools offer it on its base models (generate_video with lora). MiniMax-H3 Community License."
+author: "Alissonerdx · for MiniMax-H3"
+source: "community"
+website: "https://huggingface.co/Alissonerdx/Minimax-H3-ComfyUI"
+category: video-gen
+categories:
+  - video-gen
+icon: "\U0001F3AC"
+logo: "/logos/minimax.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - character-swap
+  - video-edit
+  - video-audio
+  - minimax
+weights_gb: 0.09
+render_seconds: 1844
+render_workload: "new character on a 5 s 1344x768 clip, 9 steps, on MiniMax-H3 Ref2VA INT8 Turbo"
+requires_hf_token: false
+# Where it loads (the first is the one it was made and measured on), and how.
+lora:
+  bases:
+    - sglang-minimax-h3-ref2va-int8-turbo
+    - sglang-minimax-h3-ref2va-fp8
+  file: "/lora/minimax_h3_charswap_bfs_v11_diffusers.safetensors"
+  strength: 1.0
+  alpha: 34
+# Settings it brings on top of its base model's.
+video_defaults:
+  notes: "Character swap: pass the source clip as `video` AND the character picture as `image`, with the card's v1.1 template on one line, replacing {details} with a head-to-toe description of the character that starts with the gender: body_swap: subject_definitions: <Subject 1> is the {details} shown in <Picture 1>, whose identity, face, head, hair or fur, skin, body shape, proportions and clothing define the character in the target video. The guide video provides the scene and the performance: its background, environment, lighting, camera, framing, body pose, hand and arm movement, head rotation, gaze direction, lip movement and facial expression, frame by frame; only the main subject of the guide video is replaced: its face, hair, body and clothing become <Subject 1>.  summary: [video generation + reference] Replace the guide subject with <Subject 1>, keeping the scene, camera and the complete motion and performance of the guide video.  detailed_description: [Shot 1] <Subject 1> takes the exact place of the guide subject and moves with the same timing, body pose, gestures, head motion, gaze, speech and facial expressions, while keeping the complete identity from <Picture 1>: facial structure, hair or fur, skin, body shape and clothing stay stable in every frame. The background, lighting, colors and camera of the guide video are preserved. Prevent identity drift, clothing changes, texture crawling and flicker. If several people appear, say which one to replace. It takes the body and clothing from the picture as well as the face: give it a picture showing the clothes the character should wear (a bare-shouldered headshot comes out unclothed). Tested 2026-10-22 on the Hub's 5 s test clip (woman with dogs) and a bare-shouldered studio portrait, seed 7, on the Ref2VA INT8 Turbo base: the base model alone did not swap anyone; this LoRA gave the closest likeness (short curly hair, face) but dressed her as the portrait (bare) and redrew the dog; Akatz's Character Swap kept her clothes, the dog and the scene but gave her long hair and added bystanders."
+  source: "https://huggingface.co/Alissonerdx/Minimax-H3-ComfyUI"

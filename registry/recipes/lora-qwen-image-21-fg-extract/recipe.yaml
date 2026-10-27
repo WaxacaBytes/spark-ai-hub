@@ -1,0 +1,47 @@
+name: "Qwen-Image-2.1 FG Extract LoRA"
+slug: lora-qwen-image-21-fg-extract
+version: "1.0.0"
+description: "A cut-out LoRA for Qwen-Image-2.1: give it a picture, the same picture with everything but one element dimmed (a rough hint is enough), and the element's name, and it returns that element alone on a transparent background, at the same size and position, copied pixel for pixel. trmz's v4 (the card's recommended file), rank 32, trained on a 4-step distilled Qwen-Image-2.1. An add-on, not a model: install it and the Hub's image tools offer it on Qwen-Image-2.1 (edit_image with lora). Apache 2.0."
+author: "trmz · for Qwen-Image-2.1"
+source: "community"
+website: "https://huggingface.co/trmz/qwen-image-2.1-fg-extract-lora"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/qwen.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - image-edit
+  - rgba
+  - background-removal
+  - qwen
+weights_gb: 0.17
+requires_hf_token: false
+# Where it loads (the first is the one it was made and measured on), and how.
+lora:
+  bases:
+    - sglang-qwen-image-21-turbo
+    - sglang-qwen-image-21
+  file: "/lora/qwen-image-2.1-fg-extract-v4.safetensors"
+  strength: 1.0
+  alpha: 32
+# Trained on a 4-step distilled Qwen-Image-2.1 with CFG off: the Turbo base's own few steps.
+image_defaults:
+  notes: "Cut one element out as a transparent PNG: pass two pictures as `images`, in this order: (1) the picture with everything outside the element darkened to about 20% brightness (a rough box or mask is enough; never a black-and-white mask, it gets copied), (2) the original picture. Ask for the same size as the input, and use the card's v4 prompt with {el} replaced by the element's name: Extract the {el} from Picture 2 and output it alone as an RGBA image with a transparent background. Picture 1 is Picture 2 with everything except the {el} darkened. The bright area is only a rough hint: it can be too small, too big or shifted, so trust this description over the highlight and keep the whole {el}, no more and no less. Copy the {el} pixel for pixel: same position, same size, same colours, including its border, shading and any symbol or text that belongs to it. Do not redraw, restyle, move or resize it. Everything else, including the background and any neighbouring elements, must become fully transparent. The image has alpha channel and the background is transparent. Tested 2026-10-21 on the Turbo base, extracting a brown dog from a 1344x768 photo with a rough box hint, seed 7: the base alone also returned a cut-out but with a hard, invented outline; with the LoRA the fur edges stayed soft and the dog stayed in place."
+  source: "https://huggingface.co/trmz/qwen-image-2.1-fg-extract-lora"

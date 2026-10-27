@@ -1,0 +1,48 @@
+name: "Qwen-Image-2.1 RadianceChrome Voluptuous LoRA"
+slug: lora-qwen-image-21-radiance-chrome
+version: "1.0.0"
+description: "A realism style LoRA for Qwen-Image-2.1 by AIImageStudio: photographic portraits of curvy, full-figured bodies with glossy, high-contrast light. RadianceChromeVoluptuous v1.0, rank 32. An add-on, not a model: install it and the Hub's image tools offer it on Qwen-Image-2.1 (generate_image with lora). Qwen Research License (non-commercial)."
+author: "AIImageStudio · for Qwen-Image-2.1"
+source: "community"
+website: "https://huggingface.co/AIImageStudio/RadianceChromeVoluptuous_QwenImage2.1_v1.0"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/qwen.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - text-to-image
+  - realism
+  - portrait
+  - qwen
+weights_gb: 0.17
+render_seconds: 57
+render_workload: "one 1024x1024 picture, 40 steps, CFG 1, on Qwen-Image-2.1"
+requires_hf_token: false
+# Where it loads (the first is the one it was made and measured on), and how.
+lora:
+  bases:
+    - sglang-qwen-image-21
+  file: "/lora/radiance-chrome-voluptuous-v1.0.safetensors"
+  strength: 1.0
+  alpha: 32
+# The card's settings: strength 1, euler / simple; the base model's steps.
+image_defaults:
+  notes: "Style: no trigger word; describe the person and scene as a photograph. Strength 1 per its card. Tested 2026-10-21 on a prompt (curvy woman in a red dress by a window, golden hour), seed 7: against the base model's own curvy figure, the LoRA gave an hourglass figure, darker moodier light and a more photographic finish."
+  source: "https://huggingface.co/AIImageStudio/RadianceChromeVoluptuous_QwenImage2.1_v1.0"

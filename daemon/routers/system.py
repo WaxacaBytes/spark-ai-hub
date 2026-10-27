@@ -1,10 +1,11 @@
 import asyncio
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from daemon.config import settings
 from daemon.models.container import SystemMetrics
-from daemon.services import hf_token, registry_service
+from daemon.routers.auth import require_admin
+from daemon.services import hf_token, link_lora_service, registry_service
 from daemon.services.connect_service import (
     client_ip,
     compute_connect_info,
@@ -47,8 +48,25 @@ class HFTokenBody(BaseModel):
 
 
 @router.post("/api/system/hf-token")
-async def set_hf_token(body: HFTokenBody):
+async def set_hf_token(body: HFTokenBody, admin: dict = Depends(require_admin)):
+    # One token for the whole Hub, used by every build and download: only an
+    # admin may replace it.
     hf_token.write_token(body.token)
+    return {"status": "saved"}
+
+
+@router.get("/api/system/civitai-key")
+async def get_civitai_key():
+    """Whether the Hub has a Civitai API key (never the key itself)."""
+    return {"has_key": bool(link_lora_service.civitai_key())}
+
+
+@router.post("/api/system/civitai-key")
+async def set_civitai_key(body: HFTokenBody, admin: dict = Depends(require_admin)):
+    """The Hub's one Civitai key, for link LoRAs Civitai only serves to
+    signed-in accounts. Kept on the Spark (data/civitai-key, 0600), sent only
+    to civitai.com, never shown back or to agents."""
+    link_lora_service.write_civitai_key(body.token)
     return {"status": "saved"}
 
 

@@ -145,6 +145,11 @@ ADDED_COLUMNS = [
     ("media", "lora", "TEXT NOT NULL DEFAULT ''"),
     ("media", "prompt", "TEXT NOT NULL DEFAULT ''"),
     ("media", "seed", "INTEGER"),
+    # A link LoRA's row (link_lora_service): its name, the page it came from,
+    # and the bases it loads into (comma-separated slugs).
+    ("media", "title", "TEXT NOT NULL DEFAULT ''"),
+    ("media", "source", "TEXT NOT NULL DEFAULT ''"),
+    ("media", "bases", "TEXT NOT NULL DEFAULT ''"),
     # The recipe that answered a /v1 call. `model` is the id the server
     # reported, which several builds of one model share.
     ("usage_events", "recipe", "TEXT NOT NULL DEFAULT ''"),

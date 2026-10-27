@@ -27,6 +27,7 @@ from fastapi import APIRouter, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from daemon.services import auth_service, favorites_service, proxy_service
+from daemon.models import reasoning
 from daemon.models.recipe import weights_of
 from daemon.services.registry_service import get_recipes
 
@@ -113,6 +114,8 @@ async def _upstream(session: aiohttp.ClientSession, recipe) -> Upstream | None:
         entry["recipe"] = recipe.slug
         entry["favorite"] = favorites_service.is_favorite(recipe.slug)
         entry["weights"] = weights_of(recipe)
+        if effort := reasoning.summary(recipe.reasoning):
+            entry["reasoning"] = effort
     return Upstream(recipe.slug, base, entries[0]["id"], entries) if entries else None
 
 
@@ -331,6 +334,39 @@ _OVER_CONTEXT_RES = (
 )
 
 
+def _apply_effort(body: dict, recipe) -> bool:
+    """Turn the effort a request asks for into the nearest level its model
+    has, written the way that model's chat template reads it (see
+    daemon/models/reasoning.py). Agents send OpenAI's `reasoning_effort` (or
+    `reasoning.effort`) in their own words -- "high" to a template that only
+    knows low/medium/xhigh used to come back as a 400 -- or only switch
+    thinking off. Untouched when the request asks for nothing or the recipe
+    names no style. True when the body changed."""
+    style = getattr(recipe, "reasoning", "") or ""
+    if style not in reasoning.STYLES:
+        return False
+    kwargs = body.get("chat_template_kwargs")
+    kwargs = dict(kwargs) if isinstance(kwargs, dict) else {}
+    effort = body.get("reasoning")
+    asked = body.get("reasoning_effort") or (effort.get("effort") if isinstance(effort, dict) else None)
+    if asked is None and kwargs.get("enable_thinking") is False:
+        asked = "none"
+    level = reasoning.nearest(style, asked) if asked is not None else None
+    if level is None:
+        return False
+    body["chat_template_kwargs"] = {**kwargs, **reasoning.kwargs_for(style, level)}
+    # Engines validate a top-level reasoning_effort against OpenAI's own words
+    # (or, for gpt-oss, read only that); every other template takes it from
+    # chat_template_kwargs above.
+    if style == "gpt-oss":
+        body["reasoning_effort"] = level
+    else:
+        body.pop("reasoning_effort", None)
+    if isinstance(effort, dict):
+        body.pop("reasoning", None)
+    return True
+
+
 def _fit_output(raw_body: bytes, error: bytes) -> bytes | None:
     """`raw_body` with its output ceiling lowered to what the context has left,
     when `error` is vLLM refusing it for that alone; else None."""
@@ -386,6 +422,8 @@ async def proxy(path: str, request: Request):
             body["model"] = model_id
             mutated = True
         if _normalize_pdf_file_parts(body):
+            mutated = True
+        if path.strip("/") in ("chat/completions", "responses") and _apply_effort(body, get_recipes().get(upstream.slug)):
             mutated = True
         # vLLM compat: messages with role="developer" must become "system",
         # and Responses-API "input" items with role="developer" must be

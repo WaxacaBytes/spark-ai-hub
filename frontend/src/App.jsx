@@ -10,6 +10,7 @@ import LaunchConflictModal from './components/LaunchConflictModal'
 import { useAuth } from './auth'
 import Account, { Avatar } from './pages/Account'
 import Users from './pages/Users'
+import Settings from './pages/Settings'
 import Files from './pages/Files'
 import Catalog from './pages/Catalog'
 import Agents, { AgentIcon } from './pages/Agents'
@@ -25,9 +26,10 @@ const NAV_ITEMS = [
   { path: '/about', label: 'About', icon: InfoIcon },
 ]
 
-// Only an admin can reach /users; everything else is open to any active
-// account, so this is the one nav item that is conditional.
-const ADMIN_NAV_ITEM = { path: '/users', label: 'Users', icon: UsersIcon }
+const ADMIN_NAV_ITEMS = [
+  { path: '/users', label: 'Users', icon: UsersIcon },
+  { path: '/settings', label: 'Settings', icon: SettingsIcon },
+]
 
 const PAGE_TITLES = {
   '/': 'Store',
@@ -37,6 +39,7 @@ const PAGE_TITLES = {
   '/about': 'About',
   '/account': 'Account',
   '/users': 'Users',
+  '/settings': 'Hub settings',
   '/files': 'My files',
   '/upload': 'My files',
 }
@@ -85,7 +88,7 @@ export default function App() {
     return () => clearInterval(interval)
   }, [fetchRecipes])
 
-  const navItems = user?.role === 'admin' ? [...NAV_ITEMS, ADMIN_NAV_ITEM] : NAV_ITEMS
+  const navItems = user?.role === 'admin' ? [...NAV_ITEMS, ...ADMIN_NAV_ITEMS] : NAV_ITEMS
   const searchPlaceholder = location.pathname === '/agents' ? 'Search models...'
     : location.pathname === '/library' ? 'Search your library...' : 'Search apps...'
 
@@ -252,7 +255,8 @@ export default function App() {
             <Route path="/system" element={<div className="animate-fadeIn"><System /></div>} />
             <Route path="/about" element={<div className="animate-fadeIn"><About /></div>} />
             <Route path="/account" element={<Account />} />
-            <Route path="/users" element={<Users />} />
+            <Route path="/users" element={user?.role === 'admin' ? <Users /> : <Navigate to="/" replace />} />
+            <Route path="/settings" element={user?.role === 'admin' ? <Settings /> : <Navigate to="/" replace />} />
             <Route path="/files" element={<Files />} />
             <Route path="/upload" element={<Navigate to="/files" replace />} />
             <Route path="/app/:slug" element={<RecipeDetail />} />
@@ -262,7 +266,7 @@ export default function App() {
       </div>
 
       {/* ─── Tab bar (phones) ─── */}
-      <nav className="md:hidden fixed inset-x-0 bottom-0 z-40 flex items-stretch justify-around border-t border-outline-dim bg-sidebar-bg/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
+      <nav className="md:hidden fixed inset-x-0 bottom-0 z-40 flex items-stretch justify-around overflow-x-auto border-t border-outline-dim bg-sidebar-bg/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
         {navItems.map((item) => {
           const isActive = location.pathname === item.path
           const Icon = item.icon
@@ -270,7 +274,7 @@ export default function App() {
             <Link
               key={item.path}
               to={item.path}
-              className={`flex flex-1 min-w-0 flex-col items-center gap-0.5 py-2 no-underline text-[10px] font-label ${
+              className={`flex flex-1 min-w-11 flex-col items-center gap-0.5 py-2 no-underline text-[10px] font-label ${
                 isActive ? 'text-primary' : 'text-text-dim'
               }`}
             >
@@ -282,7 +286,7 @@ export default function App() {
         {user && (
           <Link
             to="/account"
-            className={`flex flex-1 min-w-0 flex-col items-center gap-0.5 py-2 no-underline text-[10px] font-label ${
+            className={`flex flex-1 min-w-11 flex-col items-center gap-0.5 py-2 no-underline text-[10px] font-label ${
               location.pathname === '/account' ? 'text-primary' : 'text-text-dim'
             }`}
           >
@@ -305,6 +309,15 @@ function UsersIcon(props) {
       <circle cx="9" cy="7" r="4" />
       <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  )
+}
+
+function SettingsIcon(props) {
+  return (
+    <svg {...props} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.56V21h-4v-.04A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.6 15 1.7 1.7 0 0 0 3.04 14H3v-4h.04A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.88L4.2 7.06 7.06 4.2l.06.06A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3.04V3h4v.04A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06A1.7 1.7 0 0 0 19.4 9a1.7 1.7 0 0 0 1.56 1H21v4h-.04A1.7 1.7 0 0 0 19.4 15z" />
     </svg>
   )
 }

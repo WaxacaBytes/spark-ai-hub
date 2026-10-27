@@ -37,6 +37,8 @@ docker:
   gpu: true
 status: experimental
 engine: "vLLM"
+# Effort levels its chat template takes (daemon/models/reasoning.py).
+reasoning: "deepseek-v4.1"
 params_b: 552
 active_params_b: 16
 arch: moe

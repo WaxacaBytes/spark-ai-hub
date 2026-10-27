@@ -40,6 +40,8 @@ const BUILD_TOKENS = new Set([
   // memory-mapped rather than resident. Same checkpoint lineage, same decode
   // path — a build of the model, not another model.
   'mmap',
+  // A prepared package for the Spark GPU is another build of the same model.
+  'gb10',
   // vcruz305's EXL3 packs of DeepSeek-V4.1-Flash-1017: SAGE is the quantizer,
   // DERISKED its later pack with Blackfrost-AI. Both are quantizations of the
   // same weights, so both are builds in the DeepSeek-V4.1-Flash-1017 row.
@@ -113,7 +115,7 @@ export function formatDuration(seconds) {
   return `${(seconds / 3600).toFixed(1)} h`
 }
 
-const ENGINE_PREFIX = /^(vllm|vllmomni|sglang|llamacpp|exllamav3|atlas|tensorfold|hy3dgen|ltxpipelines|sol)-/
+const ENGINE_PREFIX = /^(vllm|vllmomni|sglang|llamacpp|exllamav3|atlas|tensorfold|hy3dgen|ltxpipelines|sol|diffusers|flare|fastvideo|sparc3d)-/
 
 function modelKey(recipe) {
   const parts = (recipe.slug || '').replace(ENGINE_PREFIX, '').split('-')

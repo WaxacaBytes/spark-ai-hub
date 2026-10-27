@@ -1,7 +1,7 @@
-name: "MiniMax-H3 Ref2VA Turbo LoRA"
+name: "MiniMax-H3 Ref2VA Turbo 8-step LoRA"
 slug: lora-minimax-h3-ref2va-turbo
-version: "1.0.0"
-description: "lightx2v's Ref2VA Turbo 8-step v1.0 768p LoRA for MiniMax-H3's reference-conditioning (Ref2VA) FP8 model: video with sound from pictures, a clip or a sound in 8 model passes instead of the base model's long schedule, on its own or together with another Ref2VA LoRA (a Turbo plus a face swap). An add-on, not a model: install it and the Hub's video tools offer it on its base model (generate_video with lora). Apache 2.0."
+version: "1.1.0"
+description: "lightx2v's newer Ref2VA Turbo 8-step v1.1 768p LoRA for MiniMax-H3's reference-conditioning model: video with sound from pictures, a clip or a sound in 8 model passes instead of the base model's long schedule, on its own or together with another Ref2VA LoRA. An add-on, not a model: install it and the Hub's video tools offer it on its base model (generate_video with lora). Apache 2.0."
 author: "lightx2v · for MiniMax-H3"
 source: "community"
 website: "https://huggingface.co/lightx2v/Minimax-h3-Turbo"
@@ -33,17 +33,19 @@ tags:
   - video-audio
   - minimax
 weights_gb: 1.3
+render_seconds: 863
+render_workload: "5 s 16:9 clip from one reference picture, 1344x768, 9 steps, on MiniMax-H3 Ref2VA FP8"
 requires_hf_token: false
 # Where it loads (the first is the one it was made and measured on), and how.
 lora:
   bases:
     - sglang-minimax-h3-ref2va-fp8
-  file: "/lora/minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors"
+    - sglang-minimax-h3-ref2va-singularity-int8
+  file: "/lora/minimax_h3_ref2v_turbo_8step_v1.1_768p_bf16.safetensors"
   strength: 1.0
   alpha: 8
 # Settings it brings on top of its base model's.
 video_defaults:
   steps: 9
-  flow_shift: 6.0
-  notes: "Needs a reference (picture, clip or sound), as its base does. lightx2v's 8-step 768p settings as for their FL2VA Turbo: 8 transformer evaluations (steps 9 on this server), video shift 6, audio shift 3. List it with another Ref2VA LoRA (Face Swap, Character Swap, ORB360, CardSpin) to run that one in 8 steps too."
-  source: "https://huggingface.co/lightx2v/Minimax-h3-Turbo"
+  notes: "Needs a reference (picture, clip or sound), as its base does. lightx2v's Ref2V 8-step v1.1 768p adapter uses 8 transformer evaluations (steps 9 on this server). Keep the Ref2VA base model's flow shift: the publisher's shift 6 recommendation applies only to FL2V. List it with another Ref2VA LoRA (Face Swap, Character Swap, ORB360, CardSpin) to run that one in 8 steps too. Tested 2026-10-23 through the Hub on a red balloon rising over a field, seed 1234: a clean clip in 863 s; the Ref2VA 4-step made a clip as clean in 487 s."
+  source: "https://huggingface.co/lightx2v/Minimax-h3-Turbo/discussions/57"

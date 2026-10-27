@@ -121,7 +121,7 @@ async def installed_backends() -> dict[str, Backend]:
     return {slug: b for slug, b in backends().items() if slug in installed}
 
 
-async def list_models() -> list[dict]:
+async def list_models(user: dict | None = None) -> list[dict]:
     recipes = get_recipes()
     out = []
     for slug, backend in (await installed_backends()).items():
@@ -138,16 +138,16 @@ async def list_models() -> list[dict]:
             **media_figures(recipes[slug]),
             **({"recommended": rec} if (rec := recommended(backend)) else {}),
             **({"prompt_guide": True} if recipes[slug].prompt_guide else {}),
-            **({"loras": loras} if (loras := await _loras_of(slug)) else {}),
+            **({"loras": loras} if (loras := await _loras_of(slug, user)) else {}),
         })
     return out
 
 
-async def _loras_of(slug: str) -> list[dict]:
-    """The installed LoRAs a model takes, for list_video_models: what each
+async def _loras_of(slug: str, user: dict | None = None) -> list[dict]:
+    """The installed LoRAs (and `user`'s link LoRAs) a model takes, for list_video_models: what each
     adds, the settings it brings, and how long a render with it took."""
     out = []
-    for lora in await lora_service.for_base(slug):
+    for lora in await lora_service.for_base(slug, user):
         rec = recommended(Backend(slug=lora.slug, kinds=frozenset(), summary=lora.name,
                                   defaults=lora.video_defaults))
         out.append({"lora": lora.slug, "name": lora.name,
@@ -282,6 +282,25 @@ def with_condition(fields: dict, kind: str, raw: bytes, frame_index: int | None 
     return {**fields, "extra_params": extra}
 
 
+_REF_KEYS = {"image": ("image_reference", "image_url"), "video": ("video_reference", "video_url"),
+             "audio": ("audio_reference", "audio_url")}
+
+
+def with_reference_lists(fields: dict, references: list) -> dict:
+    """FastVideo's reference shape: one ordered list per kind, each item a data
+    URL the server materializes itself, and H3's frame count, 17n + 5 at 24 fps
+    (5, 10 and 15 s are 124, 243 and 362 frames)."""
+    out = dict(fields)
+    for kind, raw, _ in references:
+        key, url_key = _REF_KEYS[kind]
+        uri = f"data:{_MIMES[kind]};base64,{base64.b64encode(raw).decode()}"
+        out[key] = [*out.get(key, []), {url_key: uri}]
+    if seconds := out.get("seconds"):
+        fps = out.get("fps") or 24
+        out["num_frames"] = max(22, round((float(seconds) * fps - 5) / 17) * 17 + 5)
+    return out
+
+
 def clip_seconds(fields: dict) -> float | int | None:
     """The clip length a request asks for, however the model takes it."""
     if fields.get("seconds"):
@@ -304,7 +323,7 @@ async def start(*, prompt: str, image: str | None, seconds: int | None,
                 lora: list[str] | None = None, user: dict | None = None) -> dict:
     images = [i for i in (images or []) if i]
     try:
-        adapter = await lora_service.resolve(lora or [])
+        adapter = await lora_service.resolve(lora or [], user, model)
     except lora_service.LoraError as exc:
         raise ImageError(str(exc)) from None
     if images and not image:
@@ -321,6 +340,7 @@ async def start(*, prompt: str, image: str | None, seconds: int | None,
     # An IC-LoRA (LTX-2.5) also takes both: the clip it edits and the first
     # frame that sets the look (Layout-to-Render).
     if image and video and not (takes_conditions_for(backend)
+                                or getattr(backend.defaults, "reference_lists", False)
                                 or (adapter and "ic-lora" in adapter.tags)):
         raise ImageError("Give either a starting image or an input video, not both.")
     if aspect_ratio and aspect_ratio not in backend.aspect_ratios:
@@ -362,7 +382,10 @@ async def start(*, prompt: str, image: str | None, seconds: int | None,
             references.append(("audio", await load_input(audio, session, user, suffix=".wav",
                                                          max_bytes=MAX_AUDIO_INPUT_BYTES), None))
         conditions = takes_conditions(fields)
-        if conditions:
+        if getattr(defaults, "reference_lists", False):
+            fields = with_reference_lists(fields, references)
+            body, kwargs = None, {"json": dict(fields)}
+        elif conditions:
             for kind_, raw, frame_index in references:
                 fields = with_condition(fields, kind_, raw, frame_index)
             # JSON, not multipart. A conditions model carries its references

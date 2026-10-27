@@ -32,6 +32,8 @@ docker:
   gpu: true
 status: community-verified
 engine: "llama.cpp"
+# Effort levels its chat template takes (daemon/models/reasoning.py).
+reasoning: "switch"
 params_b: 30
 active_params_b: 3
 arch: moe

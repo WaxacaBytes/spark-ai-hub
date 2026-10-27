@@ -1,0 +1,70 @@
+name: "Fibo 2.0 Edit Turbo"
+slug: diffusers-fibo2-edit-turbo
+version: "1.0.0"
+description: "Edit images with Fibo 2.0 Edit Turbo, Bria's 8B Fibo 2.0 distilled for editing in 4 steps with no guidance: plain instruction edits, masked edits, and up to 4 reference pictures combined into one result (try-on, product placement, style transfer), keeping identity, layout and light the edit does not touch. Bria reports Fibo 2.0 first among open-weight models for image editing on Artificial Analysis (2026-10-20). Edits only; for text-to-image use Fibo 2.0 Dev. Served by Bria's own diffusers pipeline behind the OpenAI images API; your coding agents reach it through the Hub's image tools (edit_image). CC BY-NC 4.0 (non-commercial; commercial use needs Bria's agreement)."
+author: "Bria AI"
+source: "community"
+website: "https://huggingface.co/briaai/Fibo-2.0-edit-turbo"
+upstream: "https://github.com/huggingface/diffusers/tree/main/src/diffusers/pipelines/bria_fibo2"
+category: image-gen
+categories:
+  - image-gen
+tags:
+  - openai-images
+  - image-edit
+  - multi-image
+  - fibo
+  - diffusion
+  - diffusers
+  - bf16
+icon: "\U0001F5BC️"
+logo: "/logos/bria.png"
+requirements:
+  min_memory_gb: 32
+  recommended_memory_gb: 40
+  disk_gb: 40
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP image tools call its API. Proxied so
+  # the Hub reaches it at /run/diffusers-fibo2-edit-turbo/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 25
+  gpu: true
+status: experimental
+release_date: "2026-10"
+engine: "Diffusers"
+params_b: 8
+arch: dense
+quantization: "BF16"
+weights_gb: 25.5
+render_seconds: 20
+render_workload: "one ~1 MP edit of one picture, 4 steps, guidance 1"
+requires_hf_token: true
+# Bria's access form (non-commercial): the token's account must accept it on the web.
+gated_repos:
+  - "briaai/Fibo-2.0-edit-turbo"
+  - "briaai/Fibo-2.0-dev"
+# Trained on VGL captions; a plain prompt works, a caption gives more control.
+prompt_guide: "fibo-2"
+image_defaults:
+  steps: 4
+  guidance_scale: 1.0
+  notes: "The card's settings: 4 steps, guidance 1 (a negative prompt has no effect). Pass 1 to 4 pictures as `images`, named <image_1>, <image_2> in the prompt in that order. Best as a VGL edit caption with edit_instruction (call get_prompt_guide); a plain instruction such as Replace the jacket with a red leather one also works. Tested 2026-10-22, seed 7: a red leather jacket on a photo (20 s), a straw hat on a portrait (18 s) and a two-picture outfit try-on (29 s), all clean with identity and light kept, as good as Fibo 2.0 Dev's 50-step edits of the same pictures; the try-on zoomed out a little where Dev kept the framing."
+  source: "https://huggingface.co/briaai/Fibo-2.0-edit-turbo"
+# Human-preference Elo as each board published it on the date read (see
+# RecipeArenaScore).
+arena:
+  - board: AA-Image-Editing v2.1
+    task: image-editing
+    elo: 1089
+    entry: Fibo 2.0
+    votes: 4945
+    read: '2026-10-21'
+    url: https://artificialanalysis.ai/image/leaderboard/editing
+    base: true

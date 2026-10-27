@@ -1,0 +1,52 @@
+name: "Qwen-Image-2.1 360 Panorama LoRA"
+slug: lora-qwen-image-21-pano360
+version: "1.0.0"
+description: "A 360 panorama LoRA for Qwen-Image-2.1 edit by Gogodr: give it one to three ordinary photos of a place, taken from one spot while turning the camera, and it returns a full 2:1 equirectangular 360 panorama with the first photo straight ahead, inventing what no photo shows (behind, overhead, below). Trained on 232 real 360 panoramas (CC0 Poly Haven HDRIs), rank 32, 3,000 steps. An add-on, not a model: install it and the Hub's image tools offer it on Qwen-Image-2.1 (edit_image with lora); My files shows the result inside a sphere. Qwen-Image-2.1's license."
+author: "Gogodr · for Qwen-Image-2.1"
+source: "community"
+website: "https://huggingface.co/Gogodr/qwen-image-2.1-edit-pano360-lora"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/qwen.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - image-edit
+  - panorama
+  - equirectangular
+  - 360-image
+  - qwen
+weights_gb: 0.17
+requires_hf_token: false
+render_seconds: 132
+# Where it loads (the first is the one it was made and measured on), and how.
+lora:
+  bases:
+    - sglang-qwen-image-21
+  file: "/lora/pano360_qwen21_edit_v1.safetensors"
+  strength: 1.0
+  alpha: 32
+# The card's workflow: strength 1.0, 25 steps, CFG 1, a 1536x768 canvas.
+image_defaults:
+  steps: 25
+  true_cfg_scale: 1.0
+  # The panorama's own shape, whatever the photos' shape: 2:1 (1536x768).
+  aspect_ratio: "2:1"
+  notes: "360 panorama from photos: pass one to three photos taken from the same spot while turning the camera (the most important first; it becomes the centre, looking straight ahead), the output is 2:1 (1536x768) on its own, and use the card's prompt: Transform this set of images into an equirectangular 360 panorama. Scene: <one sentence of 15-35 words: the place and its main features, then the light, then optionally the mood>. Ordinary roughly level photos, 40-105 degree lenses; whatever no photo shows is invented, and the seam behind the viewer may not wrap perfectly. Trained without other LoRAs. Tested 2026-10-24 on one terrace photo, seed 7, 1536x768: the left and right edges match better than the base without it (luminance correlation 0.87 against 0.70) and it shows more of the surroundings; 132 s against 53 s for the base."
+  source: "https://huggingface.co/Gogodr/qwen-image-2.1-edit-pano360-lora"

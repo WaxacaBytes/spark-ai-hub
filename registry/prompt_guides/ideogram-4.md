@@ -5,7 +5,9 @@ src/ideogram4/magic_prompt_system_prompts/v1.txt (https://github.com/ideogram-os
 Ideogram 4 was trained only on structured JSON captions. A plain-text prompt comes back as a
 gray picture reading "Image blocked by safety filter" far more often than a JSON one; Ideogram
 calls the false-positive rate "high for non-json prompts". Send the caption as the `prompt`
-string: one line of minified JSON, no code fences, no other text.
+string: one line of minified JSON, no code fences, no other text. Even a JSON caption is blocked
+on some seeds; the Hub then returns an error naming the seed instead of the gray picture, and the
+same caption may render on another seed.
 
 ## 1. Three keys, in this order
 

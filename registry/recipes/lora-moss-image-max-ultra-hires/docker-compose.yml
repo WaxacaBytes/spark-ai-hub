@@ -1,0 +1,14 @@
+services:
+  lora:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub numpy
+        COPY convert_loha.py /convert_loha.py
+        RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('comfyanonymous/MOSS_image_MAX_ULTRA_hires_lora_test', 'moss_hires_lora_test_v0.4.safetensors', revision='67841316197079670315d2dc1eaacac6afd4591a', local_dir='/source')"
+        RUN python3 /convert_loha.py /source/moss_hires_lora_test_v0.4.safetensors /lora/moss_hires_v0.4_linear.safetensors
+        FROM scratch
+        COPY --from=weights /lora /lora
+    image: spark-ai-hub/lora-moss-image-max-ultra-hires:67841316

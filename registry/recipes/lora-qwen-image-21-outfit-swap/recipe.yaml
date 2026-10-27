@@ -1,0 +1,50 @@
+name: "Qwen-Image-2.1 Outfit Swap Consistency LoRA"
+slug: lora-qwen-image-21-outfit-swap
+version: "1.0.0"
+description: "An outfit-swap LoRA for Qwen-Image-2.1 by ausboss: give it a person and an outfit, and the swap happens on the person's own frame -- on 16 swaps it never saw, the result sat 0.1 px from the original picture against 3.6 px without it, so face, pose and background stay put. It does not copy the outfit more exactly than the base model does. Rank 32. An add-on, not a model: install it and the Hub's image tools offer it on Qwen-Image-2.1 (edit_image with lora). Qwen-Image-2.1's license."
+author: "ausboss · for Qwen-Image-2.1"
+source: "community"
+website: "https://huggingface.co/ausboss/Qwen-Image-2.1-Outfit-Swap-Consistency-LoRA"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/qwen.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - image-edit
+  - outfit-swap
+  - virtual-try-on
+  - qwen
+weights_gb: 0.17
+render_seconds: 50
+render_workload: "one 1344x768 outfit swap, 25 steps, CFG 1, on Qwen-Image-2.1"
+requires_hf_token: false
+# Where it loads (the first is the one it was made and measured on), and how.
+lora:
+  bases:
+    - sglang-qwen-image-21
+  file: "/lora/qwen-image-2.1-outfit-swap.safetensors"
+  strength: 1.0
+  alpha: 32
+# The card's workflow: strength 1.0, 25 steps, CFG 1.
+image_defaults:
+  steps: 25
+  true_cfg_scale: 1.0
+  notes: "Outfit swap: pass two pictures as `images`, the person first and the outfit second, and ask for the swap, e.g. Dress the person in image 1 in the outfit from image 2. Replace everything they wear. No trigger word. Strength 1.0 (at 0.5 about half of the drift comes back). Tested 2026-10-21 on a photo (woman with dogs, terrace) and a flat-lay outfit (plaid shirt, denim overalls), seed 7: both the base model and the LoRA swapped the outfit without moving the frame, and with the LoRA the untouched background stayed twice as close to the original (mean difference 3.4 against 7.7 on a 0-255 scale)."
+  source: "https://huggingface.co/ausboss/Qwen-Image-2.1-Outfit-Swap-Consistency-LoRA"

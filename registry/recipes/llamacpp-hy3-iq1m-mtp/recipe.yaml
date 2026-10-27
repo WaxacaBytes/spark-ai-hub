@@ -36,6 +36,8 @@ docker:
   gpu: true
 status: community-verified
 engine: "llama.cpp"
+# Effort levels its chat template takes (daemon/models/reasoning.py).
+reasoning: "hy3"
 params_b: 295
 arch: moe
 quantization: "IQ1_M"

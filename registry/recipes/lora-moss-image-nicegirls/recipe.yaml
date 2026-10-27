@@ -1,0 +1,46 @@
+name: "MOSS-Image NiceGirls v2 Realism LoRA"
+slug: lora-moss-image-nicegirls
+version: "1.0.0"
+description: "A realism LoRA for MOSS-Image Base by Danrisi: candid, film-like photographs of young women -- natural skin with pores and sheen, messy hair, grain and real-camera light -- instead of the stock model's polished look. NiceGirls v2, rank 16, 10,000 steps. An add-on, not a model: install it and the Hub's image tools offer it on MOSS-Image Base (generate_image with lora). Apache 2.0."
+author: "Danrisi · for MOSS-Image"
+source: "community"
+website: "https://huggingface.co/Danrisi/nicegirls_v2_moss"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/openmoss.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - text-to-image
+  - realism
+  - portrait
+  - moss
+weights_gb: 0.07
+requires_hf_token: false
+# Where it loads (the first is the one it was made and measured on), and how.
+lora:
+  bases:
+    - sglang-moss-image-base
+  file: "/lora/nicegirls-v2-moss.safetensors"
+  strength: 1.0
+  alpha: 16
+# No settings on its card: strength 1, the base model's steps and CFG.
+image_defaults:
+  notes: "Realistic portraits: no trigger word; write a detailed photographic prompt (film stock, grain, lens, light, skin texture), as in the card's sample. Tested 2026-10-21 on the card's style of prompt (film-grain candid close-up), seed 7: against the base model's smoother skin, the LoRA gave natural skin texture with pores and freckles; the composition stayed the same."
+  source: "https://huggingface.co/Danrisi/nicegirls_v2_moss"

@@ -37,13 +37,19 @@ class PromptGuideTests(unittest.TestCase):
             with self.assertRaises(image_service.ImageError):
                 image_service.prompt_guide("nope")
 
-    def test_a_guided_image_model_refuses_plain_text(self):
-        recipes = {"ideogram": Recipe(name="Ideogram", slug="ideogram", prompt_guide="ideogram-4")}
+    def test_a_json_only_image_model_refuses_plain_text(self):
+        recipes = {"ideogram": Recipe(name="Ideogram", slug="ideogram", prompt_guide="ideogram-4",
+                                      json_prompt=True)}
         with mock.patch.object(image_service, "get_recipes", lambda: recipes):
             with self.assertRaises(image_service.ImageError) as caught:
                 image_service.check_prompt("ideogram", "A lighthouse at dusk")
             self.assertIn("get_prompt_guide", str(caught.exception))
             image_service.check_prompt("ideogram", '{"compositional_deconstruction":{"background":"sea","elements":[]}}')
+
+    def test_a_guide_that_only_recommends_json_takes_plain_text(self):
+        recipes = {"fibo": Recipe(name="Fibo", slug="fibo", prompt_guide="fibo-2")}
+        with mock.patch.object(image_service, "get_recipes", lambda: recipes):
+            image_service.check_prompt("fibo", "A lighthouse at dusk")
 
     def test_an_unguided_model_takes_plain_text(self):
         recipes = {"flux": Recipe(name="FLUX", slug="flux")}

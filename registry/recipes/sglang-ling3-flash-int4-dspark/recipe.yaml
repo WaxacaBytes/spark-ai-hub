@@ -38,6 +38,8 @@ docker:
   gpu: true
 status: community-verified
 engine: "SGLang"
+# Effort levels its chat template takes (daemon/models/reasoning.py).
+reasoning: "switch"
 params_b: 124
 active_params_b: 5.1
 arch: moe

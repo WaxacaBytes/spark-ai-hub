@@ -1,0 +1,46 @@
+name: "MOSS Image Edit LoRA"
+slug: moss-image-edit-lora
+version: "1.0.0"
+description: "chinoll's reference-conditioned MOSS Image Edit LoRA, served with its pinned MOSS-Image-SFT base and the publisher's own sampler. Give edit_image one to four reference pictures and an instruction; the pictures stay visible to the model while it generates. Edits come out at about 0.25 MP (long edge 512), the scale the LoRA was trained at. Weights, sampler and dependencies are baked into one offline image."
+author: "chinoll / Chenkin-x · for OpenMOSS"
+source: "community"
+website: "https://huggingface.co/chinoll/Moss-Image-Edit"
+upstream: "https://github.com/Chenkin-x/Moss-Image-Edit"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/openmoss.png"
+requirements:
+  min_memory_gb: 48
+  recommended_memory_gb: 64
+  disk_gb: 60
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 25
+  gpu: true
+status: experimental
+release_date: "2026-10"
+engine: "MOSS Image Edit"
+tags:
+  - openai-images
+  - image-edit
+  - moss
+  - lora
+  - multi-reference
+weights_gb: 27.6
+render_seconds: 14
+render_workload: "one picture, 512x288 out, 30 steps, warm (the first edit after a start: 128 s)"
+requires_hf_token: false
+image_defaults:
+  steps: 30
+  guidance_scale: 4.0
+  notes: "Use edit_image with one to four reference pictures (images) and a precise instruction, such as 'change the jacket to red; keep the face and background'. The publisher's settings: 30 steps, CFG 4. The output is at most the size the sampler reads the first picture at (long edge 512, about 0.25 MP, its aspect ratio): the LoRA edits faithfully only when output and reference match in scale; tested 2026-10-23, at 1 MP it repainted the person or the scene. A larger requested size is scaled down to that. Through the Hub a hair-colour edit kept the face and framing; a whole-scene edit (summer to winter) changed the season but dropped the person, so it suits local edits best. 14 s per edit once warm."
+  source: "https://github.com/Chenkin-x/Moss-Image-Edit"

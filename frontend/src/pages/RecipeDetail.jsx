@@ -8,7 +8,7 @@ import { hasSecret, maskIn } from '../lib/secret'
 import { useApiKey } from '../hooks/useApiKey'
 import { useAuth } from '../auth'
 import { backdropFor, posterFor } from '../covers'
-import { formatDuration, formatParams, isLora, mediaKind, speedLabel } from '../models'
+import { formatDuration, formatParams, isAgentModel, isLora, mediaKind, speedLabel } from '../models'
 import CoverInfoModal from '../components/CoverInfoModal'
 import YamlEditor from '../components/YamlEditor'
 import { FavBadge } from '../components/FavStar'
@@ -733,7 +733,7 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
             <div className="space-y-4 pt-5 border-t border-outline-dim">
               <div>
                 <div className="text-[11px] uppercase tracking-[0.16em] text-text-dim font-label">API Integration</div>
-                {(recipe.tags?.includes('vllm') || recipe.tags?.includes('sglang') || recipe.tags?.includes('exllamav3') || recipe.tags?.includes('atlas') || recipe.tags?.includes('tensorfold')) && (
+                {isAgentModel(recipe) && (
                   <div className="text-[10px] text-text-muted mt-1">
                     The Hub forwards /v1 to the running model a request names, or to the
                     largest one up, so this address keeps working from wherever you reached
@@ -755,7 +755,7 @@ function AboutTab({ recipe, purging, purgeRecipe, isBuilding }) {
                   />
                 )}
                 <SpeedDetail recipe={recipe} />
-                {(recipe.tags?.includes('vllm') || recipe.tags?.includes('sglang') || recipe.tags?.includes('llama-cpp') || recipe.tags?.includes('exllamav3') || recipe.tags?.includes('atlas') || recipe.tags?.includes('tensorfold')) && (
+                {isAgentModel(recipe) && (
                   <BenchmarkBlock
                     secret={benchKey}
                     value={`python3 - <<'EOF'

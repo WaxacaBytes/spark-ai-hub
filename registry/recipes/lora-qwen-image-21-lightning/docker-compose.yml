@@ -1,0 +1,40 @@
+services:
+  lora:
+    # lightx2v's Lightning LoRA for Qwen-Image-2.1, pinned to revision
+    # 6b0a1176: a 4-step DMD distillation (rank 16, alpha 16, attention
+    # q/k/v/out of all 32 blocks) for text-to-image and editing. It ships in
+    # diffusers' older LoRA names (transformer.….lora.down / .lora.up, FP32);
+    # the build writes them as SGLang reads them (….lora_A / ….lora_B, no
+    # transformer. prefix), in BF16.
+    #
+    # A LoRA recipe holds the adapter and nothing else: the image is the file
+    # under /lora. Nothing of it runs. When a render asks for it, the Hub
+    # copies it into the running Qwen-Image-2.1 server and switches it on
+    # there through SGLang's /v1/set_lora (daemon/services/lora_service.py).
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('lightx2v/Qwen-Image-2.1-Lightning', 'pytorch_lora_weights.safetensors', revision='6b0a1176327c01522a44276c5da67331a025b6fc', local_dir='/src')"
+        RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+         && pip install --no-cache-dir safetensors numpy
+        RUN python3 <<'PY'
+        import os, torch
+        from safetensors import safe_open
+        from safetensors.torch import save_file
+        f = safe_open("/src/pytorch_lora_weights.safetensors", "pt")
+        out = {}
+        for key in f.keys():
+            new = key.removeprefix("transformer.").replace(".lora.down.weight", ".lora_A.weight").replace(".lora.up.weight", ".lora_B.weight")
+            assert new != key.removeprefix("transformer."), key
+            out[new] = f.get_tensor(key).to(torch.bfloat16)
+        assert len(out) == 256
+        os.makedirs("/lora", exist_ok=True)
+        save_file(out, "/lora/qwen-image-21-lightning.safetensors")
+        print(len(out), "tensors")
+        PY
+        FROM scratch
+        COPY --from=weights /lora /lora
+    image: spark-ai-hub/lora-qwen-image-21-lightning:6b0a1176

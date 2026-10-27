@@ -126,6 +126,10 @@ class RecipeImageDefaults(BaseModel):
     # A named sampler preset, for models that derive steps and guidance from it
     # and refuse them set directly (Ideogram 4). When set, steps are not sent.
     preset: str | None = None
+    # The shape to make when the agent names none, for a model or LoRA made for
+    # one (a 360 panorama LoRA: "2:1"). For an edit it replaces the input
+    # picture's shape, which an edit otherwise keeps.
+    aspect_ratio: str | None = None
     notes: str = ""
     source: str = ""
 
@@ -148,6 +152,10 @@ class RecipeVideoDefaults(BaseModel):
     # Also send the chosen aspect_ratio ("16:9"/"9:16") as its own field, for
     # servers that require it alongside width/height (MiniMax-H3 t2va).
     send_aspect_ratio: bool = False
+    # The model takes its references as FastVideo's ordered lists --
+    # image_reference / video_reference / audio_reference, each item a data
+    # URL -- in a JSON body, with H3's 17n+5 frame count (FastH3 Omni).
+    reference_lists: bool = False
     # The shapes and lengths the model renders; the Hub offers every one and
     # refuses the rest before they reach the server. Unset means 16:9 and 9:16,
     # up to 10 s.
@@ -188,6 +196,9 @@ class RecipeLora(BaseModel):
     # A second file the pipeline needs beside the adapter (Lightricks' HDR
     # IC-LoRA ships its own precomputed text embedding).
     text_embeddings: str | None = None
+    # A link LoRA's file on the Hub host (link_lora_service), copied into the
+    # base from there instead of out of a LoRA recipe's image.
+    host_file: str | None = None
 
 
 class RecipeWeights(BaseModel):
@@ -293,6 +304,21 @@ class Recipe(BaseModel):
     # MCP get_prompt_guide tool when they write a prompt for this model, so it
     # costs nothing in every listing.
     prompt_guide: str = ""
+    # The model takes structured JSON captions only (Ideogram 4): the Hub
+    # refuses a plain-text prompt rather than spend minutes on a render the
+    # model answers badly (image_service.check_prompt). A model whose guide
+    # merely recommends a format (Fibo 2.0) leaves this off.
+    json_prompt: bool = False
+    # The model answers some renders with its own gray "Image blocked by
+    # safety filter" picture instead of failing (Ideogram 4), on some seeds even
+    # for harmless prompts. The Hub turns that picture into an error rather
+    # than hand it back as a finished image (image_service.is_blocked_card).
+    blocked_card: bool = False
+    # Which of daemon/models/reasoning.py's styles this LLM's chat template
+    # follows (qwen3.8, switch, gpt-oss, ...): the effort levels /v1/models
+    # lists for it, and how the Hub writes a requested effort for it. Empty
+    # for a model whose template has no effort or thinking control.
+    reasoning: str = ""
     # What actually drafts at serve time, read off the docker-compose command
     # itself (--speculative-config / --speculative-algorithm) rather than the
     # slug or tags — those have been wrong often enough (a slug named "dspark"

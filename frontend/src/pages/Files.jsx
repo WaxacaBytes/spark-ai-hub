@@ -3,6 +3,7 @@ import { copyText } from '../lib/clipboard'
 import { size } from '../lib/size'
 
 const MeshView = lazy(() => import('../components/MeshView'))
+const SphereView = lazy(() => import('../components/SphereView'))
 
 /* My files: the images, videos, 3D models and songs this account made with the Hub's
  * media tools (/mcp), plus the files it uploaded for them to work on.
@@ -21,10 +22,11 @@ const FILTERS = [
   { id: 'video', label: 'Videos', test: (f) => f.kind === 'video' },
   { id: 'mesh', label: '3D', test: (f) => f.kind === 'mesh' },
   { id: 'audio', label: 'Music', test: (f) => f.kind === 'audio' },
+  { id: 'lora', label: 'LoRAs', test: (f) => f.kind === 'lora' },
   { id: 'upload', label: 'Uploads', test: (f) => f.upload },
 ]
 
-const KIND_LABEL = { image: 'Image', video: 'Video', mesh: '3D model', audio: 'Song' }
+const KIND_LABEL = { image: 'Image', video: 'Video', mesh: '3D model', audio: 'Song', lora: 'LoRA' }
 
 export default function Files() {
   const [data, setData] = useState(null)
@@ -124,7 +126,7 @@ export default function Files() {
   const shown = data.files.filter(test)
   const chosen = data.files.filter((f) => selected.has(f.name))
   const allShown = shown.length > 0 && shown.every((f) => selected.has(f.name))
-  const viewable = shown.filter((f) => f.kind !== 'audio')
+  const viewable = shown.filter((f) => f.kind !== 'audio' && f.kind !== 'lora')
   const viewIndex = viewable.findIndex((f) => f.name === viewing)
 
   return (
@@ -183,12 +185,16 @@ export default function Files() {
         )}
       </div>
 
-      {/* Songs cannot be uploaded, so the Music filter gets no upload tile. */}
-      {shown.length === 0 && filter === 'audio' ? (
+      {/* Songs and LoRAs cannot be uploaded, so their filters get no upload tile. */}
+      {shown.length === 0 && (filter === 'audio' || filter === 'lora') ? (
         <div className="text-center py-14 text-text-dim">
           <div className="text-4xl mb-3">🗂️</div>
           <div className="text-base font-semibold font-display">Nothing here yet</div>
-          <div className="text-sm mt-1">Songs you make with the Hub&apos;s music tool show up here.</div>
+          <div className="text-sm mt-1">
+            {filter === 'lora'
+              ? 'LoRAs an agent adds from a Civitai or Hugging Face link show up here.'
+              : 'Songs you make with the Hub’s music tool show up here.'}
+          </div>
         </div>
       ) : (
         <FileGrid
@@ -197,12 +203,12 @@ export default function Files() {
           onToggle={toggle}
           onDelete={remove}
           onOpen={setViewing}
-          lead={filter !== 'audio' && (
+          lead={filter !== 'audio' && filter !== 'lora' && (
             <UploadTile dragging={dragging} sending={sending} onPick={() => picker.current?.click()} />
           )}
         />
       )}
-      {shown.length === 0 && filter !== 'audio' && (
+      {shown.length === 0 && filter !== 'audio' && filter !== 'lora' && (
         <p className="text-sm text-text-dim m-0">
           {filter === 'upload'
             ? 'No uploads yet.'
@@ -263,7 +269,8 @@ const onHover = 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-10
 function FileCard({ file, picked, selecting, onToggle, onDelete, onOpen }) {
   const [copied, setCopied] = useState(false)
   const copy = async () => {
-    if (await copyText(window.location.origin + file.path)) {
+    // A LoRA's link is its page; what an agent needs is its id.
+    if (await copyText(file.kind === 'lora' ? file.lora_id : window.location.origin + file.path)) {
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     }
@@ -285,10 +292,12 @@ function FileCard({ file, picked, selecting, onToggle, onDelete, onOpen }) {
             <NewTabIcon />
           </a>
         )}
-        <a href={file.path} download={file.name} title="Download" className={iconBtn}>
-          <DownloadIcon />
-        </a>
-        <button onClick={copy} title={copied ? 'Link copied' : 'Copy link'} className={iconBtn}>
+        {file.kind !== 'lora' && (
+          <a href={file.path} download={file.name} title="Download" className={iconBtn}>
+            <DownloadIcon />
+          </a>
+        )}
+        <button onClick={copy} title={copied ? 'Copied' : file.kind === 'lora' ? 'Copy LoRA id' : 'Copy link'} className={iconBtn}>
           {copied ? <CheckIcon /> : <LinkIcon />}
         </button>
         <button onClick={() => onDelete([file.name])} title="Delete" className={`${iconBtn} hover:!bg-error hover:!text-white`}>
@@ -310,7 +319,7 @@ function FileCard({ file, picked, selecting, onToggle, onDelete, onOpen }) {
         {file.model && (
           // Wraps rather than cuts: the end of the label is what tells builds
           // apart (variant, quantization, the LoRA it ran).
-          <div className="text-xs text-text-muted break-words">{file.model}</div>
+          <div className="text-xs text-text-muted break-words">{file.model}<RemovedLoras file={file} /></div>
         )}
         <div className="text-xs text-text-dim">{when(file.created)}</div>
         {shapeOf(file) && (
@@ -353,6 +362,19 @@ function UploadTile({ dragging, sending, onPick }) {
 }
 
 function Preview({ file, selecting, onToggle, onOpen }) {
+  if (file.kind === 'lora') {
+    // No picture: its name and trigger words, and a click opens the page it came from.
+    return (
+      <a href={file.source} target="_blank" rel="noopener noreferrer"
+         onClick={(e) => { if (selecting) { e.preventDefault(); onToggle(file.name) } }}
+         className="aspect-square bg-surface-high flex flex-col justify-center gap-3 px-5 text-left">
+        <div className="text-3xl">🧩</div>
+        <div className="text-base font-semibold font-display text-text break-words line-clamp-3">{file.title || file.lora_id}</div>
+        {file.prompt && <div className="text-xs text-text-muted break-words line-clamp-3">Trigger: {file.prompt}</div>}
+        <div className="text-xs font-label text-text-dim truncate">{file.lora_id}</div>
+      </a>
+    )
+  }
   if (file.kind === 'audio') {
     return (
       <div className="aspect-square bg-surface-high flex flex-col items-center justify-center gap-4 px-4">
@@ -378,9 +400,19 @@ function Preview({ file, selecting, onToggle, onOpen }) {
         <img src={`/api/media/${file.name}/thumb${file.rendered ? '?render' : ''}`} alt="" loading="lazy"
              className="w-full h-full object-cover block" />
       )}
-      {(file.orbit || file.kind === 'mesh') && (
+      {file.kind === 'video' && (
+        // A quiet hint that the tile plays: a small dark disc with a play mark.
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <span className="w-10 h-10 rounded-full bg-black/40 flex items-center justify-center">
+            <svg className="w-4 h-4 ml-0.5 text-white/90" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M7 4.5v15a1 1 0 0 0 1.5.87l12-7.5a1 1 0 0 0 0-1.74l-12-7.5A1 1 0 0 0 7 4.5z" />
+            </svg>
+          </span>
+        </span>
+      )}
+      {(file.orbit || file.sphere || file.kind === 'mesh') && (
         <span className="absolute bottom-2 left-2 text-xs font-semibold font-label text-white bg-black/60 px-2 py-0.5 rounded-full">
-          {file.orbit ? '360°' : '3D'}
+          {file.kind === 'mesh' ? '3D' : '360°'}
         </span>
       )}
     </a>
@@ -394,6 +426,7 @@ function Preview({ file, selecting, onToggle, onOpen }) {
 function Viewer({ files, index, onIndex, onClose, details, onDetails }) {
   const file = files[index]
   const [mesh, setMesh] = useState(null)   // { name, vertices, triangles } once a 3D model is loaded
+  const [chosen, setChosen] = useState({}) // file name -> in the sphere (true) or flat (false), once picked
   const step = useCallback((d) => onIndex((index + d + files.length) % files.length), [index, files.length, onIndex])
 
   useEffect(() => {
@@ -417,9 +450,15 @@ function Viewer({ files, index, onIndex, onClose, details, onDetails }) {
   const fit = 'block max-w-[calc(100vw-2rem)] max-h-[calc(100dvh-2rem)]'
   const onMesh = useCallback((counts) => setMesh({ name: file.name, ...counts }), [file.name])
   const known = mesh?.name === file.name ? mesh : null
+  // A 360° file opens in the sphere; any panorama-shaped one can be put there.
+  const sphere = canSphere(file) && (chosen[file.name] ?? !!file.sphere)
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 animate-fadeIn" onClick={onClose}>
-      {file.kind === 'image' ? (
+      {sphere ? (
+        <Suspense fallback={<span className="text-sm font-semibold text-white/80">Opening the 360° view…</span>}>
+          <SphereView key={file.name} file={file} />
+        </Suspense>
+      ) : file.kind === 'image' ? (
         <img key={file.name} src={file.path} alt="" onClick={stop} className={fit} />
       ) : file.kind === 'mesh' ? (
         <Suspense fallback={<span className="text-sm font-semibold text-white/80">Opening the 3D model…</span>}>
@@ -434,6 +473,14 @@ function Viewer({ files, index, onIndex, onClose, details, onDetails }) {
 
       <span className="absolute top-4 left-4 text-sm font-label text-white/80">{index + 1} / {files.length}</span>
       <div className="absolute top-3 right-3 flex gap-2" onClick={stop}>
+        {canSphere(file) && (
+          <button
+            onClick={() => setChosen({ ...chosen, [file.name]: !sphere })}
+            className={`${bigIconBtn} !w-auto px-4 text-sm font-semibold ${sphere ? '!bg-white !text-black' : ''}`}
+          >
+            360°
+          </button>
+        )}
         <button
           onClick={() => onDetails(!details)}
           title={details ? 'Hide details' : 'Show details'}
@@ -462,8 +509,8 @@ function Viewer({ files, index, onIndex, onClose, details, onDetails }) {
           onClick={stop}
           className="absolute bottom-4 left-4 m-0 max-w-[min(40rem,calc(100vw-2rem))] grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm text-white bg-black/75 backdrop-blur-sm rounded-xl px-4 py-3"
         >
-          <Detail label="Type" value={`${KIND_LABEL[file.kind]}${file.orbit ? ' · 360° orbit' : ''}${file.upload ? ' · upload' : ''}`} />
-          {file.model && <Detail label="Model" value={file.model} />}
+          <Detail label="Type" value={`${KIND_LABEL[file.kind]}${file.orbit ? ' · 360° orbit' : ''}${file.sphere ? ' · 360° sphere' : ''}${file.upload ? ' · upload' : ''}`} />
+          {file.model && <Detail label="Model" value={<>{file.model}<RemovedLoras file={file} /></>} />}
           {file.prompt && <PromptDetail prompt={file.prompt} />}
           <Detail label="Made" value={when(file.created)} />
           {file.seconds != null && <Detail label="Took" value={took(file.seconds)} />}
@@ -477,6 +524,13 @@ function Viewer({ files, index, onIndex, onClose, details, onDetails }) {
       )}
     </div>
   )
+}
+
+// LoRAs a file was made with that no longer exist: still named, but faded, so
+// the eye reads past them to the model and the LoRAs still installed.
+function RemovedLoras({ file }) {
+  if (!file.removed_loras?.length) return null
+  return <span className="opacity-40">{file.removed_loras.map((slug) => ` + ${slug}`).join('')}</span>
 }
 
 function Detail({ label, value }) {
@@ -648,6 +702,12 @@ function TrashIcon() {
 }
 
 /* ── bits ────────────────────────────────────────────────────────────────── */
+
+// Any picture or clip can be put inside a sphere: a 360 one opens there by
+// itself (made with an equirectangular model or LoRA), every other one on a click.
+function canSphere(file) {
+  return file.kind === 'image' || file.kind === 'video'
+}
 
 function fmtCount(n) {
   return n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}K` : `${n}`

@@ -1,0 +1,168 @@
+services:
+  fastvideo:
+    # FastH3 Omni (FastVideo + Nuva Lab): MiniMax-H3's reference-conditioning
+    # (Ref2VA) model distilled to 8 transformer evaluations (PDD) and trained
+    # for NVFP4 execution on Blackwell (QAD) -- video with a synchronized
+    # soundtrack from a prompt plus ordered references: up to 9 pictures, 3
+    # clips and 3 sounds. Served by FastVideo's OpenAI-compatible server
+    # (POST /v1/videos, GET /v1/videos/{id}, GET /v1/videos/{id}/content), the
+    # same job API SGLang Diffusion speaks; references travel as FastVideo's
+    # image_reference / video_reference / audio_reference lists
+    # (video_defaults.reference_lists).
+    #
+    # The DGX Spark stack is FastVideo's own `spark` profile, from
+    # examples/serving/openai_fasth3_omniref_spark.yaml at the pinned commit:
+    # everything resident (no offload), NVFP4 DiT with FP4 sparse attention
+    # and an FP8 prefix, cuDNN FP4 matmuls, the 36-layer NVFP4 video decoder.
+    # Its environment switches are the `environment:` block below; its YAML
+    # is the `fasth3_serve` config at the bottom of this file.
+    #
+    # Built locally: FastVideo publishes no aarch64 image or kernel wheel, so
+    # this follows its DGX Spark install guide (docs/getting_started/
+    # installation/spark.md) -- CUDA 13 devel base, uv-managed CPython 3.12,
+    # fastvideo-kernel compiled for sm_121a with no GPU visible.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM nvidia/cuda:13.0.0-cudnn-devel-ubuntu24.04
+        RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates build-essential ffmpeg \
+         && rm -rf /var/lib/apt/lists/*
+        ENV UV_INSTALL_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/python VIRTUAL_ENV=/opt/venv PATH=/opt/venv/bin:$$PATH
+        RUN curl -LsSf https://astral.sh/uv/0.9.5/install.sh | sh
+        # FastVideo at the pinned commit and the two kernel submodules at the
+        # commits it pins (cutlass e67e63c3, ThunderKittens 6c27e28c), as
+        # GitHub source archives over plain HTTPS.
+        RUN mkdir -p /opt/FastVideo && cd /opt/FastVideo \
+         && curl -fsSL https://github.com/hao-ai-lab/FastVideo/archive/fa2d1324c60050cd65209c6aaeac470e7fb412f5.tar.gz | tar xz --strip-components=1 \
+         && mkdir -p fastvideo-kernel/include/cutlass fastvideo-kernel/include/tk \
+         && curl -fsSL https://github.com/NVIDIA/cutlass/archive/e67e63c331d6e4b729047c95cf6b92c8454cba89.tar.gz | tar xz --strip-components=1 -C fastvideo-kernel/include/cutlass \
+         && curl -fsSL https://github.com/HazyResearch/ThunderKittens/archive/6c27e28c8115d1839d9eeeb530913c184a75fc87.tar.gz | tar xz --strip-components=1 -C fastvideo-kernel/include/tk
+        RUN uv venv /opt/venv --python 3.12 --python-preference only-managed --seed
+        # No GPU at build time: the kernel arch and the torch backend are named.
+        RUN cd /opt/FastVideo && UV_TORCH_BACKEND=cu130 TORCH_CUDA_ARCH_LIST=12.1a CMAKE_BUILD_PARALLEL_LEVEL=8 \
+            uv pip install -e .
+        # Model weights are part of the app artifact: they are baked into this
+        # image, so `docker rmi` reclaims every byte this recipe added. Fetched
+        # in this stage rather than a separate one and copied over, so the
+        # build never holds two copies of 67 GB on disk. The repo is complete
+        # (text encoder, VAEs, NVFP4 decoders); its transformer/ folder repeats
+        # transformer_ref/ for other loaders and is skipped (38 GB).
+        RUN HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60 python -c "from huggingface_hub import snapshot_download; snapshot_download('FastVideo/FastH3-Omni-NVFP4-QAD', revision='f01e6a23ac6066aa9eb622cf94b6259442e70ec2', local_dir='/models/fasth3-omni', ignore_patterns=['transformer/*', 'assets/*', '*.mp4', '*.gif'], max_workers=8)" \
+         && rm -rf /models/fasth3-omni/.cache
+    image: spark-ai-hub/fastvideo-fasth3-omni-nvfp4:fa2d1324
+    container_name: spark-ai-hub-fastvideo-fasth3-omni-nvfp4
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/fastvideo-fasth3-omni-nvfp4/.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      # FlashInfer JIT's first FP4 forward otherwise launches one nvcc job per
+      # CPU core, exhausting a Spark's unified memory before inference starts.
+      - MAX_JOBS=2
+      # FastVideo's `spark` profile (the header of its spark serving YAML).
+      - FASTVIDEO_ATTENTION_BACKEND=VIDEO_SPARSE_ATTN_H3
+      - FASTVIDEO_H3_VSA_FP4=1
+      - FASTVIDEO_H3_VSA_FP4_PREFIX=fp8
+      - FASTVIDEO_H3_VSA_FP4_TWO_LEVEL_P=1
+      - FASTVIDEO_H3_VSA_FP4_K_SMOOTH=1
+      - FASTVIDEO_H3_GATE_CHUNK_ROWS=8192
+      - FASTVIDEO_ULYSSES_A2A=auto
+      - FASTVIDEO_MINIMAX_H3_EXACT_KERNELS=all
+      - FASTVIDEO_H3_VSA_HEADS_FIRST_TILE=1
+      - FASTVIDEO_H3_VAE_TILE_PARALLEL=1
+      - FASTVIDEO_H3_REF2VA_MEMO_ENTRIES=16
+      - FASTVIDEO_MINIMAX_H3_FUSIONS=all
+      - FASTVIDEO_VSA_TRITON=1
+      - FASTVIDEO_VSA_PTX_BLACKWELL=0
+      - FASTVIDEO_FA4=0
+      - FASTVIDEO_NVFP4_MM_BACKEND=cudnn
+      - FASTVIDEO_NVFP4_MM_ROW_SPLIT=table
+      - FASTVIDEO_H3_VAE_TILE_BATCH=12
+      - FASTVIDEO_H3_VAE_INT8_OVERLAY=0
+      # The 36-layer (quality) NVFP4 decoder shipped in the checkpoint.
+      - FASTVIDEO_H3_VAE_NVFP4_DECODER=/models/fasth3-omni/vae_decoder_nvfp4/decoder-nvfp4.safetensors
+    ipc: host
+    shm_size: 16gb
+    configs:
+      - source: fasth3_serve
+        target: /opt/fasth3/serve.yaml
+    working_dir: /opt/FastVideo
+    command:
+      - fastvideo
+      - serve
+      - --config
+      - /opt/fasth3/serve.yaml
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+configs:
+  fasth3_serve:
+    # examples/serving/openai_fasth3_omniref_spark.yaml at fa2d1324, with the
+    # model path, port and output folder of this container.
+    content: |
+      generator:
+        model_path: /models/fasth3-omni
+        engine:
+          num_gpus: 1
+          use_fsdp_inference: false
+          quantization:
+            transformer_quant: NVFP4
+            layer_profile: h3_dit_vsa
+          parallelism:
+            tp_size: 1
+            sp_size: 1
+          offload:
+            dit: false
+            dit_layerwise: false
+            text_encoder: false
+            image_encoder: false
+            vae: false
+            pin_cpu_memory: false
+            lazy_module_load: false
+        pipeline:
+          workload_type: i2v
+          components:
+            override_pipeline_cls_name: MiniMaxH3Ref2VAModularPipeline
+          experimental:
+            attention_backend: VIDEO_SPARSE_ATTN_H3
+            h3_vsa_fp4:
+              enabled: true
+              prefix_precision: fp8
+              two_level_p: true
+              smooth_k: true
+            video_decode_backend: h3-vae
+            # Release the Qwen conditioner before loading DiT + VAEs. The
+            # pinned FastVideo pipeline says simultaneous residency can OOM
+            # a GB10 even with host offload disabled.
+            h3_sequential_load: true
+      server:
+        host: 0.0.0.0
+        port: 30000
+        output_dir: /tmp/fasth3-outputs
+        served_model_name: fasth3-omni
+      default_request:
+        negative_prompt: ""
+        sampling:
+          height: 480
+          width: 832
+          num_frames: 124
+          fps: 24
+          num_inference_steps: 8
+          guidance_scale: 1.0
+          batch_cfg: false
+        output:
+          return_frames: false
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

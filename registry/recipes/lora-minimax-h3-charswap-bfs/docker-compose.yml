@@ -1,0 +1,61 @@
+services:
+  lora:
+    # Alissonerdx's (BFS) Character Swap v1.1 for MiniMax-H3 Ref2VA, from the
+    # Minimax-H3-ComfyUI repo pinned to revision 37d7d8b3 -- the card's
+    # recommended file. An SVD extraction of the rank-64 v1.0 with its own
+    # rank per layer (4 to 34, 95% of each layer's energy), no alpha (scale
+    # 1), every block's qkv, out, fc1 and fc2 plus the two token-refiner
+    # blocks. Trained with ai-toolkit on the Ref2VA weights.
+    #
+    # Published in ComfyUI/ai-toolkit layout, which SGLang loads as a silent
+    # no-op, so it is REKEYED by convert_lora.py beside this file (the
+    # converter the other H3 LoRAs use), then padded to one rank (below).
+    #
+    # A LoRA recipe holds the adapter and nothing else: the image is the file
+    # under /lora, so installing it adds a few hundred MB and uninstalling it
+    # removes them. Nothing of it runs. When a render asks for it, the Hub
+    # copies the file into a running base model's container and switches it
+    # on there through SGLang's /v1/set_lora (daemon/services/lora_service.py).
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub numpy
+        RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('Alissonerdx/Minimax-H3-ComfyUI', 'loras/minimax_h3_character_swap_v1.1_ref2va_fro.safetensors', revision='37d7d8b302ec4168ff30467c900c588db253cad9', local_dir='/src')"
+        COPY convert_lora.py /tmp/convert_lora.py
+        RUN python3 /tmp/convert_lora.py /src/loras/minimax_h3_character_swap_v1.1_ref2va_fro.safetensors \
+              /lora/minimax_h3_charswap_bfs_v11_diffusers.safetensors
+        # Its ranks differ per layer (4 to 34); SGLang takes one rank per
+        # adapter, so every layer is padded with zero rows of A and zero
+        # columns of B up to the largest. A zero rank adds nothing, so the
+        # product -- and the render -- is unchanged.
+        RUN python3 - <<'PY'
+        import json, struct
+        import numpy as np
+        path = "/lora/minimax_h3_charswap_bfs_v11_diffusers.safetensors"
+        raw = open(path, "rb").read()
+        n = struct.unpack("<Q", raw[:8])[0]
+        head = json.loads(raw[8:8 + n])
+        meta = head.pop("__metadata__", {})
+        data = raw[8 + n:]
+        t = {k: np.frombuffer(data[v["data_offsets"][0]:v["data_offsets"][1]], np.uint16).reshape(v["shape"]) for k, v in head.items()}
+        r = max(v.shape[0] for k, v in t.items() if ".lora_A." in k)
+        for k in list(t):
+            v = t[k]
+            if ".lora_A." in k and v.shape[0] < r:
+                t[k] = np.concatenate([v, np.zeros((r - v.shape[0], v.shape[1]), np.uint16)])
+            elif ".lora_B." in k and v.shape[1] < r:
+                t[k] = np.concatenate([v, np.zeros((v.shape[0], r - v.shape[1]), np.uint16)], axis=1)
+        out, off, blobs = {"__metadata__": meta} if meta else {}, 0, []
+        for k in sorted(t):
+            b = np.ascontiguousarray(t[k]).tobytes()
+            out[k] = {"dtype": "BF16", "shape": list(t[k].shape), "data_offsets": [off, off + len(b)]}
+            off += len(b); blobs.append(b)
+        h = json.dumps(out).encode(); h += b" " * (-len(h) % 8)
+        open(path, "wb").write(struct.pack("<Q", len(h)) + h + b"".join(blobs))
+        print("padded to rank", r)
+        PY
+        FROM scratch
+        COPY --from=weights /lora /lora
+    image: spark-ai-hub/lora-minimax-h3-charswap-bfs:37d7d8b3

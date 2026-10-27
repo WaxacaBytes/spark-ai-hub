@@ -14,6 +14,8 @@ tags:
   - openai-meshes
   - image-to-3d
   - multi-view
+  # texture=false returns the bare shape (mesh_service: STL at full detail).
+  - texture-optional
   - hunyuan3d
   - tencent
 icon: "\U0001F9CA"

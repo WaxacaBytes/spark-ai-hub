@@ -1,0 +1,47 @@
+name: "Qwen-Image-2.1 Outpaint LoRA"
+slug: lora-qwen-image-21-outpaint
+version: "1.0.0"
+description: "An outpainting LoRA for Qwen-Image-2.1: pad a picture with flat gray where it should grow -- one side, two, a corner, all four, or a small picture on a big canvas -- and it fills the gray with a continuation of the scene while the original stays exactly where it was, so it can be pasted back without a seam. ausboss' v2 (1-2 MP, people and outfits), rank 32. An add-on, not a model: install it and the Hub's image tools offer it on Qwen-Image-2.1 (edit_image with lora). Qwen-Image-2.1's license."
+author: "ausboss · for Qwen-Image-2.1"
+source: "community"
+website: "https://huggingface.co/ausboss/Qwen-Image-2.1-Outpaint-LoRA"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/qwen.png"
+requirements:
+  # Nothing of it runs: the memory is its base model's.
+  min_memory_gb: 0
+  disk_gb: 1
+  cuda_compute: "12.1"
+ui:
+  # No server and no page: the Hub loads it into a running base model.
+  type: none
+docker:
+  build: true
+  build_time_minutes: 2
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - image-edit
+  - outpainting
+  - qwen
+weights_gb: 0.17
+requires_hf_token: false
+# Where it loads (the first is the one it was made and measured on), and how.
+lora:
+  bases:
+    - sglang-qwen-image-21
+  file: "/lora/qwen-image-2.1-outpaint-v2.safetensors"
+  strength: 1.0
+  alpha: 32
+# The card's workflow: strength 1.0, 25 steps, CFG 1.
+image_defaults:
+  steps: 25
+  true_cfg_scale: 1.0
+  notes: "Outpaint: pad the picture with flat gray #808080 on the sides that should grow (canvas a multiple of 32, about 1-2 MP), pass the padded canvas as `images`, ask for the same output size, and start the prompt with the card's instruction: Outpaint the image: replace the solid gray areas with a seamless continuation of the scene, keeping the existing picture unchanged. A short description of the scene may follow. Paste the original pixels back over the result for an exact match. Tested 2026-10-21 on a 16:9 photo (woman with dogs, terrace) shrunk to two thirds and centred on a gray 1344x768 canvas, seed 7: the base model redrew the whole scene smaller and moved it, while with the LoRA the original stayed exactly in place and the gray filled with more terrace, sky and dogs."
+  source: "https://huggingface.co/ausboss/Qwen-Image-2.1-Outpaint-LoRA"

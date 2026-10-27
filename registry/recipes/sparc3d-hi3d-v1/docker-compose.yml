@@ -1,0 +1,104 @@
+services:
+  hi3d:
+    # Hi3D v1.0 (hi3d-official, 2026-10-23): it refines a coarse mesh into
+    # high-resolution geometry, conditioned on the picture it came from. The
+    # coarse mesh comes from Hunyuan3D-2mini Turbo, the generator Hi3D's own
+    # image_to_mesh demo uses. server.py runs both behind the Spark AI Hub's
+    # meshes API (POST /v1/meshes queues a job, GET /v1/meshes/{id} reports
+    # it, GET /v1/meshes/{id}/content serves the GLB). Hi3D makes geometry
+    # only; Hunyuan3D-2's paint and delight models then texture it from the
+    # same picture, the way the Hunyuan3D-2mv engine below does.
+    #
+    # Hi3D was measured on x86 with CUDA 12.4. Here it runs on the Hub's GB10
+    # hy3dgen engine (CUDA 12.9, PyTorch 2.11 for Blackwell, flash-attn
+    # 2.7.4 and Tencent's hy3dgen, pinned by digest), with the one kernel
+    # library it needs that has no aarch64 wheel compiled here: spconv.
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        # Publisher repos only, pinned, and only the files that are loaded.
+        RUN pip install --no-cache-dir huggingface_hub==0.36.2 hf_xet==1.7.0
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('hi3d-official/Hi3Dv1.0', revision='705fc0901c5d896cdcbf1dbf1feaa173e62bdd3a', local_dir='/models/hi3d-official/Hi3Dv1.0', allow_patterns=['model_index.json', 'scheduler/*', 'vae/*', 'transformer_512/*', 'transformer_1024/*', 'LICENSE', 'NOTICE', 'THIRD_PARTY_LICENSES.md'])"
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('tencent/Hunyuan3D-2mini', revision='f90a0f7df7d5e6f71109cf333f6a95a0ae3194a6', local_dir='/models/tencent/Hunyuan3D-2mini', allow_patterns=['LICENSE', 'NOTICE', 'hunyuan3d-dit-v2-mini-turbo/config.yaml', 'hunyuan3d-dit-v2-mini-turbo/model.fp16.safetensors'])"
+        # Paint + delight, as in the hy3dgen-hunyuan3d-2mv recipe: the paint UNet
+        # loads unet/diffusion_pytorch_model.bin by name, so its safetensors
+        # twin (and the unused VAE .bin) are skipped.
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('tencent/Hunyuan3D-2', revision='9cd649ba6913f7a852e3286bad86bfa9a2d83dcf', local_dir='/models/tencent/Hunyuan3D-2', allow_patterns=['LICENSE', 'NOTICE', 'hunyuan3d-paint-v2-0/*', 'hunyuan3d-delight-v2-0/*'], ignore_patterns=['hunyuan3d-paint-v2-0/unet/diffusion_pytorch_model.safetensors', 'hunyuan3d-paint-v2-0/vae/diffusion_pytorch_model.bin'])"
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('facebook/dinov2-large', revision='47b73eefe95e8d44ec3623f8890bd894b6ea2d6c', local_dir='/models/facebook/dinov2-large', allow_patterns=['config.json', 'preprocessor_config.json', 'model.safetensors'])"
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('openai/clip-vit-large-patch14', revision='32bd64288804d66eefd0ccbe215aa642df71cc41', local_dir='/models/openai/clip-vit-large-patch14', allow_patterns=['config.json', 'preprocessor_config.json', 'model.safetensors'])"
+        RUN rm -rf /models/*/*/.cache
+
+        FROM ghcr.io/waxacabytes/hunyuan3d-2mv-spark-ai-hub@sha256:7ae2731b828e27699613e32b13c77c76b141c0d8b0abe275553e7443a768a0eb
+
+        # spconv, compiled ahead of time for the GB10. cumm 0.8.2 is the first
+        # release that knows Blackwell (sm_120 code, which the GB10's sm_121
+        # runs); spconv 2.3.8 still asks for cumm < 0.8 in its metadata, so it
+        # goes in without dependency resolution. "+PTX" matters: spconv uses a
+        # prebuilt kernel only on an arch it was compiled for exactly or one
+        # past its PTX arch, and otherwise compiles one with NVRTC at runtime,
+        # which fails on CUDA 12.9's headers. With 12.0+PTX it takes the
+        # prebuilt sm_120 kernels on the sm_121 GB10; nothing compiles at runtime.
+        RUN pip install --no-cache-dir pccm==0.4.16 ccimport==0.4.4 fire==0.7.1 && \
+            mkdir -p /opt/src && cd /opt/src && \
+            curl -sL https://github.com/FindDefinition/cumm/archive/4c77b38d1a.tar.gz | tar xz && \
+            curl -sL https://github.com/traveller59/spconv/archive/263d6b4742.tar.gz | tar xz && \
+            cd /opt/src/cumm-4c77b38d1a* && \
+            CUMM_CUDA_ARCH_LIST="12.0+PTX" CUMM_DISABLE_JIT=1 MAX_JOBS=8 \
+              pip install --no-cache-dir --no-build-isolation --no-deps . && \
+            cd /opt/src/spconv-263d6b4742* && \
+            CUMM_CUDA_ARCH_LIST="12.0+PTX" SPCONV_DISABLE_JIT=1 MAX_JOBS=8 \
+              pip install --no-cache-dir --no-build-isolation --no-deps . && \
+            rm -rf /opt/src
+
+        # Hi3D's code (package sparc3d), pinned. It declares Python 3.10 and
+        # NumPy < 2, the one stack it was measured on; this engine is Python
+        # 3.12 with NumPy 2, which its code runs on. Its other dependencies are
+        # already here apart from pyfqmr.
+        RUN pip install --no-cache-dir pyfqmr==0.5.0 && \
+            curl -sL https://github.com/hi3d-official/Hi3Dv1.0/archive/23dcc684bc6e1fab86ecafb99ec5270edad122f9.tar.gz | tar xz -C /opt && \
+            pip install --no-cache-dir --no-deps --ignore-requires-python /opt/Hi3Dv1.0-23dcc684bc6e1fab86ecafb99ec5270edad122f9
+
+        COPY --from=weights /models /models
+        # Replaces the engine's Hunyuan3D-2mv server, which its entrypoint runs.
+        COPY server.py /app/server.py
+        # Everything the server imports, so a missing piece fails the build
+        # rather than the first launch.
+        RUN cd /app && python -c "import spconv.pytorch, flash_attn, sparc3d, custom_rasterizer_kernel, mesh_processor, server"
+    image: spark-ai-hub/sparc3d-hi3d-v1:705fc090-paint
+    container_name: spark-ai-hub-sparc3d-hi3d-v1
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/sparc3d-hi3d-v1/, so it never collides with the LLM
+    # or with another media model.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - HY3DGEN_MODELS=/models
+      - MODELS=/models
+      # Hi3D's refinement ladder: 512 = one pass, 1024 = two (its default),
+      # 1536 = three.
+      - RESOLUTION=1024
+      # Faces of the copy that gets painted (xatlas unwraps it on the CPU:
+      # 43 s at 200k, 118 s at 400k); 200k keeps Hi3D's surface detail.
+      - PAINT_FACES=200000
+      - PORT=30000
+    ipc: host
+    shm_size: 16gb
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

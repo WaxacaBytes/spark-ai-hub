@@ -1,0 +1,36 @@
+services:
+  lora:
+    # NicknickAI's 2Anime LoRA for Qwen-Image-2.1, pinned to revision
+    # 81a0abdf. PEFT keys (.lora_A.default.weight), rank 16, attention and
+    # image MLP of all 32 blocks, gate_layer and proj apart; the build only
+    # drops PEFT's ".default" so SGLang finds them.
+    #
+    # A LoRA recipe holds the adapter and nothing else: the image is the file
+    # under /lora. Nothing of it runs. When a render asks for it, the Hub
+    # copies it into the running base model's container and switches it on
+    # there through SGLang's /v1/set_lora (daemon/services/lora_service.py).
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('NicknickAI/QwenImage2.1-2anime', '2anime-QwenImage2.1.safetensors', revision='81a0abdf635455da498883662a1e45d4851bcb41', local_dir='/src')"
+        RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+         && pip install --no-cache-dir safetensors numpy
+        RUN python3 <<'PY'
+        import os, torch
+        from safetensors import safe_open
+        from safetensors.torch import save_file
+        f = safe_open("/src/2anime-QwenImage2.1.safetensors", "pt")
+        out = {}
+        for key in f.keys():
+            t = f.get_tensor(key).to(torch.bfloat16)
+            out[key.replace(".default.weight", ".weight")] = t
+        os.makedirs("/lora", exist_ok=True)
+        save_file(out, "/lora/2anime-qwen-image-2.1.safetensors")
+        print(len(out), "tensors")
+        PY
+        FROM scratch
+        COPY --from=weights /lora /lora
+    image: spark-ai-hub/lora-qwen-image-21-2anime:81a0abdf

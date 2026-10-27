@@ -31,7 +31,7 @@ from dataclasses import dataclass, replace
 from typing import Awaitable, Callable
 
 import aiohttp
-from PIL import Image, ImageOps
+from PIL import Image, ImageOps, ImageStat
 
 from daemon.config import settings
 from daemon.models.recipe import media_figures
@@ -74,9 +74,11 @@ class ImageError(Exception):
 class Params:
     prompt: str
     negative_prompt: str = ""
-    aspect_ratio: str = "1:1"
+    aspect_ratio: str = ""        # empty: the model's default shape, or an edit's input's
     seed: int | None = None
     steps: int | None = None
+    width: int | None = None
+    height: int | None = None
 
 
 @dataclass(frozen=True)
@@ -95,6 +97,8 @@ class Backend:
 OPENAI_SIZES = {
     "1:1": (1024, 1024), "16:9": (1344, 768), "9:16": (768, 1344),
     "4:3": (1152, 864), "3:4": (864, 1152), "3:2": (1216, 832), "2:3": (832, 1216),
+    # Equirectangular 360 panoramas are exactly 2:1.
+    "2:1": (1536, 768),
 }
 ASPECT_RATIOS = list(OPENAI_SIZES)
 
@@ -144,6 +148,8 @@ def with_defaults(backend: Backend, params: Params) -> Params:
     if getattr(backend.defaults, "preset", None):
         # The preset owns the step count; the server rejects one set directly.
         return replace(params, steps=None)
+    if not params.aspect_ratio and getattr(backend.defaults, "aspect_ratio", None):
+        params = replace(params, aspect_ratio=backend.defaults.aspect_ratio)
     if params.steps is None and backend.defaults is not None and backend.defaults.steps:
         return replace(params, steps=backend.defaults.steps)
     return params
@@ -155,7 +161,7 @@ async def installed_backends() -> dict[str, Backend]:
     return {slug: b for slug, b in backends().items() if slug in installed}
 
 
-async def list_models() -> list[dict]:
+async def list_models(user: dict | None = None) -> list[dict]:
     recipes = get_recipes()
     out = []
     for slug, backend in (await installed_backends()).items():
@@ -172,7 +178,7 @@ async def list_models() -> list[dict]:
             **media_figures(recipe),
             **({"recommended": rec} if (rec := recommended(backend)) else {}),
             **({"prompt_guide": True} if getattr(recipe, "prompt_guide", "") else {}),
-            **({"loras": loras} if (loras := await _loras_of(slug)) else {}),
+            **({"loras": loras} if (loras := await _loras_of(slug, user)) else {}),
         })
     return out
 
@@ -190,12 +196,12 @@ def prompt_guide(slug: str) -> str:
 
 
 def check_prompt(slug: str, prompt: str) -> None:
-    """Refuse plain text for an image model that has a prompt guide: the one
-    such model, Ideogram 4, was trained on JSON captions only and answers a
-    plain sentence with a gray "Image blocked by safety filter" picture most
-    of the time, after a render of minutes."""
+    """Refuse plain text for an image model that takes JSON captions only
+    (Recipe.json_prompt): Ideogram 4 was trained on JSON captions only and
+    answers a plain sentence with a gray "Image blocked by safety filter"
+    picture most of the time, after a render of minutes."""
     recipe = get_recipes().get(slug)
-    if recipe is None or not recipe.prompt_guide:
+    if recipe is None or not recipe.json_prompt:
         return
     try:
         caption = json.loads(prompt)
@@ -206,11 +212,11 @@ def check_prompt(slug: str, prompt: str) -> None:
                          f"with model {slug} and write the prompt the way it says.")
 
 
-async def _loras_of(slug: str) -> list[dict]:
+async def _loras_of(slug: str, user: dict | None = None) -> list[dict]:
     """The installed LoRAs a model takes, for list_image_models: what each
     adds, the settings it brings, and how long a render with it took."""
     out = []
-    for lora in await lora_service.for_base(slug):
+    for lora in await lora_service.for_base(slug, user):
         rec = recommended(Backend(slug=lora.slug, kinds=frozenset(), summary=lora.name,
                                   defaults=lora.image_defaults)) if lora.image_defaults else None
         out.append({"lora": lora.slug, "name": lora.name, "adds": lora.media_capabilities,
@@ -218,11 +224,12 @@ async def _loras_of(slug: str) -> list[dict]:
     return out
 
 
-async def installed_lora(lora: list[str] | None):
-    """The installed LoRA recipe, or stack of them, that `lora` names; None
-    when none is asked for."""
+async def installed_lora(lora: list[str] | None, user: dict | None = None, model: str | None = None):
+    """The installed LoRA recipe, or stack of them, that `lora` names (with
+    `user`'s link LoRAs, and URLs added as new ones for `model`); None when
+    none is asked for."""
     try:
-        return await lora_service.resolve(lora or [])
+        return await lora_service.resolve(lora or [], user, model)
     except lora_service.LoraError as exc:
         raise ImageError(str(exc)) from None
 
@@ -305,7 +312,8 @@ def _guidance(defaults) -> dict:
 
 
 def generation_body(params: Params, seed: int, defaults=None) -> dict:
-    width, height = OPENAI_SIZES.get(params.aspect_ratio, OPENAI_SIZES["1:1"])
+    width, height = ((params.width, params.height) if params.width and params.height
+                     else OPENAI_SIZES.get(params.aspect_ratio or "1:1", OPENAI_SIZES["1:1"]))
     body = {
         "prompt": params.prompt,
         "n": 1,
@@ -338,10 +346,10 @@ async def _openai_image(r: aiohttp.ClientResponse, slug: str) -> bytes:
 
 def chat_body(params: Params, seed: int, defaults, inputs: list[bytes]) -> dict:
     """A chat request asking a unified model for an image back."""
-    if inputs:
+    if inputs and not params.aspect_ratio:
         width, height = edit_size(inputs[0])
     else:
-        width, height = OPENAI_SIZES.get(params.aspect_ratio, OPENAI_SIZES["1:1"])
+        width, height = OPENAI_SIZES.get(params.aspect_ratio or "1:1", OPENAI_SIZES["1:1"])
     content = [{"type": "text", "text": params.prompt}]
     for png in inputs:
         content.append({"type": "image_url", "image_url": {
@@ -384,7 +392,7 @@ async def _render_chat(session: aiohttp.ClientSession, backend: Backend, params:
 def hidream_body(params: Params, seed: int, inputs: list[bytes]) -> dict:
     """A job request for HiDream's app.py. One reference image is an edit, two
     or more are subject personalization; the schedule is fixed by the server."""
-    width, height = OPENAI_SIZES.get(params.aspect_ratio, OPENAI_SIZES["1:1"])
+    width, height = OPENAI_SIZES.get(params.aspect_ratio or "1:1", OPENAI_SIZES["1:1"])
     body = {
         "prompt": params.prompt,
         "mode": "t2i" if not inputs else "edit" if len(inputs) == 1 else "subject",
@@ -451,7 +459,9 @@ async def _render(session: aiohttp.ClientSession, backend: Backend, kind: str,
                                 json=generation_body(params, seed, backend.defaults)) as r:
             return await _openai_image(r, backend.slug)
 
-    width, height = edit_size(inputs[0])
+    # An edit keeps its input's shape unless a shape was asked for.
+    width, height = (OPENAI_SIZES[params.aspect_ratio] if params.aspect_ratio in OPENAI_SIZES
+                     else edit_size(inputs[0]))
     form = aiohttp.FormData()
     for i, png in enumerate(inputs):
         form.add_field("image", png, filename=f"input{i}.png", content_type="image/png")
@@ -544,6 +554,23 @@ class Result:
         return f"{PUBLIC_PREFIX}/{self.image_id}.png"
 
 
+def is_blocked_card(raw: bytes) -> bool:
+    """Whether `raw` is Ideogram 4's "Image blocked by safety filter" card:
+    flat mid-gray, no colour, one line of light text across the middle. On
+    598 Hub images it caught all 28 cards and nothing else."""
+    with Image.open(io.BytesIO(raw)) as img:
+        rgb = img.convert("RGB").resize((64, 64))
+    gray = rgb.convert("L")
+    stat = ImageStat.Stat(gray)
+    if not (110 < stat.mean[0] < 140 and stat.stddev[0] < 10
+            and ImageStat.Stat(rgb.convert("HSV")).mean[1] < 12):
+        return False
+    w, h = gray.size
+    flat = all(ImageStat.Stat(gray.crop(box)).stddev[0] < 4
+               for box in ((0, 0, w, int(h * 0.4)), (0, int(h * 0.6), w, h)))
+    return flat and gray.crop((0, int(h * 0.4), w, int(h * 0.6))).getextrema()[1] > stat.mean[0] + 40
+
+
 def store(raw: bytes, model: str, seed: int | None) -> Result:
     IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     image_id = secrets.token_hex(16)
@@ -594,8 +621,16 @@ async def run(kind: str, params: Params, images: list[str], model: str | None,
               on_progress: Callable[[str], None] | None = None,
               user: dict | None = None, lora: list[str] | None = None) -> Result:
     started = time.monotonic()
-    adapter = await installed_lora(lora)
+    adapter = await installed_lora(lora, user, model)
     backend = await pick_backend(kind, model, adapter)
+    if params.width is not None or params.height is not None:
+        if (kind != "generate" or "moss" not in get_recipes()[backend.slug].tags
+                or params.width is None or params.height is None
+                or not (512 <= params.width <= 2048 and 512 <= params.height <= 2048)
+                or params.width % 16 or params.height % 16
+                or params.width * params.height > 2048 * 2048):
+            raise ImageError("Custom width and height are for MOSS image generation: give both "
+                             "as multiples of 16 from 512 to 2048, up to 2048x2048 pixels.")
     backend = replace(backend, defaults=lora_service.merged_defaults(
         backend.defaults, adapter, "image_defaults"))
     params = with_defaults(backend, params)
@@ -619,6 +654,13 @@ async def run(kind: str, params: Params, images: list[str], model: str | None,
                 if on_progress:
                     on_progress(f"rendering on {backend.slug}")
                 raw = await _render(session, backend, kind, params, inputs, seed)
+    if (getattr(get_recipes().get(backend.slug), "blocked_card", False)
+            and await asyncio.to_thread(is_blocked_card, raw)):
+        raise ImageError(
+            f"{backend.slug} blocked this picture with the safety filter built into its weights "
+            f"(seed {seed}); no file was saved. It does this on some seeds even for harmless "
+            "captions, so the same caption may render on another seed. Try again with a new seed, "
+            "or use another model.")
     result = await asyncio.to_thread(store, raw, backend.slug, seed)
     took = time.monotonic() - started
     await media_store.record(f"{result.image_id}.png", user and user["id"], backend.slug,

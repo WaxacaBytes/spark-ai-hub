@@ -1,7 +1,7 @@
 name: "Qwen3.8-Flash-Next INT4"
 slug: tensorfold-qwen38-flash-next-int4
 version: "1.0.0"
-description: "Qwen3.8-Flash-Next — the first open-weight release of the architecture behind Qwen4, 177B total parameters over a hybrid linear/full attention stack — served by TensorFold, an inference engine written for this model family, following Mia's AI Lab single-Spark recipe. The checkpoint is Vontra's MLX 4-bit build (affine INT4, group size 32) with the MTP draft head. The 29.8 GiB PLE n-gram tables stay on the SSD and are read at each lookup, on a C++ thread pool that fetches a prompt chunk's rows while the GPU works on the previous one. That memory goes to the KV cache: five requests at the full native 262K context each, a 1.3M-token pool of int8 KV. Measured through the Hub on 2026-10-19, five prose requests at once ran 127 tok/s combined (25 each) against 57 tok/s for one. Decoding drafts up to six MTP tokens a round, plus prompt-lookup drafts when the reply repeats the prompt; every draft is verified by the model, so output is unchanged. Images and videos work as OpenAI image_url / video_url parts (data URLs), as do tool calling with typed parameters and reasoning. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
+description: "Qwen3.8-Flash-Next — the first open-weight release of the architecture behind Qwen4, 177B total parameters over a hybrid linear/full attention stack — served by TensorFold, an inference engine written for this model family, following Mia's AI Lab single-Spark recipe. The checkpoint is Vontra's MLX 4-bit build (affine INT4, group size 32) with the MTP draft head. The 29.8 GiB PLE n-gram tables stay on the SSD and are read at each lookup, on a C++ thread pool that fetches a prompt chunk's rows while the GPU works on the previous one. That memory goes to the KV cache: five requests at the full native 262K context each, a 1.3M-token pool of int8 KV. Measured through the Hub on 2026-10-22, five prose requests at once ran 156 tok/s combined (31 each) against 56 tok/s for one. Decoding drafts up to six MTP tokens a round, plus prompt-lookup drafts when the reply repeats the prompt; every draft is verified by the model, so output is unchanged. Images and videos work as OpenAI image_url / video_url parts (data URLs), as do tool calling with typed parameters and reasoning. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
 author: "Qwen"
 source: "community"
 website: "https://huggingface.co/Vontra/Qwen3.8-Flash-Next-MLX-4bit-MTP"
@@ -38,6 +38,8 @@ docker:
   gpu: true
 status: experimental
 engine: "TensorFold"
+# Effort levels its chat template takes (daemon/models/reasoning.py).
+reasoning: "qwen3.8"
 params_b: 177
 active_params_b: 6
 arch: moe
@@ -47,14 +49,14 @@ artificial_analysis_index: 46
 weights_gb: 105.5
 release_date: "2026-08-26"
 requires_hf_token: false
-tokens_per_second: 62.0
-tokens_per_second_editing: 116.3
+tokens_per_second: 63.1
+tokens_per_second_editing: 117.1
 editing_workload: "code-edit"
 benchmarks:
-  prose: 55.27
-  explainer: 62.38
-  code: 70.24
-  code-edit: 116.3
+  code: 70.65
+  explainer: 64.04
+  prose: 56.22
+  code-edit: 117.08
 integration:
   api_url: "<HUB>/v1"
   model_id: "Qwen/Qwen3.8-Flash-Next"

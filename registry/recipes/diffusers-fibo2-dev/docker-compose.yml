@@ -1,0 +1,85 @@
+services:
+  fibo:
+    # Fibo 2.0 Dev (Bria, 8B), the full non-distilled model: text-to-image
+    # and image editing (one picture, a masked region, or up to 4 references)
+    # in one checkpoint, on Bria's own BriaFibo2Pipeline from diffusers,
+    # behind a small server (server.py, beside this file) that speaks the
+    # OpenAI images API SGLang Diffusion speaks -- POST /v1/images/generations
+    # and /v1/images/edits -- so the Hub drives it like its other image models.
+    #
+    # Why diffusers: BriaFibo2Pipeline is the model's reference code, merged
+    # into diffusers main on 2026-10-20 (huggingface/diffusers#14991, merge
+    # commit de988b7e) after the last release; no SGLang or vLLM-Omni support
+    # yet (vllm-omni#9212 is an open request). Pinned to that commit.
+    #
+    # Built locally from this recipe (no published engine image). Torch for
+    # the GB10 comes from the stable SGLang image, used here only as a CUDA 13
+    # / aarch64 PyTorch base, as ltxpipelines-ltx25-bf16 does; its
+    # transformers already reads the Qwen3-VL text encoder.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        # Gated (Bria's access form, CC BY-NC 4.0): the Hub's HF token comes
+        # in as a build secret and never lands in a layer. The fonts are the
+        # card's: the pipeline draws each caption text with them.
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" \
+            python3 -c "from huggingface_hub import snapshot_download; snapshot_download('briaai/Fibo-2.0-dev', revision='57627c0a8b682bc05456a4ef2b72d6bb866be33a', local_dir='/models/fibo', allow_patterns=['model_index.json', 'processor/*', 'scheduler/*', 'text_encoder/*', 'transformer/*', 'vae/*', 'fonts/*'], max_workers=8)" \
+         && mv /models/fibo/fonts /models/fonts
+        FROM lmsysorg/sglang:v0.5.22-cu130
+        RUN pip install --no-cache-dir python-multipart \
+         && pip install --no-cache-dir --no-deps \
+              "diffusers @ git+https://github.com/huggingface/diffusers@de988b7ee77c393a63865d265d19e267ef9c7bf5"
+        COPY --from=weights /models /models
+        COPY server.py /opt/fibo/server.py
+    image: spark-ai-hub/diffusers-fibo2-dev:de988b7e
+    container_name: spark-ai-hub-diffusers-fibo2-dev
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/diffusers-fibo2-dev/.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - FIBO_MODEL=/models/fibo
+      - FIBO_SERVED_NAME=briaai/Fibo-2.0-dev
+      # The card: "Use num_inference_steps=50 and guidance_scale=5.0."
+      - FIBO_STEPS=50
+      - FIBO_GUIDANCE=5.0
+    ipc: host
+    shm_size: 16gb
+    working_dir: /opt/fibo
+    command:
+      - python3
+      - -m
+      - uvicorn
+      - server:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "30000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

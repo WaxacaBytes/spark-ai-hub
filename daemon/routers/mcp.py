@@ -31,8 +31,8 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 from daemon.routers import containers
 from daemon.services import (
     favorites_service,
-    audio_service, decision_service, image_service, link_service, media_store, mesh_service,
-    upload_service, video_service, web_service,
+    audio_service, decision_service, image_service, link_service, lora_service, media_store,
+    mesh_service, upload_service, video_service, web_service,
 )
 from daemon.config import settings
 from daemon.services.connect_service import request_origin
@@ -190,6 +190,10 @@ TOOLS = [
                 "prompt": {"type": "string", "description": "What the image should show."},
                 "aspect_ratio": {"type": "string", "enum": image_service.ASPECT_RATIOS,
                                  "default": "1:1"},
+                "width": {"type": "integer", "minimum": 512, "maximum": 2048,
+                          "description": "Optional width in pixels for MOSS image models; give height too. Both must be multiples of 16, up to 2048x2048 total pixels."},
+                "height": {"type": "integer", "minimum": 512, "maximum": 2048,
+                           "description": "Optional height in pixels for MOSS image models; give width too. Both must be multiples of 16, up to 2048x2048 total pixels."},
                 "negative_prompt": {"type": "string",
                                     "description": "Things to keep out of the image."},
                 "seed": {"type": "integer", "minimum": 0,
@@ -203,7 +207,9 @@ TOOLS = [
                                          "add-ons that each teach that model one trick (reshoot the "
                                          "subject from another camera angle, render in fewer "
                                          "steps, ...). List several to run them together. Follow "
-                                         "their `recommended` notes. Omit for the model on its own.")},
+                                         "their `recommended` notes. A Civitai or Hugging Face LoRA page URL also works: the Hub fetches the "
+                                         "version made for an installed model, keeps it as the user's own and "
+                                         "answers with its id and trigger words. Omit for the model on its own.")},
             },
             "required": ["prompt"],
             "additionalProperties": False,
@@ -213,7 +219,7 @@ TOOLS = [
         "name": "edit_image",
         "title": "Edit image",
         "description": (
-            "Edit one to three images with a natural-language instruction on the "
+            "Edit one to four images with a natural-language instruction on the "
             "Spark, e.g. 'replace the background with a rainy neon street, keep the "
             "person unchanged'." + _ASYNC_IMAGE
         ),
@@ -222,7 +228,11 @@ TOOLS = [
             "properties": {
                 "prompt": {"type": "string", "description": "The edit to make."},
                 "images": {"type": "array", "items": {"type": "string"},
-                           "minItems": 1, "maxItems": 3, "description": _IMAGE_REFS},
+                           "minItems": 1, "maxItems": 4, "description": _IMAGE_REFS},
+                "aspect_ratio": {"type": "string", "enum": image_service.ASPECT_RATIOS,
+                                 "description": ("Optional output shape. Omit to keep the first "
+                                                 "picture's shape (or the LoRA's own, such as 2:1 "
+                                                 "for a 360 panorama).")},
                 "seed": {"type": "integer", "minimum": 0},
                 "steps": {"type": "integer", "minimum": 1, "maximum": 60,
                           "description": _STEPS_HINT},
@@ -233,7 +243,9 @@ TOOLS = [
                                          "add-ons that each teach that model one trick (reshoot the "
                                          "subject from another camera angle, render in fewer "
                                          "steps, ...). List several to run them together. Follow "
-                                         "their `recommended` notes. Omit for the model on its own.")},
+                                         "their `recommended` notes. A Civitai or Hugging Face LoRA page URL also works: the Hub fetches the "
+                                         "version made for an installed model, keeps it as the user's own and "
+                                         "answers with its id and trigger words. Omit for the model on its own.")},
             },
             "required": ["prompt", "images"],
             "additionalProperties": False,
@@ -309,8 +321,10 @@ TOOLS = [
                                          "add-ons that each teach that model one trick (swap a "
                                          "character, orbit a subject, render in fewer steps). List "
                                          "several to run them together, e.g. a Turbo plus an orbit. "
-                                         "Follow their `recommended` notes. Omit for the model on "
-                                         "its own.")},
+                                         "Follow their `recommended` notes. A Civitai or Hugging "
+                                         "Face LoRA page URL also works: the Hub fetches the version "
+                                         "made for an installed model and keeps it as the user's own. "
+                                         "Omit for the model on its own.")},
             },
             "required": ["prompt"],
             "additionalProperties": False,
@@ -370,6 +384,7 @@ TOOLS = [
             "With more pictures of the same object from other sides (`views`; models that list "
             "multi-view in list_3d_models), the sides and back are built from them instead of "
             "guessed: real photos work best, as drawn views often disagree with each other. "
+            "Pick the file `format` your task needs. "
             "Returns a job_id at once, not the model: then call get_3d with it until the model "
             "arrives (it takes minutes). Do not start it again."
         ),
@@ -391,6 +406,14 @@ TOOLS = [
                           "description": "Leave this out: the model's own setting (50) is used."},
                 "model": {"type": "string",
                           "description": "A model id from list_3d_models. Omit to use whichever is running."},
+                "format": {"type": "string", "enum": ["glb", "obj", "stl", "ply"],
+                           "description": ("The file to get back (default glb). glb: one file with "
+                                           "its texture, for viewers, the web, Blender and game "
+                                           "engines. obj: a zip of .obj, .mtl and texture, for tools "
+                                           "that want OBJ. stl: shape only, Z-up, for 3D printing and "
+                                           "CAD; models that can skip painting give their full-detail "
+                                           "shape, sooner. ply: shape with the colours on its vertices, "
+                                           "for point-cloud and mesh processing.")},
             },
             "required": ["image"],
             "additionalProperties": False,
@@ -401,9 +424,9 @@ TOOLS = [
         "title": "Get 3D model",
         "description": (
             f"Collect the job that generate_3d started. Waits up to {CHECK_WAIT} s; returns "
-            "the GLB's URL and the cut-out picture it was built from when done, or \"Not done "
-            "yet\", in which case call get_3d again with the same job_id until it returns the "
-            "model or an error."
+            "the model's URL in the format asked for and the cut-out picture it was built from "
+            "when done, or \"Not done yet\", in which case call get_3d again with the same "
+            "job_id until it returns the model or an error."
         ),
         "inputSchema": {
             "type": "object",
@@ -518,6 +541,22 @@ TOOLS = [
             "properties": {"url": {"type": "string",
                                    "description": "The Hub URL of the image, video, 3D model, song or upload."}},
             "required": ["url"],
+            "additionalProperties": False,
+        },
+        "annotations": {"destructiveHint": True, "idempotentHint": True},
+    },
+    {
+        "name": "delete_lora",
+        "title": "Delete LoRA",
+        "description": (
+            "Delete one of the user's own LoRAs that was added from a Civitai or Hugging Face link "
+            "(its id starts with link-, as the model lists show it). Only when the user asks; it "
+            "cannot be undone, but the same link adds it again."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"lora": {"type": "string", "description": "The link LoRA's id (link-...)."}},
+            "required": ["lora"],
             "additionalProperties": False,
         },
         "annotations": {"destructiveHint": True, "idempotentHint": True},
@@ -690,16 +729,28 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
                 raise web_service.WebError("'url' is required.")
             return _text(await web_service.fetch(url, user))
         if name == "list_image_models":
-            return _text(await _with_memory(await image_service.list_models()))
+            return _text(await _with_memory(await image_service.list_models(user)))
         if name == "list_decision_models":
             return _text(await _with_memory(await decision_service.list_models()))
         if name in ("create_upload", "create_download"):
             return await _link_tool(name, args, origin, user)
         if name == "delete_file":
-            file_name = await _own_file(args, user)
+            # A 3D model's .stl / .ply / .obj.zip link deletes the model itself,
+            # every format of it.
+            file_name = media_store.master(await _own_file(args, user))
             await media_store.delete(file_name, user)
             return {"content": [{"type": "text", "text": f"Deleted {file_name}."}],
                     "structuredContent": {"deleted": file_name}, "isError": False}
+        if name == "delete_lora":
+            from daemon.services import link_lora_service
+            lora = (await link_lora_service.mine(user)).get(str(args.get("lora") or "").strip())
+            if lora is None:
+                return _text("No link LoRA of this account has that id; list_image_models and "
+                             "list_video_models show them under each model's `loras`.", is_error=True)
+            file_name = Path(lora.lora.host_file).name
+            await media_store.delete(file_name, user)
+            return {"content": [{"type": "text", "text": f"Deleted {lora.name} ({lora.slug})."}],
+                    "structuredContent": {"deleted": lora.slug}, "isError": False}
         if name == "decide":
             images, videos = args.get("images") or [], args.get("videos") or []
             if isinstance(images, str):
@@ -731,9 +782,9 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
                 return await _with_file(_music_result(info, origin), info, lambda r: f"{r['audio_id']}.wav")
             return await _with_file(_image_result(info, origin), info, lambda r: f"{r.image_id}.png")
         if name == "get_file_info":
-            return await _file_info(await _own_file(args, user), origin)
+            return await _file_info(media_store.master(await _own_file(args, user)), origin)
         if name == "list_video_models":
-            return _text(await _with_memory(await video_service.list_models()))
+            return _text(await _with_memory(await video_service.list_models(user)))
         if name == "get_prompt_guide":
             return _text(image_service.prompt_guide(str(args.get("model") or "").strip()))
         if name == "list_3d_models":
@@ -748,9 +799,12 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             views = {str(k): str(v).strip() for k, v in views.items() if str(v).strip()}
             slug = (await mesh_service.pick_backend(str(args.get("model") or "").strip() or None,
                                                     multi_view=bool(views))).slug
+            fmt = str(args.get("format") or "glb").strip().lower()
+            if fmt not in mesh_service.EXTENSIONS:
+                raise image_service.ImageError(f"Unknown format {fmt!r}: use glb, obj, stl or ply.")
             job_id = image_service.start_job("mesh", lambda: mesh_service.generate(
                 image=image, views=views, seed=_int(args, "seed"), steps=_int(args, "steps"),
-                model=slug, user=user), slug, user)
+                model=slug, user=user, fmt=fmt), slug, user)
             return _started("get_3d", job_id, slug)
         if name == "get_3d":
             info = await image_service.check_job(_job_id(args), CHECK_WAIT, user)
@@ -763,6 +817,7 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             prompt = str(args.get("prompt") or "").strip()
             if not prompt:
                 raise image_service.ImageError("'prompt' is required.")
+            lora, links = await _resolve_links(_loras(args), user, str(args.get("model") or "").strip() or None)
             info = await video_service.start(
                 prompt=prompt, image=str(args.get("image") or "").strip() or None,
                 video=str(args.get("video") or "").strip() or None,
@@ -772,9 +827,9 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
                 seconds=_int(args, "seconds"), aspect_ratio=str(args.get("aspect_ratio") or "") or None,
                 seed=_int(args, "seed"), steps=_int(args, "steps"),
                 model=str(args.get("model") or "").strip() or None,
-                lora=_loras(args), user=user,
+                lora=lora, user=user,
             )
-            return _started("get_video", info["job_id"], info["model"], info)
+            return _started("get_video", info["job_id"], info["model"], {**info, **links})
 
         prompt = str(args.get("prompt") or "").strip()
         if not prompt:
@@ -782,31 +837,33 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
         params = image_service.Params(
             prompt=prompt,
             negative_prompt=str(args.get("negative_prompt") or ""),
-            aspect_ratio=str(args.get("aspect_ratio") or "1:1"),
+            aspect_ratio=str(args.get("aspect_ratio") or ""),
             seed=_int(args, "seed"),
             steps=_int(args, "steps"),
+            width=_int(args, "width"),
+            height=_int(args, "height"),
         )
         kind, images = "generate", []
         if name == "edit_image":
             kind, images = "edit", args.get("images")
             if isinstance(images, str):
                 images = [images]
-            if not isinstance(images, list) or not 1 <= len(images) <= 3:
-                raise image_service.ImageError("'images' must list one to three images.")
+            if not isinstance(images, list) or not 1 <= len(images) <= 4:
+                raise image_service.ImageError("'images' must list one to four images.")
             images = [str(i) for i in images]
-        lora = _loras(args)
         model = str(args.get("model") or "").strip() or None
+        lora, links = await _resolve_links(_loras(args), user, model)
         # A named model's prompt is checked before "start it" can send the
         # agent off to load a model it would then be refused by.
         if model:
             image_service.check_prompt(model, prompt)
         # Picked now, so "no model is running" comes back from this call, not the first get.
         slug = (await image_service.pick_backend(
-            kind, model, await image_service.installed_lora(lora))).slug
+            kind, model, await image_service.installed_lora(lora, user, model))).slug
         image_service.check_prompt(slug, prompt)
         job_id = image_service.start_job(
             kind, lambda: image_service.run(kind, params, images, slug, user=user, lora=lora), slug, user)
-        return _started("get_image", job_id, slug)
+        return _started("get_image", job_id, slug, links)
     except (image_service.ImageError, web_service.WebError) as exc:
         return _text(str(exc), is_error=True)
     except Exception as exc:  # noqa: BLE001 - surface anything else to the agent
@@ -836,8 +893,27 @@ def _not_done(tool: str, job_id: str, status: str, info: dict) -> dict:
             "isError": False}
 
 
+async def _resolve_links(lora: list[str], user: dict | None, model: str | None) -> tuple[list[str], dict]:
+    """Civitai / Hugging Face URLs in `lora` become the user's own link LoRAs
+    before the job starts, so a link that does not fit fails here, and the
+    agent learns each new LoRA's id and trigger words."""
+    if not any(item.startswith(("http://", "https://")) for item in lora):
+        return lora, {}
+    try:
+        adapter = await lora_service.resolve(lora, user, model)
+    except lora_service.LoraError as exc:
+        raise image_service.ImageError(str(exc)) from None
+    parts = lora_service.parts(adapter)
+    links = [{"lora": p.slug, "name": p.name, "about": p.description} for p in parts if p.slug.startswith("link-")]
+    return [p.slug for p in parts], {"link_loras": links}
+
+
 def _started(tool: str, job_id: str, model: str, info: dict | None = None) -> dict:
-    return _not_done(tool, job_id, f"job {job_id} started on {model}",
+    # A LoRA just added from a link: its id (to reuse instead of the URL) and
+    # its trigger words, said where every agent reads.
+    added = "".join(f" Added the LoRA {link['name']} as {link['lora']}; pass that id next time. {link['about']}"
+                    for link in (info or {}).get("link_loras") or [])
+    return _not_done(tool, job_id, f"job {job_id} started on {model}.{added}",
                      {**(info or {}), "model": model})
 
 
@@ -1092,12 +1168,20 @@ def _mesh_result(info: dict, origin: str) -> dict:
                          f"still building on {info['model']} ({info['elapsed']}s so far)",
                          {k: v for k, v in info.items() if k != "result"})
     mesh = {k: v for k, v in info["result"].items() if k != "preview"}
-    url = f"{origin}{mesh_service.PUBLIC_PREFIX}/{mesh['mesh_id']}.glb"
-    lines = [f"3D model (GLB): {url}", f"Model: {mesh['model']}", f"Seed: {mesh['seed']}"]
+    fmt = mesh.get("format", "glb")
+    base = f"{origin}{mesh_service.PUBLIC_PREFIX}/{mesh['mesh_id']}"
+    url = base + mesh_service.EXTENSIONS[fmt]
+    lines = [f"3D model ({fmt.upper()}): {url}"]
+    if fmt != "glb":
+        lines.append(f"Same model as GLB: {base}.glb")
+    if not mesh.get("textured", True):
+        lines.append("Shape only, at the model's full detail: it skipped painting.")
+    lines += [f"Model: {mesh['model']}", f"Seed: {mesh['seed']}"]
     if mesh.get("took_s") is not None:
         lines.append(_took(mesh["took_s"]))
-    lines.append("The user can turn it around in the Hub's My files. To save it into your "
-                 "workspace, call create_download with this URL; the attached JPEG is the cut-out "
+    lines.append("Other formats of it: the same URL ending in .glb, .obj.zip, .stl or .ply. "
+                 "The user can turn it around in the Hub's My files. To save it into your "
+                 "workspace, call create_download with the URL; the attached JPEG is the cut-out "
                  "picture it was built from, not a render of the model.")
     return {"content": [{"type": "text", "text": "\n".join(lines)},
                         {"type": "image", "data": info["result"]["preview"], "mimeType": "image/jpeg"}],
@@ -1129,8 +1213,8 @@ async def _own_file(args: dict, user: dict | None) -> str:
     if not file_name:
         raise image_service.ImageError("'url' must be a Hub image, video, 3D model or song URL "
                                        "(.../images/<id>.png, /videos/<id>.mp4, /meshes/<id>.glb "
-                                       "or /audio/<id>.wav).")
-    if media_store.find(file_name) is None or not await media_store.can_read(file_name, user):
+                                       "(or .obj.zip / .stl / .ply) or /audio/<id>.wav).")
+    if media_store.find(media_store.master(file_name)) is None or not await media_store.can_read(file_name, user):
         raise image_service.ImageError(f"No Hub file {file_name} for this account "
                                        "(it may have expired or been deleted).")
     return file_name
@@ -1282,16 +1366,19 @@ async def _media_file(request: Request, name: str, suffix: str) -> Response:
         return JSONResponse({"detail": "Authentication required: sign in to the Hub, "
                              "or ask the MCP tools for a create_download link."}, status_code=401,
                             headers={"WWW-Authenticate": 'Bearer realm="Spark AI Hub"'})
-    path = media_store.find(name) if name.endswith(suffix) else None
-    # Someone else's file answers exactly like a missing one.
-    if path is None or not await media_store.can_read(name, user):
+    # Someone else's file answers exactly like a missing one. Owner first: a
+    # 3D model's other formats are written on the first request (locate).
+    if not name.endswith(suffix) or not await media_store.can_read(name, user):
         return Response(status_code=404)
-    return FileResponse(path, media_type=media_store.MEDIA_TYPES[suffix], headers=_cache_headers(path))
+    path = await media_store.locate(name)
+    if path is None:
+        return Response(status_code=404)
+    return FileResponse(path, media_type=media_store.MEDIA_TYPES[path.suffix], headers=_cache_headers(path))
 
 
 @router.get("/meshes/{name}")
 async def mesh_file(request: Request, name: str):
-    return await _media_file(request, name, ".glb")
+    return await _media_file(request, name, (".glb", ".stl", ".ply", ".obj.zip"))
 
 
 @router.get("/audio/{name}")

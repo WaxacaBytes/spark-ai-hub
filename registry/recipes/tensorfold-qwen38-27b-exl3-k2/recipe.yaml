@@ -36,6 +36,8 @@ docker:
   gpu: true
 status: experimental
 engine: "TensorFold"
+# Effort levels its chat template takes (daemon/models/reasoning.py).
+reasoning: "qwen3.8"
 params_b: 27
 arch: dense
 quantization: "EXL3"

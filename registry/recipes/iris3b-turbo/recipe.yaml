@@ -1,0 +1,50 @@
+name: "Iris-3B Turbo"
+slug: iris3b-turbo
+version: "1.0.0"
+description: "Generate images in seconds with Iris-3B Turbo, speridlabs' 3B pixel-space text-to-image model: no VAE and no latent space, the network paints every pixel of a one-megapixel picture directly, in 4 steps with guidance baked into the weights (about 0.7 s per image on an H100, per its card). Strong on prompt following for its size (GenEval 0.820, DPG-Bench 86.68 on its card) and on short rendered text. Text-to-image only. Served by speridlabs' own code behind the OpenAI images API; your coding agents reach it through the Hub's image tools (generate_image). Apache 2.0."
+author: "speridlabs"
+source: "community"
+website: "https://huggingface.co/speridlabs/iris-3b"
+upstream: "https://github.com/speridlabs/iris-3b"
+category: image-gen
+categories:
+  - image-gen
+tags:
+  - openai-images
+  - text-to-image
+  - pixel-space
+  - iris
+  - diffusion
+  - bf16
+icon: "\U0001F5BC️"
+logo: "/logos/speridlabs.png"
+requirements:
+  min_memory_gb: 24
+  recommended_memory_gb: 32
+  disk_gb: 20
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP image tools call its API. Proxied so
+  # the Hub reaches it at /run/iris3b-turbo/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 15
+  gpu: true
+status: experimental
+release_date: "2026-10"
+engine: "Iris"
+params_b: 3
+arch: dense
+quantization: "BF16"
+weights_gb: 14.8
+render_seconds: 9.7
+render_workload: "1024x1024, 4 steps (the distilled schedule)"
+requires_hf_token: false
+image_defaults:
+  notes: "4 steps with guidance baked in: steps, guidance and negative prompts do not apply. Distilled at about one megapixel in seven shapes (1:1, 16:9-like 1344x752, 3:2, 4:3 and their portrait versions); other sizes snap to the nearest. Plain-language prompts, as on its card. Tested 2026-10-22 on its card's prompts (seed 6): a cartoon poster with the words IRIS TURBO spelled right, a sharp black-and-white portrait, and a snow scene that drew two foxes for \"a red fox\"."
+  source: "https://huggingface.co/speridlabs/iris-3b"

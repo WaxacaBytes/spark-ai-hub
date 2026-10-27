@@ -1,0 +1,76 @@
+name: "Fibo 2.0 Dev"
+slug: diffusers-fibo2-dev
+version: "1.0.0"
+description: "Generate and edit images with Fibo 2.0 Dev, Bria's 8B model that does text-to-image and image editing in one checkpoint: plain instruction edits, masked edits, and up to 4 reference pictures combined into one result (try-on, product placement, style transfer). Trained only on licensed data and on long structured captions (Bria's VGL JSON), which it follows field by field -- counts, positions, light, camera and in-image text; plain prompts work too. This is the full non-distilled model, run at its card's 50 steps with guidance 5. Served by Bria's own diffusers pipeline behind the OpenAI images API; your coding agents reach it through the Hub's image tools (generate_image / edit_image). CC BY-NC 4.0 (non-commercial; commercial use needs Bria's agreement)."
+author: "Bria AI"
+source: "community"
+website: "https://huggingface.co/briaai/Fibo-2.0-dev"
+upstream: "https://github.com/huggingface/diffusers/tree/main/src/diffusers/pipelines/bria_fibo2"
+category: image-gen
+categories:
+  - image-gen
+tags:
+  - openai-images
+  - text-to-image
+  - image-edit
+  - multi-image
+  - fibo
+  - diffusion
+  - diffusers
+  - bf16
+icon: "\U0001F5BC️"
+logo: "/logos/bria.png"
+requirements:
+  min_memory_gb: 32
+  recommended_memory_gb: 40
+  disk_gb: 40
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP image tools call its API. Proxied so
+  # the Hub reaches it at /run/diffusers-fibo2-dev/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 25
+  gpu: true
+status: experimental
+release_date: "2026-10"
+engine: "Diffusers"
+params_b: 8
+arch: dense
+quantization: "BF16"
+weights_gb: 25.5
+render_seconds: 186
+render_workload: "1216x832 text-to-image from a VGL caption, 50 steps, guidance 5"
+requires_hf_token: true
+# Bria's access form (non-commercial): the token's account must accept it on the web.
+gated_repos:
+  - "briaai/Fibo-2.0-dev"
+# Trained on VGL captions; a plain prompt works, a caption gives more control.
+prompt_guide: "fibo-2"
+image_defaults:
+  steps: 50
+  guidance_scale: 5.0
+  notes: "The card's settings: 50 steps, guidance 5. Best as a VGL caption (call get_prompt_guide); a plain sentence also works. About one megapixel: 1:1 (1024x1024), 16:9, 3:2. Edits take 1 to 4 pictures as `images`, named <image_1>, <image_2> in the prompt in that order; for a quick edit, Fibo 2.0 Edit Turbo does it in 4 steps. Tested 2026-10-22, seed 7: a VGL caption (red bicycle, white brick wall, green door, a sign reading OPEN) came out exactly as described, text spelled right, in 186 s; the same scene as a plain sentence took 206 s and invented its own street. Edits of about one megapixel take 400-660 s at these settings (a red leather jacket on a photo, a straw hat on a portrait, a two-picture outfit try-on), all clean, identity and framing kept."
+  source: "https://huggingface.co/briaai/Fibo-2.0-dev"
+# Human-preference Elo as each board published it on the date read (see
+# RecipeArenaScore).
+arena:
+  - board: AA-Image-T2I v2.1
+    task: text-to-image
+    elo: 1039
+    entry: Fibo 2.0
+    votes: 5113
+    read: '2026-10-21'
+    url: https://artificialanalysis.ai/image/leaderboard/text-to-image
+  - board: AA-Image-Editing v2.1
+    task: image-editing
+    elo: 1089
+    entry: Fibo 2.0
+    votes: 4945
+    read: '2026-10-21'
+    url: https://artificialanalysis.ai/image/leaderboard/editing

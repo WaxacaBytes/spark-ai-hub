@@ -1,0 +1,63 @@
+name: "FastH3 Omni Ref2VA NVFP4"
+slug: fastvideo-fasth3-omni-nvfp4
+version: "1.0.0"
+description: "Generate video with a matching soundtrack from references, fast: FastH3 Omni is MiniMax-H3's reference-conditioning (Ref2VA) model distilled by FastVideo and Nuva Lab to 8 transformer evaluations and trained for 4-bit NVFP4 on Blackwell. Give it up to 9 pictures, 3 clips and 3 sounds (12 in all, at least one picture or clip): their people, places, motion and voices carry into the new clip, named in the prompt as <Picture 1>, <Video 1>, <Audio 1>. 5, 10 or 15 s at 24 fps, 480p on one Spark (FastVideo's spark profile). Served by FastVideo's OpenAI-compatible server; your coding agents reach it through the Hub's video tools (generate_video / get_video). MiniMax-H3 Community License."
+author: "MiniMax · distilled by FastVideo and Nuva Lab"
+source: "community"
+website: "https://huggingface.co/FastVideo/FastH3-Omni-NVFP4-QAD"
+upstream: "https://github.com/hao-ai-lab/FastVideo/blob/main/docs/inference/fasth3_omniref.md"
+category: video-gen
+categories:
+  - video-gen
+tags:
+  - openai-videos
+  - image-to-video
+  - multi-reference
+  - audio-reference
+  - video-edit
+  - video-audio
+  - minimax
+  - fastvideo
+  - nvfp4
+  - turbo
+icon: "\U0001F3AC"
+logo: "/logos/minimax.png"
+requirements:
+  min_memory_gb: 80
+  recommended_memory_gb: 121
+  disk_gb: 100
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP video tools call its API. Proxied so
+  # the Hub reaches it at /run/fastvideo-fasth3-omni-nvfp4/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 60
+  gpu: true
+status: experimental
+release_date: "2026-10"
+engine: "FastVideo"
+params_b: 33
+quantization: "NVFP4"
+variant: "Ref2VA"
+prompt_guide: "minimax-h3-ref2va"
+weights_gb: 66.5
+render_seconds: 142
+render_workload: "5 s 832x480 clip from one picture, 8 passes, warm (the first render after a start also compiles FP4 kernels: 783 s)"
+requires_hf_token: false
+video_defaults:
+  steps: 8
+  guidance_scale: 1.0
+  fps: 24
+  seconds: 5
+  size: "832x480"
+  reference_lists: true
+  aspect_ratios: ["16:9", "9:16"]
+  max_seconds: 15
+  notes: "Needs a reference: at least one picture or clip, never text alone. Up to 9 pictures (image, then images), 3 clips (video) and 3 sounds (audio), 12 in all; name them in the prompt as <Picture 1>, <Video 1>, <Audio 1> in the order given. 5, 10 or 15 s (124, 243 or 362 frames) at 24 fps, 832x480 on one Spark, 8 transformer evaluations at guidance 1 -- the checkpoint's own contract. No last frame. Spark-tested on 2026-10-22: two identical 5 s image-reference renders completed with H.264 video and AAC audio. The first run took 783 s including first-use FP4 kernel compilation and model loading; a repeat took 142 s. FastVideo loads the conditioner before the DiT and caps JIT compilation at two jobs so unified memory stays within the Spark budget. Tested 2026-10-22 through the Hub, one picture, seed 7: 783 s for the first clip after a start (FP4 kernels compile), 142 s warm, byte-identical at the same seed; Ref2VA INT8 Turbo made the same 5 s clip at 1344x768 in 683 s."
+  source: "https://github.com/hao-ai-lab/FastVideo/blob/main/docs/inference/fasth3_omniref.md"

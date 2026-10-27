@@ -1,0 +1,37 @@
+services:
+  lora:
+    # axiomofmind's MOSS-Image NSFW Uncensored LoRA, pinned to revision
+    # 7f8c6953. A PEFT LoRA (r 16, alpha 16) on q, k, v, o, ffn_up_gate and
+    # ffn_down of all 42 layers, published in ComfyUI names. The build drops
+    # ComfyUI's diffusion_model. prefix, leaving MOSS-Image's own names
+    # (layers.N.proj.X), which SGLang reads.
+    #
+    # A LoRA recipe holds the adapter and nothing else: the image is the file
+    # under /lora. Nothing of it runs. When a render asks for it, the Hub
+    # copies it into the running base model's container and switches it on
+    # there through SGLang's /v1/set_lora (daemon/services/lora_service.py).
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        ENV HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60
+        RUN pip install --no-cache-dir huggingface_hub
+        RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('axiomofmind/Moss-image-nsfw-uncensored-lora', 'MOSS-Image-NSFW-Uncensored-LoRA-ComfyUI.safetensors', revision='7f8c6953c6a88af8cbc8daeb34633c237dd1a7bb', local_dir='/src')"
+        RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+         && pip install --no-cache-dir safetensors numpy
+        RUN python3 <<'PY'
+        import os, torch
+        from safetensors import safe_open
+        from safetensors.torch import save_file
+        f = safe_open("/src/MOSS-Image-NSFW-Uncensored-LoRA-ComfyUI.safetensors", "pt")
+        out = {}
+        for key in f.keys():
+            t = f.get_tensor(key).to(torch.bfloat16)
+            out[key.removeprefix("diffusion_model.")] = t
+        os.makedirs("/lora", exist_ok=True)
+        save_file(out, "/lora/moss-image-nsfw-uncensored.safetensors")
+        print(len(out), "tensors")
+        PY
+        FROM scratch
+        COPY --from=weights /lora /lora
+    image: spark-ai-hub/lora-moss-image-nsfw:7f8c6953

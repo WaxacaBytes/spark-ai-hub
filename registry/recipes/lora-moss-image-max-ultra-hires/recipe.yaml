@@ -1,0 +1,44 @@
+name: "MOSS Image MAX ULTRA Hi-Res LoHa"
+slug: lora-moss-image-max-ultra-hires
+version: "0.4.0"
+description: "comfyanonymous's MOSS-Image Base high-resolution LoHa v0.4, exactly expanded into linear LoRA factors for the Hub's SGLang loader. Trained on 3.5–10 MP images to improve detail at 4 MP and above. Select it in generate_image with MOSS-Image Base."
+author: "comfyanonymous · for OpenMOSS"
+source: "community"
+website: "https://huggingface.co/comfyanonymous/MOSS_image_MAX_ULTRA_hires_lora_test"
+category: image-gen
+categories:
+  - image-gen
+icon: "\U0001F5BC️"
+logo: "/logos/openmoss.png"
+requirements:
+  min_memory_gb: 0
+  disk_gb: 6
+  cuda_compute: "12.1"
+ui:
+  type: none
+docker:
+  build: true
+  build_time_minutes: 15
+  gpu: false
+status: experimental
+release_date: "2026-10"
+engine: "SGLang"
+tags:
+  - lora
+  - loha
+  - high-resolution
+  - moss
+weights_gb: 3.8
+render_seconds: 564
+render_workload: "2048x2048, 50 steps, on MOSS-Image Base"
+requires_hf_token: false
+lora:
+  bases:
+    - sglang-moss-image-base
+  file: "/lora/moss_hires_v0.4_linear.safetensors"
+  strength: 1.0
+image_defaults:
+  steps: 50
+  guidance_scale: 3.0
+  notes: "MOSS Base only. This is the publisher's v0.4 LoHa, converted algebraically to rank-256/1024/4096 LoRA factors with each layer's scale preserved. Request width 2048 and height 2048 with generate_image to exercise its 4 MP purpose; 50 steps, CFG 3. High resolutions consume more memory and time. Tested 2026-10-23 through the Hub at 2048x2048, same prompt and seed: sharper net fibres and skin, the prompted water droplets and golden-hour light that MOSS Base alone left out; 564 s against 394 s for the base."
+  source: "https://huggingface.co/comfyanonymous/MOSS_image_MAX_ULTRA_hires_lora_test"
