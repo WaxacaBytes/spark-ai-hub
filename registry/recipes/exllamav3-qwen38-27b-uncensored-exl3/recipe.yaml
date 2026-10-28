@@ -54,14 +54,15 @@ requires_hf_token: false
 tested_on:
   dgx_os: "7.2"
   date: "2026-09-16"
-tokens_per_second: 32.3
-tokens_per_second_editing: 48.4
+tokens_per_second: 37.8
+tokens_per_second_editing: 67.9
 editing_workload: "code-edit"
 benchmarks:
-  prose: 28.46
-  explainer: 32.47
-  code: 37.17
-  code-edit: 48.4
+  prose: 30.24
+  explainer: 39.52
+  code: 47.52
+  code-edit: 67.91
+keep_for: "Full 262K context inside a hard 16 GB cap"
 integration:
   api_url: "<HUB>/v1"
   model_id: "qwen3.8-27b-uncensored-exl3-2.75bpw"

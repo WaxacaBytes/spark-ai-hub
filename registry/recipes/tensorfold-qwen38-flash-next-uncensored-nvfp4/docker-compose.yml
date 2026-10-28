@@ -1,0 +1,157 @@
+services:
+  tensorfold:
+    # DevelopingDad's abliterated (refusal-removed) Qwen3.8-Flash-Next on
+    # TensorFold's Zig engine (tensorfold-native, one GPU) - the uncensored
+    # sibling of tensorfold-qwen38-flash-next-nvfp4: same engine image, same
+    # settings, only the checkpoint differs.
+    #   https://huggingface.co/DevelopingDad/Qwen3.8-Flash-Next-FP4-Local-Abliterated
+    # It is NVIDIA's quantization-aware-distilled FP4 checkpoint with the
+    # refusal direction projected out of the 48 attention output projections
+    # and the routed/shared expert down projections, re-rounded into the same
+    # NVFP4 / MXFP8 encodings: every tensor keeps NVIDIA's name, dtype and
+    # shape, so the engine reads it exactly as it reads the base. The edit is
+    # a community upload (no trusted publisher ships an abliterated FP4
+    # build). It removes safety refusals the upstream model was trained to
+    # have; supply your own guardrails.
+    #
+    # Recipe shape and every serving setting follow Mia's AI Lab's single-Spark
+    # TensorFold recipe, pinned to commit fd3f43e (2026-10-27: TensorFold v1.1.4
+    # with patches 0001-0017, the NVIDIA FP4 default):
+    #   https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold
+    #   https://mia-ai.net/models/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold
+    # The engine is their scripts/prepare.sh build, published pre-built (no
+    # weights) at ghcr.io/waxacabytes/tensorfold-flashnext-spark-ai-hub from
+    # github.com/WaxacaBytes/tensorfold-flashnext-spark-ai-hub under the tag
+    # their scripts/config.sh computes (v1.1.4-eab8582-da5e32ac724a): they
+    # publish no image of this build, and the recipe pulls it rather than
+    # compiling it on the Spark.
+    # Their start.sh / scripts/config.sh defaults are written out as plain
+    # `tensorfold-native serve` flags and TENSORFOLD_* / TF_FLASHNEXT_* variables.
+    build:
+      context: .
+      dockerfile_inline: |
+        # --- engine: Mia's prepare.sh build of TensorFold's Zig engine -------
+        # NVIDIA's PyTorch 26.07, Zig 0.17.0, TensorFold v1.1.4 (eab8582) with
+        # Mia's patches 0001-0017, kernels embedded in the binary.
+        FROM ghcr.io/waxacabytes/tensorfold-flashnext-spark-ai-hub:v1.1.4-eab8582-da5e32ac724a
+        # --- weights, baked in: `docker rmi` reclaims every byte -------------
+        # Downloaded straight into the image's own layer, so the build never
+        # holds a second copy.
+        RUN pip install --no-cache-dir "huggingface_hub>=1.0"
+        RUN HF_HUB_DISABLE_XET=1 HF_HUB_DOWNLOAD_TIMEOUT=60 python3 -c "from huggingface_hub import snapshot_download; snapshot_download('DevelopingDad/Qwen3.8-Flash-Next-FP4-Local-Abliterated', revision='fe8c47ff55d0692e28dbcad2c53df2f51294be46', local_dir='/models/Qwen3.8-Flash-Next-FP4-Local-Abliterated', ignore_patterns=['.gitattributes', 'serve-spark.sh', 'reencode/*', '*-directions.json', '*-row-norms.json', 'bake-selection.json'], max_workers=8)" && \
+            rm -rf /models/Qwen3.8-Flash-Next-FP4-Local-Abliterated/.cache
+        WORKDIR /workspace
+    image: spark-ai-hub/tensorfold-qwen38-flash-next-uncensored-nvfp4:v1.1.4-eab8582-da5e32ac724a
+    container_name: spark-ai-hub-tensorfold-qwen38-flash-next-uncensored-nvfp4
+    networks:
+      - spark-ai-hub-net
+    ipc: host
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    environment:
+      # Offline: the checkpoint is in the image and served from its path.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - TENSORFOLD_NO_UPDATE_CHECK=1
+      # MTP: up to 6 drafts a round, verified (output matches serial decoding).
+      - TF_FLASHNEXT_DRAFTS=6
+      # Sampled requests (temperature > 0, what chat clients send) in the
+      # batched draft pass, top candidates picked on the GPU, every lane's
+      # n-gram rows gathered in one pass, host draws on 7 worker threads
+      # (patches 0007, 0008, 0010, 0011). None changes a reply's tokens.
+      - TF_FLASHNEXT_SAMPLED_HEADS=1
+      - TF_FLASHNEXT_SAMPLE_CAND=1
+      - TF_FLASHNEXT_GATHER_EARLY=1
+      - TF_FLASHNEXT_HOST_DRAW_THREADS=7
+      # A partly rejected draft window no longer replays the DeltaNet state:
+      # the next verify pass applies the kept rows (patch 0012).
+      - TF_FLASHNEXT_KEEP_LATE=1
+      # The n-gram table read with pread by a thread pool, read ahead, instead
+      # of a page-faulting mmap; the last two prompt chunks evened out when
+      # the last would be under 512 rows (patch 0013).
+      - TF_FLASHNEXT_GATHER_READ=pread
+      - TF_FLASHNEXT_DRAFT_AHEAD=1
+      - TF_FLASHNEXT_WARM_AHEAD=1
+      - TF_FLASHNEXT_PREFILL_TAIL=512
+      # Prompt passes: fused hyper-connection kernels, the shared expert
+      # straight into the y slot, expert row tiles from 256 rows, MTP head
+      # pieces of 1536 rows (patch 0014), and the two-stage MX128 prompt tile
+      # (patch 0015). All bit-identical to the unfused path.
+      - TF_FLASHNEXT_PROMPT_HC2=1
+      - TF_FLASHNEXT_PROMPT_SHARED_DIRECT=1
+      - TF_FLASHNEXT_PROMPT_EXPERT_TILE_ROWS=256
+      - TF_FLASHNEXT_HEAD_PIECE=1536
+      - TF_FLASHNEXT_PROMPT_GEMM2=1
+      # Decode rounds: the shared expert on a second CUDA stream, and every
+      # lane's DeltaNet rows in three launches a layer (patch 0016).
+      - TF_FLASHNEXT_SHARED_SIDE=1
+      - TF_FLASHNEXT_GDN_LANES=1
+      # The draft chain stops on the running product of its draft
+      # probabilities (keep draft j while p1*...*pj >= 0.4) up to 5 streams
+      # drafting together (patch 0017). Only the number of drafts changes.
+      - TF_FLASHNEXT_CONFIDENCE=-0.4
+      - TF_FLASHNEXT_PRODUCT_STREAMS=5
+      # Image budgets (video settings are Mia's; v1.1.4 takes no video for
+      # Flash-Next), and the vision helper's 2 GiB workspace.
+      - TENSORFOLD_MAX_IMAGES=50
+      - TENSORFOLD_IMAGE_TOKENS=16384
+      - TENSORFOLD_VIDEO_TOKENS=16384
+      - TENSORFOLD_VISION_WORKSPACE_MIB=2048
+      # MemAvailable the engine leaves free when it sizes the KV pool; 9 since
+      # patch 0014 so five full 262,144-token windows still fit.
+      - TENSORFOLD_MEMORY_RESERVE_GIB=9
+      - PYTHONUNBUFFERED=1
+    command:
+      - tensorfold-native
+      - serve
+      - /models/Qwen3.8-Flash-Next-FP4-Local-Abliterated
+      - --name
+      - DevelopingDad/Qwen3.8-Flash-Next-FP4-Local-Abliterated
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8888"
+      # The native window; five requests decoded together share one FP8 KV
+      # pool (~24.4 GiB after load: five full 262,144 windows).
+      - --context
+      - "262144"
+      - --parallel
+      - "5"
+      - --max-tokens
+      - "32768"
+      # Qwen's thinking-mode sampling; a request's own values win.
+      - --temperature
+      - "1.0"
+      - --top-p
+      - "0.95"
+      - --top-k
+      - "20"
+      - --thinking
+      - --kv-cache
+      - fp8
+      # Images (the model's own 0.84 GiB tower), data URLs only. Mia's video
+      # limit is kept as she passes it; this engine refuses video parts.
+      - --vision
+      - --vision-max-images
+      - "50"
+      - --vision-max-videos
+      - "4"
+      - --vision-image-tokens
+      - "16384"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # NOT unless-stopped: the server holds most of unified memory, so a boot
+    # that fails must stop instead of looping.
+    restart: on-failure:1
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

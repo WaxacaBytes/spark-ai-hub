@@ -1,0 +1,69 @@
+name: "Qwen3.8-Flash-Next NVFP4 Video"
+slug: tensorfold-qwen38-flash-next-nvfp4-video
+version: "1.0.0"
+description: "Qwen3.8-Flash-Next — the first open-weight release of the architecture behind Qwen4, 177B total parameters over a hybrid linear/full attention stack — served by TensorFold's previous Zig engine build (zig-flashnext db281878 with Mia's AI Lab patches 0001-0015, their single-Spark recipe of 2026-10-18), kept for video input and for throughput with several requests at once: measured through the Hub on 2026-10-28, four and five prose requests at once ran 148.6 and 168.0 tok/s combined, against 111.8 and 126.6 on the newer TensorFold v1.1.4 build (the NVFP4 recipe), which edits faster and adds JSON-schema structured output but takes no video. The checkpoint is NVIDIA's quantization-aware-distilled FP4 build, trained against the bf16 model as teacher: NVFP4 routed experts (all 512, 10 active per token), MXFP8 attention and shared-expert linears, an FP8 n-gram table and the MTP head. NVIDIA's model card puts it at 91.5% GPQA Diamond and 88.7% ToolEvalBench against 92.2% and 89.4% for bf16 (read 2026-10-19); the INT4-AutoRound build of the same recipe is faster but routes 5 experts a token instead of 10, about 10% lower in general capability per its authors. Five requests at the full native 262K context share one FP8 KV pool. Decoding drafts up to six MTP tokens a round, each verified by the model, so output is unchanged. Images and videos work as OpenAI image_url / video_url parts (data URLs), as do tool calling and reasoning. It is a reasoning model — the chain-of-thought arrives in reasoning_content, so allow a few hundred max_tokens or the visible answer comes back empty."
+author: "Qwen"
+source: "community"
+website: "https://huggingface.co/nvidia/Qwen3.8-Flash-Next-FP4-Local"
+upstream: "https://github.com/MiaAI-Lab/Qwen3.8-Flash-Next-Single-DGX-Spark-TensorFold"
+category: llm
+logo: "/logos/qwen.png"
+tags:
+  - llm
+  - moe
+  - tensorfold
+  - nvfp4
+  - qwen
+  - multimodal
+  - vision
+  - video
+  - reasoning
+  - tool-use
+  - speculative-decoding
+  - mtp
+  - long-context
+requirements:
+  min_memory_gb: 115
+  recommended_memory_gb: 128
+  disk_gb: 130
+  cuda_compute: "12.1"
+ui:
+  type: api-only
+  port: 8888
+  proxy: true
+  path: "/v1/models"
+docker:
+  build: true
+  build_time_minutes: 40
+  gpu: true
+status: experimental
+engine: "TensorFold"
+# Effort levels its chat template takes (daemon/models/reasoning.py).
+reasoning: "qwen3.8"
+params_b: 177
+active_params_b: 6
+arch: moe
+quantization: "NVFP4"
+speculative_method: "mtp"
+artificial_analysis_index: 46
+weights_gb: 102.3
+release_date: "2026-10-18"
+requires_hf_token: false
+tokens_per_second: 49.1
+tokens_per_second_editing: 102.0
+editing_workload: "code-edit"
+benchmarks:
+  code: 57.72
+  explainer: 48.89
+  prose: 43.87
+  code-edit: 102.02
+concurrent:
+  requests: 5
+  tokens_per_second: 168.0
+  measured: "2026-10-28"
+integration:
+  api_url: "<HUB>/v1"
+  model_id: "Qwen/Qwen3.8-Flash-Next"
+  api_key: "<API_KEY>"
+  max_context: "262144"
+  curl_example: "curl <HUB>/v1/chat/completions -H 'Authorization: Bearer <API_KEY>' -H 'Content-Type: application/json' -d '{\"model\": \"Qwen/Qwen3.8-Flash-Next\", \"messages\": [{\"role\": \"user\", \"content\": \"Write a quicksort in Python.\"}], \"max_tokens\": 512}'"

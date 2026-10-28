@@ -17,30 +17,47 @@ services:
     # its own CUDA allocation (--grid_size) at 16 GB.
     #
     # There is no stock aarch64 image for ExLlamaV3 (TabbyAPI's is amd64 only)
-    # and turboderp publishes no aarch64 wheel; the v1.4.4 source does not
-    # compile on ARM either (avx2_target.cpp calls __builtin_cpu_supports
-    # unguarded). The engine is instead the prebuilt cp312/aarch64 exllamav3
-    # 1.4.4 wheel from vcruz305's Spark wheel set - the same pinned wheel the
-    # vllm-glm53-flash-exl3-k2 recipe runs on. Nothing compiles here or at launch.
-    image: spark-ai-hub/exllamav3-qwen38-27b-uncensored-exl3:exllamav3-1.4.4
+    # and turboderp publishes no aarch64 wheel. v1.6.0 - the version Mia's kit
+    # pins since 2026-10-09 - is the first whose source compiles on ARM (the
+    # AVX2/F16C probes are now x86-only), so the engine stage builds that
+    # release for the GB10 (sm_121) once, at install. Nothing compiles at launch.
+    image: spark-ai-hub/exllamav3-qwen38-27b-uncensored-exl3:exllamav3-1.6.0-bbb11db4
     build:
       context: .
       secrets:
         - hf_token
       dockerfile_inline: |
         # --- server stage ----------------------------------------------------
-        # Mia's server, pinned to one commit. Only serve_openai.py is used; it
-        # imports nothing else from the kit.
+        # Mia's server, pinned to one commit. Only serve_openai.py and the
+        # token_budget.py it imports are used; nothing else from the kit.
+        # bbb11db4 (2026-10-09): replies default to 32,768 tokens when a client
+        # sends no max_tokens (was 1,024, which cut thinking replies short), and
+        # max_tokens is clamped to what the KV cache can admit.
         FROM alpine/git:latest AS server
         RUN git clone https://github.com/MiaAI-Lab/Qwen3.8-27B-16gb-NVIDIA-GPUs-one-click-install /kit \
-         && git -C /kit checkout 622c7965ed5e02a13b188c9ef21bb9857fd2ba28
+         && git -C /kit checkout bbb11db4b7ff688a62841c68e0892fa099bc3362
 
         # --- engine stage ----------------------------------------------------
-        # Downloads one prebuilt wheel; no CUDA compile.
-        FROM python:3.12-slim AS engine
-        ENV HF_HUB_DISABLE_XET=1
-        RUN pip install --no-cache-dir huggingface_hub
-        RUN python3 -c "from huggingface_hub import hf_hub_download; hf_hub_download('vcruz305/GLM-5.3-Flash-EXL3-K2-spark-vllm', 'exllamav3-1.4.4-cp312-cp312-linux_aarch64.whl', revision='4c2348f756013024a95462caf14b6fd68b8a35a6', local_dir='/wheels')"
+        # ExLlamaV3 v1.6.0 (commit 151539c) compiled into a wheel for sm_121,
+        # against the same torch the runtime installs.
+        FROM nvidia/cuda:13.0.3-devel-ubuntu24.04 AS engine
+        ENV DEBIAN_FRONTEND=noninteractive
+        RUN apt-get update && apt-get install -y --no-install-recommends \
+              python3.12 python3.12-venv python3.12-dev python3-pip \
+              build-essential ca-certificates git \
+         && rm -rf /var/lib/apt/lists/*
+        RUN python3.12 -m venv /opt/venv
+        ENV PATH=/opt/venv/bin:/usr/local/cuda/bin:$PATH
+        RUN pip install --no-cache-dir --upgrade pip setuptools wheel ninja \
+         && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu130 \
+              "torch==2.13.0+cu130"
+        RUN git init -q /exllamav3 && cd /exllamav3 \
+         && git remote add origin https://github.com/turboderp-org/exllamav3 \
+         && git fetch -q --depth 1 origin 151539c77abc7ab7425d30da7a4e8e3c5c154e7b \
+         && git checkout -q --detach FETCH_HEAD
+        RUN cd /exllamav3 && TORCH_CUDA_ARCH_LIST="12.1" MAX_JOBS=8 \
+            pip wheel --no-cache-dir --no-build-isolation --no-deps -w /wheels . \
+         && ls /wheels/exllamav3-1.6.0-*.whl
 
         # --- weights stage ---------------------------------------------------
         # Baked into the image, so `docker rmi` reclaims every byte.
@@ -65,12 +82,13 @@ services:
         RUN pip install --no-cache-dir --upgrade pip setuptools wheel ninja \
          && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu130 \
               "torch==2.13.0+cu130"
-        # ExLlamaV3 1.4.4 - the exact version Mia's launcher checks for, and
-        # the first that decodes the quantized vision tower correctly.
+        # ExLlamaV3 1.6.0 - the exact version Mia's launcher checks for.
+        # Its chat template imports transformers, which the engine no longer
+        # pulls in; without it every chat request fails (Mia's changelog).
         RUN --mount=type=bind,from=engine,source=/wheels,target=/wheels \
-            pip install --no-cache-dir /wheels/exllamav3-1.4.4-cp312-cp312-linux_aarch64.whl
-        RUN pip install --no-cache-dir aiohttp pillow
-        COPY --from=server /kit/tools/serve_openai.py /app/serve_openai.py
+            pip install --no-cache-dir /wheels/exllamav3-1.6.0-*.whl
+        RUN pip install --no-cache-dir aiohttp pillow "transformers==5.19.0"
+        COPY --from=server /kit/tools/serve_openai.py /kit/tools/token_budget.py /app/
         COPY --from=weights /weights /models/Qwen3.8-27B-Uncensored-EXL3-2.75bpw
         RUN python -c "import exllamav3, exllamav3_ext; from exllamav3.version import __version__ as v; print('exllamav3', v)"
     container_name: spark-ai-hub-exllamav3-qwen38-27b-uncensored-exl3
