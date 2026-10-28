@@ -208,6 +208,16 @@ class RecipeWeights(BaseModel):
     revision: str = ""   # the commit the build pins; "" when it takes main
 
 
+class RecipeConcurrent(BaseModel):
+    """Combined throughput with several requests at once: `requests` identical
+    512-token prose requests sent together through the Hub, and the date. An
+    engine's batching can rank builds differently from their one-request
+    speed, so it is a measurement of its own."""
+    requests: int
+    tokens_per_second: float
+    measured: str              # YYYY-MM-DD
+
+
 class RecipeArenaScore(BaseModel):
     """One human-preference Elo for a media model, as a board published it.
 
@@ -358,6 +368,12 @@ class Recipe(BaseModel):
     # benchmark snippet prints: code, explainer, prose, code-edit. Shown on the
     # detail page so a range can be checked rather than taken on faith.
     benchmarks: dict[str, float] = {}
+    concurrent: RecipeConcurrent | None = None
+    # Why this build is kept beside its siblings, for a reason the Agents page
+    # cannot compute from the fields here (quality, mostly): one short fact,
+    # never a superlative. Speed, size, throughput at once and capabilities
+    # are compared live among the builds of one model instead.
+    keep_for: str = ""
     # Media models have no token rate; what decides whether one is usable is
     # how long a result takes. `render_seconds` is one result (picture, clip,
     # 3D model) from a warm model at its own card settings, which

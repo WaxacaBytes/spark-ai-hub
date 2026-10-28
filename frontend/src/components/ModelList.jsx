@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
-import { buildLabel, displayName, formatDuration, formatParams, isLora, isModel, primaryArena, publishers } from '../models'
+import { buildLabel, displayName, formatDuration, formatParams, isLora, isModel, primaryArena, publishers, whyKept } from '../models'
 import { openUrl as openUrlFor } from '../lib/urls'
 import FavStar from './FavStar'
 import Hint from './Hint'
@@ -278,7 +278,22 @@ function ColumnHeader({ v }) {
   )
 }
 
-function BuildRow({ recipe, variant, v, rank, highlight, onFrontier }) {
+// Why this build is kept beside the model's others: short marks, wrapping
+// under the build name rather than widening the row.
+function WhyKept({ why }) {
+  if (!why?.length) return null
+  return (
+    <span className="mt-0.5 flex flex-wrap gap-1">
+      {why.map((w) => (
+        <span key={w} className="rounded bg-primary/10 px-1 font-label text-[9px] leading-[14px] text-primary">
+          {w}
+        </span>
+      ))}
+    </span>
+  )
+}
+
+function BuildRow({ recipe, variant, v, rank, highlight, onFrontier, why = null }) {
   const installing = useStore((s) => s.installing)
   const updating = useStore((s) => s.updating)
   const installRecipe = useStore((s) => s.installRecipe)
@@ -362,6 +377,7 @@ function BuildRow({ recipe, variant, v, rank, highlight, onFrontier }) {
             {[variant === 'ranked' && buildLabel(recipe), recipe.engine, publishers(recipe)].filter(Boolean).join(' · ')}
           </span>
           {onFrontier && <span className="font-label text-[11px] font-bold leading-none text-success">◆</span>}
+          {why?.length > 0 && <span className="basis-full"><WhyKept why={why} /></span>}
         </span>
       ) : (
       <span className="flex min-w-0 items-center gap-1.5">
@@ -402,6 +418,7 @@ function BuildRow({ recipe, variant, v, rank, highlight, onFrontier }) {
             // than its label, and a cut list names the wrong set.
             <span className="font-label text-[9px] leading-tight text-text-dim">{publishers(recipe)}</span>
           )}
+          <WhyKept why={why} />
         </span>
         {/* Marks a build no other one in the catalog beats on both axes that
             actually trade off: nothing writes faster AND scores higher on
@@ -637,6 +654,7 @@ export function ModelBlock({ group, frontier = null, widths = null, media = fals
             variant="build"
             v={v}
             onFrontier={frontier?.has(r.slug)}
+            why={whyKept(r, group.items)}
           />
         ))}
       </div>

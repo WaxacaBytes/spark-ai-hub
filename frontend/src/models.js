@@ -46,6 +46,9 @@ const BUILD_TOKENS = new Set([
   // DERISKED its later pack with Blackfrost-AI. Both are quantizations of the
   // same weights, so both are builds in the DeepSeek-V4.1-Flash-1017 row.
   'sage', 'derisked',
+  // `video` marks the Qwen3.8-Flash-Next NVFP4 build kept on TensorFold's
+  // previous engine for video input. Same checkpoint, same row.
+  'video',
 ])
 
 // ── Kinds ─────────────────────────────────────────────────────────────
@@ -216,6 +219,80 @@ function resolvedQuant(recipe) {
 // NVFP4 against a community INT4 -- and nothing else on a row says it.
 export function publishers(recipe) {
   return [...new Set((recipe.weights || []).map((w) => w.repo.split('/')[0]))].join(', ')
+}
+
+// ── Why a build is kept ───────────────────────────────────────────────
+// A model with several builds keeps each one for a reason: speed, size (room
+// beside the media models), throughput with several requests at once, a
+// capability the others lack, or quality. All but quality are compared here,
+// live, among the builds on screen, so adding or removing a build moves the
+// marks with it and nothing written down goes stale. Quality comes from the
+// recipe's own `keep_for`, one short fact.
+
+// Tags that name something a build can do, and the word a chip uses for each.
+const CAPABILITIES = {
+  video: 'Video', vision: 'Images', audio: 'Audio',
+  uncensored: 'Uncensored', abliterated: 'Uncensored',
+  'tool-use': 'Tool calls', 'structured-output': 'JSON schema', reasoning: 'Reasoning',
+  'image-edit': 'Image editing', 'image-to-video': 'Image to video', 'last-frame': 'Last frame',
+  'multi-reference': 'Several references', 'video-audio': 'Sound', rgba: 'Transparency', pbr: 'PBR textures',
+}
+
+// Values this close to the top count as the top: 156.6 against 156.8 is not a
+// reason to keep one build over the other.
+const TIE = 0.03
+
+// Bits a weight, read off the quantization: what a build gives up in quality
+// to be smaller or faster. Unknown or mixed formats stay out of the comparison.
+function bitsOf(recipe) {
+  const q = (recipe.quantization || '').toUpperCase()
+  const bpw = q.match(/(\d+(?:\.\d+)?)\s*BPW/)
+  if (bpw) return parseFloat(bpw[1])
+  if (q.includes(',')) return null
+  if (/^(BF16|FP16|FP32)/.test(q)) return 16
+  if (/^(FP8|INT8|Q8)/.test(q)) return 8
+  if (/^(NVFP4|MXFP4|INT4)$/.test(q)) return 4
+  if (/K2$|^IQ2/.test(q)) return 2
+  if (/^IQ1/.test(q)) return 1.75
+  return null
+}
+
+function topOf(recipe, siblings, value) {
+  const vals = siblings.map(value).filter((x) => x != null)
+  const mine = value(recipe)
+  if (mine == null || vals.length < 2) return false
+  const best = Math.max(...vals)
+  // Nothing to tell apart when every build sits within the tie.
+  if (Math.min(...vals) >= best * (1 - TIE)) return false
+  return mine >= best * (1 - TIE)
+}
+
+export function whyKept(recipe, siblings) {
+  if (siblings.length < 2) return []
+  const out = []
+  if (topOf(recipe, siblings, (r) => r.tokens_per_second)) out.push('Fastest writing')
+  if (topOf(recipe, siblings, (r) => r.tokens_per_second_editing)) out.push('Fastest editing')
+  // Only builds measured with the same number of requests are compared.
+  const n = recipe.concurrent?.requests
+  if (n && topOf(recipe, siblings, (r) => (r.concurrent?.requests === n ? r.concurrent.tokens_per_second : null))) {
+    out.push(`Most with ${n} at once`)
+  }
+  // Smallest by a clear margin: what lets it run beside an image or video
+  // model. Builds tied at the smallest size all count.
+  const sizes = siblings.map((r) => r.memory_gb).filter((x) => x > 0).sort((a, b) => a - b)
+  const larger = sizes.find((x) => x > sizes[0] * (1 + TIE))
+  if (larger && sizes[0] <= larger * 0.85 && recipe.memory_gb > 0 && recipe.memory_gb <= sizes[0] * (1 + TIE)) {
+    out.push(`Smallest · ${Math.round(recipe.memory_gb)} GB`)
+  }
+  if (topOf(recipe, siblings, bitsOf)) out.push('Most precise')
+  const has = (r, tag) => (r.tags || []).some((t) => CAPABILITIES[t] === CAPABILITIES[tag])
+  const caps = new Set()
+  for (const tag of recipe.tags || []) {
+    if (CAPABILITIES[tag] && siblings.some((r) => !has(r, tag))) caps.add(CAPABILITIES[tag])
+  }
+  out.push(...caps)
+  if (recipe.keep_for) out.push(recipe.keep_for)
+  return out
 }
 
 export function buildLabel(recipe) {
