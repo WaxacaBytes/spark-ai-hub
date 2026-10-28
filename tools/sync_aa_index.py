@@ -44,7 +44,6 @@ AA_INDEX = {
     "ling3-flash": 27,
     "ling3-tiny": 16,
     "mimo-v25": 28,
-    "minimax-m27": 30,
     "muse-glimmer-30b": 24,
     "nemotron-cascade2-30b-a3b": 12,
     "nemotron3-elastic-30b-a3b": None,
