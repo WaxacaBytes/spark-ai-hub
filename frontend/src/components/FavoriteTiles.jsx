@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../store'
-import { buildLabel, displayName, formatDuration, isAgentModel, isLora, mediaKind, publishers } from '../models'
+import { buildLabel, displayName, formatDuration, isAgentModel, isLora, isModel, mediaKind, modelKey, publishers, whyKept } from '../models'
 import FavStar from './FavStar'
 import KindTag from './KindTag'
 import RecipeLogo from './RecipeLogo'
+import WhyKept from './WhyKept'
 
 // The models an admin starred, as big tiles: what each is, its one figure,
 // and whether it can start right now -- so "which one should I use?" is
@@ -28,12 +29,16 @@ function byIndexThenParams(a, b) {
 
 function Tile({ recipe }) {
   const selectRecipe = useStore((s) => s.selectRecipe)
+  const recipes = useStore((s) => s.recipes)
   const sub = [buildLabel(recipe), recipe.engine, publishers(recipe)].filter(Boolean).join(' · ')
+  // The same marks as the build's row on the model lists, among the same builds.
+  const key = modelKey(recipe)
+  const why = whyKept(recipe, recipes.filter((r) => isModel(r) && !isLora(r) && modelKey(r) === key))
 
   return (
     <div
       onClick={() => selectRecipe(recipe.slug)}
-      className="flex min-w-0 cursor-pointer flex-col gap-3 rounded-2xl border border-fav/30 bg-surface p-4 transition-colors hover:border-fav/60"
+      className="row-span-3 grid min-w-0 cursor-pointer grid-rows-subgrid gap-3 rounded-2xl border border-fav/30 bg-surface p-4 transition-colors hover:border-fav/60"
     >
       <div className="flex min-w-0 items-start gap-3">
         <RecipeLogo recipe={recipe} />
@@ -45,11 +50,15 @@ function Tile({ recipe }) {
             <KindTag recipe={recipe} specific />
             <span className="min-w-0">{sub}</span>
           </div>
+          <WhyKept why={why} />
         </div>
         <FavStar recipe={recipe} className="text-[16px]" />
       </div>
-      <Figure recipe={recipe} />
-      <div className="mt-auto flex flex-wrap items-center justify-between gap-2">
+      {/* Name, figure and action are three rows shared by the tiles side by
+          side, so their speeds and actions line up however many lines a name,
+          its marks or its action take. */}
+      <div><Figure recipe={recipe} /></div>
+      <div className="flex flex-wrap content-start items-center justify-between gap-2">
         <Action recipe={recipe} />
       </div>
     </div>

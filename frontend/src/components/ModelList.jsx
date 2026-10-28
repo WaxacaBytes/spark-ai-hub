@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { useStore } from '../store'
 import { useThemedLogo } from '../hooks/useThemedLogo'
 import { buildLabel, displayName, formatDuration, formatParams, isLora, isModel, primaryArena, publishers, whyKept } from '../models'
+import WhyKept from './WhyKept'
 import { openUrl as openUrlFor } from '../lib/urls'
 import FavStar from './FavStar'
 import Hint from './Hint'
@@ -275,21 +276,6 @@ function ColumnHeader({ v }) {
       ))}
       <span />
     </div>
-  )
-}
-
-// Why this build is kept beside the model's others: short marks, wrapping
-// under the build name rather than widening the row.
-function WhyKept({ why }) {
-  if (!why?.length) return null
-  return (
-    <span className="mt-0.5 flex flex-wrap gap-1">
-      {why.map((w) => (
-        <span key={w} className="rounded bg-primary/10 px-1 font-label text-[9px] leading-[14px] text-primary">
-          {w}
-        </span>
-      ))}
-    </span>
   )
 }
 

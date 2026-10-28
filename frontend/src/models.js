@@ -120,7 +120,7 @@ export function formatDuration(seconds) {
 
 const ENGINE_PREFIX = /^(vllm|vllmomni|sglang|llamacpp|exllamav3|atlas|tensorfold|hy3dgen|ltxpipelines|sol|diffusers|fastvideo|sparc3d)-/
 
-function modelKey(recipe) {
+export function modelKey(recipe) {
   const parts = (recipe.slug || '').replace(ENGINE_PREFIX, '').split('-')
   while (parts.length > 1 && BUILD_TOKENS.has(parts[parts.length - 1])) parts.pop()
   return parts.join('-')
@@ -286,9 +286,16 @@ export function whyKept(recipe, siblings) {
   }
   if (topOf(recipe, siblings, bitsOf)) out.push('Most precise')
   const has = (r, tag) => (r.tags || []).some((t) => CAPABILITIES[t] === CAPABILITIES[tag])
+  // A build missing something the model itself can do carries `no-<tag>`,
+  // e.g. `no-video` on a Flash-Next build whose engine refuses video. Then
+  // that capability is the model's own, not a reason to keep the builds
+  // that have it: only the build without it is marked.
+  const lacked = new Set(siblings.flatMap((r) => (r.tags || []).map((t) => t.startsWith('no-') && CAPABILITIES[t.slice(3)])))
   const caps = new Set()
   for (const tag of recipe.tags || []) {
-    if (CAPABILITIES[tag] && siblings.some((r) => !has(r, tag))) caps.add(CAPABILITIES[tag])
+    const lacks = tag.startsWith('no-') && CAPABILITIES[tag.slice(3)]
+    if (lacks) caps.add(`No ${lacks.toLowerCase()}`)
+    else if (CAPABILITIES[tag] && !lacked.has(CAPABILITIES[tag]) && siblings.some((r) => !has(r, tag))) caps.add(CAPABILITIES[tag])
   }
   out.push(...caps)
   if (recipe.keep_for) out.push(recipe.keep_for)

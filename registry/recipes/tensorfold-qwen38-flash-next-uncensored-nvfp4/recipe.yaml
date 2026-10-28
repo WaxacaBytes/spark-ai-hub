@@ -18,6 +18,7 @@ tags:
   - qwen
   - multimodal
   - vision
+  - no-video
   - reasoning
   - tool-use
   - structured-output
