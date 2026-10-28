@@ -85,15 +85,15 @@ def _reserved_from_compose(recipe_dir: Path) -> float:
 
 
 _REPO = r"[A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w.-]*"
-# CLI downloads, including Flare's prepared Hugging Face packages.
-_CLI_DOWNLOAD = re.compile(rf"\b(?:hf|huggingface-cli|flare)\s+download\s+({_REPO})([^\n;&|]*)")
+# `hf download org/repo --revision sha`, the CLI spelling.
+_CLI_DOWNLOAD = re.compile(rf"\b(?:hf|huggingface-cli)\s+download\s+({_REPO})([^\n;&|]*)")
 
 
 def _weights_from_compose(recipe_dir: Path) -> list[RecipeWeights]:
     """The Hugging Face repos a recipe's build downloads, in download order.
 
     Builds call huggingface_hub's snapshot_download / hf_hub_download (some
-    under an `import ... as get` alias) or a download CLI, each with
+    under an `import ... as get` alias) or the `hf download` CLI, each with
     the repo as its first argument and, when pinned, a revision.
     """
     compose = recipe_dir / "docker-compose.yml"

@@ -29,14 +29,12 @@ class WeightsFromComposeTests(unittest.TestCase):
     def test_an_image_pulled_with_no_download_has_none(self):
         self.assertEqual(weights("services:\n  app:\n    image: ghcr.io/org/app:latest\n"), [])
 
-    def test_flare_package_revision_on_a_continued_line(self):
+    def test_revision_on_a_continued_line(self):
         compose = (
-            "RUN flare download local-inference-lab/Qwen3.8-Flash-Next-FLARE \\\n"
-            "    --revision cd5b8226 --cache-dir /cache\n"
+            "RUN hf download Org/Repo \\\n"
+            "    --revision cd5b8226 --local-dir /models\n"
         )
-        self.assertEqual(weights(compose), [
-            ("local-inference-lab/Qwen3.8-Flash-Next-FLARE", "cd5b8226"),
-        ])
+        self.assertEqual(weights(compose), [("Org/Repo", "cd5b8226")])
 
 
 if __name__ == "__main__":

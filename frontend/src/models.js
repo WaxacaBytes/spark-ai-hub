@@ -118,7 +118,7 @@ export function formatDuration(seconds) {
   return `${(seconds / 3600).toFixed(1)} h`
 }
 
-const ENGINE_PREFIX = /^(vllm|vllmomni|sglang|llamacpp|exllamav3|atlas|tensorfold|hy3dgen|ltxpipelines|sol|diffusers|flare|fastvideo|sparc3d)-/
+const ENGINE_PREFIX = /^(vllm|vllmomni|sglang|llamacpp|exllamav3|atlas|tensorfold|hy3dgen|ltxpipelines|sol|diffusers|fastvideo|sparc3d)-/
 
 function modelKey(recipe) {
   const parts = (recipe.slug || '').replace(ENGINE_PREFIX, '').split('-')
