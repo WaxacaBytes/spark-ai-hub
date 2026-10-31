@@ -49,6 +49,10 @@ const BUILD_TOKENS = new Set([
   // `video` marks the Qwen3.8-Flash-Next NVFP4 build kept on TensorFold's
   // previous engine for video input. Same checkpoint, same row.
   'video',
+  // `keys` marks the Qwen3.8-Flash-Next build of Mia's ABLIT=1 mode: NVIDIA's
+  // FP4 checkpoint with drowzeys's Keys attention-projection overlay. Another
+  // uncensored build, in the same row as the other uncensored builds.
+  'keys',
 ])
 
 // ── Kinds ─────────────────────────────────────────────────────────────
