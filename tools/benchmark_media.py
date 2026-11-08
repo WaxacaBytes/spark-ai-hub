@@ -280,6 +280,9 @@ def plan(slug, kind, entry, inputs, model=None):
         return {"model": slug, "prompt": IMAGE_PROMPT, "seed": SEED, "aspect_ratio": "1:1"}, 2, describe
     if kind == "3d":
         def describe(r):
+            if r.get("splat"):
+                return (f"one 1024x1024 picture, default steps, {r['gaussians']:,}-Gaussian splat "
+                        f"(PLY, {r['bytes'] / 1e6:.1f} MB)")
             return f"one 1024x1024 picture, default steps, textured GLB ({r['bytes'] / 1e6:.1f} MB)"
         return {"model": slug, "image": inputs["object"], "seed": SEED}, 2, describe
     if kind == "music":

@@ -33,11 +33,20 @@ they are asked for. One case asks the model for more: STL has no colour, and a
 model tagged `texture-optional` (Hi3D, Hunyuan3D-2mv) can skip painting and
 return its full-detail shape (Hi3D paints a 200,000-face copy of a
 1,000,000-face mesh), so an STL is built from that, and sooner.
+
+A model tagged `gaussian-splat` (Idol) speaks the same API but makes a 3D
+Gaussian splat, not a mesh: a standard 3DGS PLY, stored apart at
+/splats/<id>.ply with its picture beside it. Its other format is SPZ
+(Niantic's compressed splat file, about a fifth of the size), written from
+the PLY the first time it is asked for; a splat has no surfaces, so there is
+no GLB, OBJ or STL of it. Such a model also takes `mode` (a photo is framed
+more loosely than a render) and the number of `gaussians`.
 """
 from __future__ import annotations
 
 import asyncio
 import base64
+import gzip
 import io
 import os
 import re
@@ -56,7 +65,7 @@ from daemon.config import settings
 from daemon.models.recipe import media_figures
 from daemon.services import media_store, proxy_service
 from daemon.services.docker_service import get_installed_slugs, is_ready, is_recipe_running
-from daemon.services.image_service import ImageError, load_input, pick_ready, rendering, to_png
+from daemon.services.image_service import IMAGE_DIR, ImageError, load_input, pick_ready, rendering, to_png
 from daemon.services.registry_service import get_recipes
 
 MESH_DIR = settings.data_dir / "meshes"
@@ -66,11 +75,19 @@ MESH_NAME_RE = re.compile(r"^([0-9a-f]{32})\.glb$")
 EXPORT_NAME_RE = re.compile(r"^([0-9a-f]{32})\.(obj\.zip|stl|ply)$")
 EXTENSIONS = {"glb": ".glb", "obj": ".obj.zip", "stl": ".stl", "ply": ".ply"}
 FORMAT_OF = {ext.lstrip("."): fmt for fmt, ext in EXTENSIONS.items()}
+# Gaussian splats: the PLY as made, and the SPZ written from it.
+SPLAT_DIR = settings.data_dir / "splats"
+SPLAT_PREFIX = "/splats"
+SPLAT_NAME_RE = re.compile(r"^([0-9a-f]{32})\.ply$")
+SPLAT_EXPORT_RE = re.compile(r"^([0-9a-f]{32})\.spz$")
+SPLAT_EXTENSIONS = {"ply": ".ply", "spz": ".spz"}
+MIN_GAUSSIANS, MAX_GAUSSIANS = 32_768, 1_048_576
 
 OPENAI_MESHES_TAG = "openai-meshes"
 MULTI_VIEW_TAG = "multi-view"
 OWN_CUTOUT_TAG = "background-removal"
 TEXTURE_OPTIONAL_TAG = "texture-optional"
+SPLAT_TAG = "gaussian-splat"
 VIEWS = ("left", "back", "right")        # besides the front `image`
 POLL_SECONDS = 3
 JOB_TIMEOUT = 30 * 60
@@ -92,13 +109,19 @@ class Backend:
     multi_view: bool = False
     cuts_out: bool = False                   # removes backgrounds itself
     texture_optional: bool = False           # takes texture=false: the bare full-detail shape
+    splat: bool = False                      # makes Gaussian splats (PLY), not meshes
+
+    @property
+    def formats(self) -> dict[str, str]:
+        return SPLAT_EXTENSIONS if self.splat else EXTENSIONS
 
 
 def backends() -> dict[str, Backend]:
     """Every 3D model the catalog offers: recipes tagged `openai-meshes` + `image-to-3d`."""
     return {slug: Backend(slug=slug, summary=recipe.name, multi_view=MULTI_VIEW_TAG in recipe.tags,
                           cuts_out=OWN_CUTOUT_TAG in recipe.tags,
-                          texture_optional=TEXTURE_OPTIONAL_TAG in recipe.tags)
+                          texture_optional=TEXTURE_OPTIONAL_TAG in recipe.tags,
+                          splat=SPLAT_TAG in recipe.tags)
             for slug, recipe in sorted(get_recipes().items())
             if OPENAI_MESHES_TAG in recipe.tags and "image-to-3d" in recipe.tags}
 
@@ -118,7 +141,9 @@ async def list_models() -> list[dict]:
             "name": recipes[slug].name,
             "accepts": ["image-to-3d"] + (["multi-view"] if backend.multi_view else []),
             **({"views": ["front (image)", *VIEWS]} if backend.multi_view else {}),
-            "output": "textured GLB; also OBJ, STL or PLY (generate_3d format)",
+            "output": ("Gaussian splat, not a mesh: 3DGS PLY, or compact SPZ (generate_3d format); "
+                       f"photo and gaussians ({MIN_GAUSSIANS:,}-{MAX_GAUSSIANS:,}) apply"
+                       if backend.splat else "textured GLB; also OBJ, STL or PLY (generate_3d format)"),
             "background": ("any: the model cuts the object out itself" if backend.cuts_out
                            else "plain: the Hub cuts it away first"),
             "state": ("ready" if running and is_ready(slug)
@@ -129,10 +154,20 @@ async def list_models() -> list[dict]:
     return out
 
 
-async def pick_backend(model: str | None, multi_view: bool = False) -> Backend:
+async def pick_backend(model: str | None, multi_view: bool = False, fmt: str | None = None) -> Backend:
+    """The model to run: `model`, or the first ready one that takes the views
+    and makes the file format asked for (None: any)."""
     installed = await installed_backends()
     what = "3D model that takes several views" if multi_view else "3D model"
     candidates = [b for b in installed.values() if b.multi_view or not multi_view]
+    if fmt and fmt not in EXTENSIONS and fmt not in SPLAT_EXTENSIONS:
+        raise ImageError(f"Unknown format {fmt!r}: use one of {', '.join(EXTENSIONS | SPLAT_EXTENSIONS)}.")
+    if model and (backend := installed.get(model)) and fmt and fmt not in backend.formats:
+        kind = "Gaussian splats" if backend.splat else "meshes"
+        raise ImageError(f"{model} makes {kind}: format {' or '.join(backend.formats)}.")
+    if fmt:
+        what += f" that makes {fmt.upper()}"
+        candidates = [b for b in candidates if fmt in b.formats]
     if model:
         backend = installed.get(model)
         if backend is None or backend not in candidates:
@@ -196,16 +231,27 @@ def preview_jpeg_b64(cutout: bytes) -> str:
     return base64.b64encode(out.getvalue()).decode()
 
 
+def made_here(image: str) -> bool:
+    """Whether `image` is a picture the Hub's image tools made (not an upload
+    or a picture from elsewhere): a render, as far as a splat model's framing
+    goes, where anything else is taken for a photo."""
+    name = media_store.name_in_url(image)
+    path = media_store.find(name) if name else None
+    return path is not None and path.parent == IMAGE_DIR
+
+
 async def generate(*, image: str, seed: int | None, steps: int | None, model: str | None,
                    views: dict[str, str] | None = None, user: dict | None = None,
-                   fmt: str = "glb") -> dict:
+                   fmt: str | None = None, photo: bool | None = None,
+                   gaussians: int | None = None) -> dict:
     started = time.monotonic()
-    if fmt not in EXTENSIONS:
-        raise ImageError(f"Unknown format {fmt!r}: use one of {', '.join(EXTENSIONS)}.")
     views = {k: v for k, v in (views or {}).items() if v}
     if unknown := set(views) - set(VIEWS):
         raise ImageError(f"Unknown view {', '.join(sorted(unknown))}: views are {', '.join(VIEWS)}.")
-    backend = await pick_backend(model, multi_view=bool(views))
+    backend = await pick_backend(model, multi_view=bool(views), fmt=fmt)
+    fmt = fmt or next(iter(backend.formats))
+    if gaussians is not None and not MIN_GAUSSIANS <= gaussians <= MAX_GAUSSIANS:
+        raise ImageError(f"gaussians is {MIN_GAUSSIANS:,} to {MAX_GAUSSIANS:,}.")
     seed = seed if seed is not None else secrets.randbelow(MAX_SEED)
     base = f"{proxy_service.internal_url(backend.slug)}/v1/meshes"
     headers = proxy_service.probe_headers()
@@ -223,7 +269,12 @@ async def generate(*, image: str, seed: int | None, steps: int | None, model: st
                 view = await asyncio.to_thread(to_png if backend.cuts_out else cut_out, raw_view)
                 form.add_field(name, view, filename=f"{name}.png", content_type="image/png")
             form.add_field("seed", str(seed))
-            form.add_field("output_format", "glb")
+            form.add_field("output_format", "ply" if backend.splat else "glb")
+            if backend.splat:
+                photo = not made_here(image) if photo is None else photo
+                form.add_field("mode", "real" if photo else "synthetic")
+                if gaussians:
+                    form.add_field("gaussians", str(gaussians))
             # Shape only: skip the paint step where the model can, for its
             # full-detail mesh.
             untextured = fmt == "stl" and backend.texture_optional
@@ -250,19 +301,22 @@ async def generate(*, image: str, seed: int | None, steps: int | None, model: st
             async with session.get(f"{url}/content", headers=headers) as r:
                 if r.status != 200:
                     raise ImageError(f"Fetching the model from {backend.slug} failed (HTTP {r.status}).")
-                glb = await r.read()
+                made = await r.read()
 
-    MESH_DIR.mkdir(parents=True, exist_ok=True)
+    folder, master = (SPLAT_DIR, ".ply") if backend.splat else (MESH_DIR, ".glb")
+    folder.mkdir(parents=True, exist_ok=True)
     mesh_id = secrets.token_hex(16)
-    (MESH_DIR / f"{mesh_id}.png").write_bytes(cutout)
-    (MESH_DIR / f"{mesh_id}.glb").write_bytes(glb)
-    if fmt != "glb":
-        await asyncio.to_thread(export, mesh_id, fmt)
+    (folder / f"{mesh_id}.png").write_bytes(cutout)
+    (folder / f"{mesh_id}{master}").write_bytes(made)
+    if backend.formats[fmt] != master:
+        await asyncio.to_thread(export_splat if backend.splat else export, mesh_id, fmt)
     took = time.monotonic() - started
-    await media_store.record(f"{mesh_id}.glb", user and user["id"], backend.slug, took, seed=seed)
+    await media_store.record(f"{mesh_id}{master}", user and user["id"], backend.slug, took, seed=seed)
+    kind = ({"splat": True, "photo": photo, "gaussians": remote.get("gaussians")} if backend.splat
+            else {"textured": not untextured})
     return {"mesh_id": mesh_id, "model": backend.slug, "seed": seed, "steps": steps,
-            "views": ["front", *views], "bytes": len(glb), "took_s": round(took, 1),
-            "format": fmt, "textured": not untextured,
+            "views": ["front", *views], "bytes": len(made), "took_s": round(took, 1),
+            "format": fmt, **kind,
             "preview": await asyncio.to_thread(preview_jpeg_b64, cutout)}
 
 
@@ -311,3 +365,59 @@ def _obj_zip(glb: bytes) -> bytes:
         for name, data in files.items():
             archive.writestr(name, data)
     return out.getvalue()
+
+
+def export_splat(splat_id: str, fmt: str) -> Path:
+    """The splat <splat_id> as `fmt`, written from its PLY the first time it
+    is asked for. Blocking: call it in a thread."""
+    ply_path = SPLAT_DIR / f"{splat_id}.ply"
+    if fmt == "ply":
+        return ply_path
+    path = SPLAT_DIR / f"{splat_id}{SPLAT_EXTENSIONS[fmt]}"
+    if not path.is_file():
+        partial = path.with_name(f".{path.name}.{secrets.token_hex(4)}")
+        partial.write_bytes(_spz(ply_path.read_bytes()))
+        os.replace(partial, path)
+    return path
+
+
+def _ply_columns(ply: bytes) -> dict[str, np.ndarray]:
+    """The vertex properties of a binary 3DGS PLY, by name."""
+    end = ply.index(b"end_header\n") + len(b"end_header\n")
+    header = ply[:end].decode("ascii").splitlines()
+    if "format binary_little_endian 1.0" not in header:
+        raise ValueError("Not a binary little-endian PLY.")
+    count = next(int(line.split()[2]) for line in header if line.startswith("element vertex "))
+    names = [line.split()[2] for line in header if line.startswith("property ")]
+    if any(line.split()[1] != "float" for line in header if line.startswith("property ")):
+        raise ValueError("Only float properties are read.")
+    rows = np.frombuffer(ply, dtype="<f4", count=count * len(names), offset=end).reshape(count, len(names))
+    return {name: rows[:, i] for i, name in enumerate(names)}
+
+
+def _spz(ply: bytes, fractional_bits: int = 16) -> bytes:
+    """A 3DGS PLY (spherical-harmonics degree 0) as SPZ version 2, Niantic's
+    format (github.com/nianticlabs/spz): a 16-byte header, then positions as
+    24-bit fixed point, alphas, colours, log-scales and rotations as bytes,
+    all gzipped. SPZ keeps its points right-up-back where a 3DGS PLY is
+    right-down-front, so Y and Z turn over (a half turn about X), as spz's own
+    converter does. 16 fractional bits: positions to 1/65,536 within +-128,
+    ample for an object in a unit box."""
+    c = _ply_columns(ply)
+    n = len(c["x"])
+    xyz = np.stack([c["x"], -c["y"], -c["z"]], axis=1)
+    fixed = np.round(xyz * (1 << fractional_bits)).astype("<i4").reshape(-1, 1).view(np.uint8)
+    positions = fixed.reshape(n * 3, 4)[:, :3]                  # the low 3 bytes, little-endian
+    u8 = lambda v: np.clip(np.round(v), 0, 255).astype(np.uint8)
+    alphas = u8(255 / (1 + np.exp(-c["opacity"])))
+    colors = u8(np.stack([c[f"f_dc_{i}"] for i in range(3)], axis=1) * (0.15 * 255) + 0.5 * 255)
+    scales = u8((np.stack([c[f"scale_{i}"] for i in range(3)], axis=1) + 10) * 16)
+    # PLY quaternions are (w, x, y, z); the half turn negates y and z. SPZ v2
+    # keeps x, y, z of the unit quaternion with w >= 0.
+    q = np.stack([c["rot_0"], c["rot_1"], -c["rot_2"], -c["rot_3"]], axis=1)
+    q /= np.linalg.norm(q, axis=1, keepdims=True)
+    q *= np.where(q[:, :1] < 0, -1, 1)
+    rotations = u8(q[:, 1:] * 127.5 + 127.5)
+    header = np.array([0x5053474E, 2, n], dtype="<u4").tobytes() + bytes([0, fractional_bits, 0, 0])
+    return gzip.compress(header + positions.tobytes() + alphas.tobytes() + colors.tobytes()
+                         + scales.tobytes() + rotations.tobytes(), compresslevel=6)

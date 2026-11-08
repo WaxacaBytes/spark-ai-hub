@@ -375,7 +375,9 @@ TOOLS = [
         "title": "Generate 3D model",
         "description": (
             "Start turning one picture of an object into a textured 3D model (GLB) on the "
-            "Spark. Use a picture of one whole object, centered. list_3d_models says what "
+            "Spark -- or, with a model whose list_3d_models output says Gaussian splat, into a "
+            "splat (PLY or SPZ: looks real from every side, but has no surfaces, so no GLB, OBJ "
+            "or STL). Use a picture of one whole object, centered. list_3d_models says what "
             "background each model takes: models that cut the object out themselves take any "
             "photo; for the others use a plain background, which the Hub cuts away first (a PNG "
             "whose background is already transparent is used as it is). Without a picture, make "
@@ -406,14 +408,28 @@ TOOLS = [
                           "description": "Leave this out: the model's own setting (50) is used."},
                 "model": {"type": "string",
                           "description": "A model id from list_3d_models. Omit to use whichever is running."},
-                "format": {"type": "string", "enum": ["glb", "obj", "stl", "ply"],
-                           "description": ("The file to get back (default glb). glb: one file with "
+                "format": {"type": "string", "enum": ["glb", "obj", "stl", "ply", "spz"],
+                           "description": ("The file to get back (default glb; a splat model's "
+                                           "default ply). glb: one file with "
                                            "its texture, for viewers, the web, Blender and game "
                                            "engines. obj: a zip of .obj, .mtl and texture, for tools "
                                            "that want OBJ. stl: shape only, Z-up, for 3D printing and "
                                            "CAD; models that can skip painting give their full-detail "
                                            "shape, sooner. ply: shape with the colours on its vertices, "
-                                           "for point-cloud and mesh processing.")},
+                                           "for point-cloud and mesh processing; from a splat model, "
+                                           "the standard 3D Gaussian Splatting PLY. spz: a splat, "
+                                           "compressed (about a fifth of the PLY), for splat viewers "
+                                           "and the web. Without `model`, the format picks a model "
+                                           "that makes it.")},
+                "photo": {"type": "boolean",
+                          "description": ("Splat models only: true for a real photograph (framed "
+                                          "more loosely), false for a render or generated picture. "
+                                          "Leave it out: pictures made by the Hub count as "
+                                          "generated, any other as a photo.")},
+                "gaussians": {"type": "integer", "minimum": mesh_service.MIN_GAUSSIANS,
+                              "maximum": mesh_service.MAX_GAUSSIANS,
+                              "description": ("Splat models only: how many Gaussians (detail and "
+                                              "file size). Leave it out: the model's own (262,144).")},
             },
             "required": ["image"],
             "additionalProperties": False,
@@ -797,18 +813,19 @@ async def call_tool(name: str, args: dict, origin: str, on_progress=None,
             if not isinstance(views, dict):
                 raise image_service.ImageError("'views' must be an object: {\"left\": url, ...}.")
             views = {str(k): str(v).strip() for k, v in views.items() if str(v).strip()}
+            fmt = str(args.get("format") or "").strip().lower() or None
             slug = (await mesh_service.pick_backend(str(args.get("model") or "").strip() or None,
-                                                    multi_view=bool(views))).slug
-            fmt = str(args.get("format") or "glb").strip().lower()
-            if fmt not in mesh_service.EXTENSIONS:
-                raise image_service.ImageError(f"Unknown format {fmt!r}: use glb, obj, stl or ply.")
+                                                    multi_view=bool(views), fmt=fmt)).slug
+            photo = args.get("photo")
             job_id = image_service.start_job("mesh", lambda: mesh_service.generate(
                 image=image, views=views, seed=_int(args, "seed"), steps=_int(args, "steps"),
-                model=slug, user=user, fmt=fmt), slug, user)
+                model=slug, user=user, fmt=fmt, photo=photo if isinstance(photo, bool) else None,
+                gaussians=_int(args, "gaussians")), slug, user)
             return _started("get_3d", job_id, slug)
         if name == "get_3d":
             info = await image_service.check_job(_job_id(args), CHECK_WAIT, user)
-            return await _with_file(_mesh_result(info, origin), info, lambda r: f"{r['mesh_id']}.glb")
+            return await _with_file(_mesh_result(info, origin), info,
+                                    lambda r: f"{r['mesh_id']}{'.ply' if r.get('splat') else '.glb'}")
         if name == "get_video":
             info = await video_service.check(_job_id(args), CHECK_WAIT, on_progress, user)
             return await _with_file(_video_result(info, origin), {**info, "result": info},
@@ -1087,7 +1104,8 @@ async def _file_info(file_name: str, origin: str) -> dict:
             "structuredContent": structured, "isError": False}
 
 
-_KIND_NAMES = {"image": "image", "video": "video", "mesh": "3D model (GLB)", "audio": "song"}
+_KIND_NAMES = {"image": "image", "video": "video", "mesh": "3D model (GLB)",
+               "splat": "3D Gaussian splat (PLY)", "audio": "song"}
 
 
 def _took(seconds: float) -> str:
@@ -1168,6 +1186,8 @@ def _mesh_result(info: dict, origin: str) -> dict:
                          f"still building on {info['model']} ({info['elapsed']}s so far)",
                          {k: v for k, v in info.items() if k != "result"})
     mesh = {k: v for k, v in info["result"].items() if k != "preview"}
+    if mesh.get("splat"):
+        return _splat_result(info, mesh, origin)
     fmt = mesh.get("format", "glb")
     base = f"{origin}{mesh_service.PUBLIC_PREFIX}/{mesh['mesh_id']}"
     url = base + mesh_service.EXTENSIONS[fmt]
@@ -1186,6 +1206,30 @@ def _mesh_result(info: dict, origin: str) -> dict:
     return {"content": [{"type": "text", "text": "\n".join(lines)},
                         {"type": "image", "data": info["result"]["preview"], "mimeType": "image/jpeg"}],
             "structuredContent": {**mesh, "url": url}, "isError": False}
+
+
+def _splat_result(info: dict, splat: dict, origin: str) -> dict:
+    fmt = splat["format"]
+    base = f"{origin}{mesh_service.SPLAT_PREFIX}/{splat['mesh_id']}"
+    url = base + mesh_service.SPLAT_EXTENSIONS[fmt]
+    lines = [f"3D Gaussian splat ({fmt.upper()}): {url}"]
+    if fmt != "ply":
+        lines.append(f"Same splat as PLY: {base}.ply")
+    lines += [f"Model: {splat['model']}", f"Seed: {splat['seed']}"]
+    if splat.get("gaussians"):
+        lines.append(f"Gaussians: {splat['gaussians']:,}")
+    lines.append(f"Framed as: {'a photo' if splat.get('photo') else 'a render'}")
+    if splat.get("took_s") is not None:
+        lines.append(_took(splat["took_s"]))
+    lines.append("Other format of it: the same URL ending in .ply or .spz. A splat is a cloud of "
+                 "coloured blobs, not a mesh: open it in a splat viewer (SuperSplat, Spark, a "
+                 "Blender 3DGS add-on); there is no GLB, OBJ or STL of it. The user can turn it "
+                 "around in the Hub's My files. To save it into your workspace, call "
+                 "create_download with the URL; the attached JPEG is the picture it was built "
+                 "from, not a render of the splat.")
+    return {"content": [{"type": "text", "text": "\n".join(lines)},
+                        {"type": "image", "data": info["result"]["preview"], "mimeType": "image/jpeg"}],
+            "structuredContent": {**splat, "url": url}, "isError": False}
 
 
 def _music_result(info: dict, origin: str) -> dict:
@@ -1213,7 +1257,8 @@ async def _own_file(args: dict, user: dict | None) -> str:
     if not file_name:
         raise image_service.ImageError("'url' must be a Hub image, video, 3D model or song URL "
                                        "(.../images/<id>.png, /videos/<id>.mp4, /meshes/<id>.glb "
-                                       "(or .obj.zip / .stl / .ply) or /audio/<id>.wav).")
+                                       "(or .obj.zip / .stl / .ply), /splats/<id>.ply (or .spz) "
+                                       "or /audio/<id>.wav).")
     if media_store.find(media_store.master(file_name)) is None or not await media_store.can_read(file_name, user):
         raise image_service.ImageError(f"No Hub file {file_name} for this account "
                                        "(it may have expired or been deleted).")
@@ -1379,6 +1424,11 @@ async def _media_file(request: Request, name: str, suffix: str) -> Response:
 @router.get("/meshes/{name}")
 async def mesh_file(request: Request, name: str):
     return await _media_file(request, name, (".glb", ".stl", ".ply", ".obj.zip"))
+
+
+@router.get("/splats/{name}")
+async def splat_file(request: Request, name: str):
+    return await _media_file(request, name, (".ply", ".spz"))
 
 
 @router.get("/audio/{name}")

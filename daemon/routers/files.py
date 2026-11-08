@@ -75,9 +75,9 @@ def _save_render(raw: bytes, path) -> None:
 
 @router.put("/api/media/{name}/thumb")
 async def set_render(request: Request, name: str):
-    """A browser's still of one of its account's 3D models, to stand for it
+    """A browser's still of one of its account's 3D models or splats, to stand for it
     instead of the picture it was made from (lib/mesh3d.js snapshot)."""
-    path = media_store.find(name) if name.endswith(".glb") else None
+    path = media_store.find(name) if name.endswith(media_store.THREE_D_SUFFIXES) else None
     if path is None or not await media_store.can_read(name, _user(request)):
         return Response(status_code=404)
     raw = await request.body()
@@ -93,7 +93,7 @@ async def set_render(request: Request, name: str):
 
 @router.get("/api/media/{name}/thumb")
 async def media_thumb(request: Request, name: str):
-    path = media_store.find(name) if name.endswith((".png", ".glb")) else None
+    path = media_store.find(name) if name.endswith((".png", *media_store.THREE_D_SUFFIXES)) else None
     if path is None or not await media_store.can_read(name, _user(request)):
         return Response(status_code=404)
     if (jpeg := _thumbs.get(name)) is None:

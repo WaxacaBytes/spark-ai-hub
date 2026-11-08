@@ -2,10 +2,13 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 
-/* How the Hub shows a 3D model (GLB), shared by My files' viewer
- * (components/MeshView.jsx) and the still on a model's card (snapshot below),
- * so a card looks like the model it opens. Imported on demand only: three.js
- * is fetched by someone who has a 3D model to see. */
+/* How the Hub shows a 3D model (GLB) or Gaussian splat (PLY, drawn by Spark),
+ * shared by My files' viewer (components/MeshView.jsx) and the still on a
+ * model's card (snapshot below), so a card looks like the model it opens.
+ * Imported on demand only: three.js is fetched by someone who has a 3D model
+ * to see, and Spark by someone who has a splat. */
+
+export const isSplat = (url) => url.split('?')[0].endsWith('.ply')
 
 // Soft studio light from every side, so a painted (unlit) texture reads as it
 // was painted rather than as a dark silhouette.
@@ -18,11 +21,29 @@ export function studio(renderer) {
   return { scene, dispose: () => { environment.dispose(); pmrem.dispose() } }
 }
 
-// The model, centred on the origin, and the radius that encloses it.
-export async function loadModel(url) {
+// The model, centred on the origin, and the radius that encloses it. A splat
+// comes in a group with the SparkRenderer that draws it with `renderer`.
+export async function loadModel(url, renderer) {
+  if (isSplat(url)) return loadSplat(url, renderer)
   const model = (await new GLTFLoader().loadAsync(url)).scene
   const bounds = new THREE.Box3().setFromObject(model)
   model.position.sub(bounds.getCenter(new THREE.Vector3()))
+  return { model, radius: bounds.getBoundingSphere(new THREE.Sphere()).radius || 1 }
+}
+
+async function loadSplat(url, renderer) {
+  const { SparkRenderer, SplatMesh } = await import('@sparkjsdev/spark')
+  const splat = new SplatMesh({ url })
+  await splat.initialized
+  // A 3DGS PLY is Y-down (right, down, front): half a turn about X stands it
+  // up the way three.js looks at it.
+  splat.quaternion.set(1, 0, 0, 0)
+  splat.updateMatrix()
+  const bounds = splat.getBoundingBox(true).applyMatrix4(splat.matrix)
+  splat.position.sub(bounds.getCenter(new THREE.Vector3()))
+  const model = new THREE.Group()
+  model.add(new SparkRenderer({ renderer }), splat)
+  model.userData.splats = splat.packedSplats?.numSplats ?? 0
   return { model, radius: bounds.getBoundingSphere(new THREE.Sphere()).radius || 1 }
 }
 
@@ -42,6 +63,7 @@ export function frame(camera, radius, yaw = 0) {
 }
 
 export function counts(model) {
+  if (model.userData.splats != null) return { splats: model.userData.splats }
   let vertices = 0
   let triangles = 0
   model.traverse((o) => {
@@ -53,6 +75,10 @@ export function counts(model) {
 }
 
 export function disposeModel(model) {
+  if (model?.userData.splats != null) {
+    model.children.forEach((o) => o.dispose())
+    return
+  }
   model?.traverse((o) => {
     o.geometry?.dispose()
     for (const m of [].concat(o.material || [])) {
@@ -74,11 +100,19 @@ export async function snapshot(url, size = 768) {
   let model = null
   try {
     let radius
-    ;({ model, radius } = await loadModel(url))
+    ;({ model, radius } = await loadModel(url, renderer))
     scene.add(model)
     const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100)
     frame(camera, radius)
     renderer.render(scene, camera)
+    // Spark sorts a splat's Gaussians on a worker after the first frame, so
+    // it draws them only once that sort is back.
+    if (model.userData.splats != null) {
+      for (let i = 0; i < 20; i++) {
+        await new Promise((ok) => setTimeout(ok, 50))
+        renderer.render(scene, camera)
+      }
+    }
     const still = cropToContent(renderer.domElement)
     return await new Promise((ok, fail) => still.toBlob(
       (png) => (png ? ok(png) : fail(new Error('The browser could not draw the model.'))), 'image/png'))

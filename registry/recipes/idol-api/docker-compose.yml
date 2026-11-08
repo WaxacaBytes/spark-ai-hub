@@ -1,0 +1,91 @@
+services:
+  idol:
+    # speridlabs' Idol v0.1 (2026-10-29): one picture of an object -> a 3D
+    # Gaussian splat (a standard 3DGS PLY), behind the Spark AI Hub's meshes
+    # API, the one SGLang Diffusion's 3D models speak: POST /v1/meshes queues
+    # a job, GET /v1/meshes/{id} reports it, GET /v1/meshes/{id}/content
+    # serves the PLY. server.py runs speridlabs' idol-sdk with no Gradio.
+    #
+    # idol-sdk is plain PyTorch (no CUDA extensions of its own), so the
+    # engine is stock PyTorch for aarch64 + CUDA 13.0 on a slim Python, with
+    # gcc for torch.compile's kernels. Attention is PyTorch's own (cuDNN /
+    # SDPA): there is no flash-attn here, which idol-sdk documents as the
+    # same result.
+    build:
+      context: .
+      secrets:
+        - hf_token
+      dockerfile_inline: |
+        FROM python:3.13-slim AS weights
+        # Model weights are part of the app artifact: they are baked into the
+        # image below, so `docker rmi` reclaims every byte this recipe added.
+        # Publisher repos only, pinned, and only the files that are loaded.
+        RUN pip install --no-cache-dir huggingface_hub==0.36.2 hf_xet==1.7.0
+        # Idol's denoiser, decoders and BiRefNet (3.1 GB).
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('speridlabs/idol', revision='2731c2291fc65a797c5cb627a5e5526fc1490902', local_dir='/models/speridlabs/idol', allow_patterns=['config.json', '*.safetensors', 'README.md'])"
+        # Meta's DINOv3 ViT-H+/16, the image encoder (gated: the build uses the
+        # Hub's Hugging Face token).
+        RUN --mount=type=secret,id=hf_token \
+            HF_TOKEN="$(cat /run/secrets/hf_token 2>/dev/null)" python3 -c "from huggingface_hub import snapshot_download; snapshot_download('facebook/dinov3-vith16plus-pretrain-lvd1689m', revision='c807c9eeea853df70aec4069e6f56b28ddc82acc', local_dir='/models/facebook/dinov3-vith16plus-pretrain-lvd1689m', allow_patterns=['config.json', 'preprocessor_config.json', 'model.safetensors', 'LICENSE.md'])"
+        # The FLUX.2 VAE, the other encoder. Idol's config names FLUX.2-dev's
+        # (gated, non-commercial licence); FLUX.2-klein-4B carries the same VAE
+        # under Apache-2.0, ungated: its bf16 file equals FLUX.2-dev's fp32 one
+        # cast to bf16, tensor for tensor (all 251, checked 2026-10-30), and
+        # Idol loads the VAE in bf16. So Idol's config is pointed at these
+        # local copies of both encoders.
+        RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download('black-forest-labs/FLUX.2-klein-4B', revision='e7b7dc27f91deacad38e78976d1f2b499d76a294', local_dir='/models/black-forest-labs/FLUX.2-klein-4B', allow_patterns=['vae/*', 'LICENSE.md'])"
+        RUN python3 -c "import json, pathlib; p = pathlib.Path('/models/speridlabs/idol/config.json'); c = json.loads(p.read_text()); c['image_encoders'] = {'dinov3': '/models/facebook/dinov3-vith16plus-pretrain-lvd1689m', 'flux2_vae': '/models/black-forest-labs/FLUX.2-klein-4B'}; p.write_text(json.dumps(c, indent=2))"
+        RUN rm -rf /models/*/*/.cache
+
+        FROM python:3.12-slim
+        # gcc: torch.compile (Triton) builds small C launchers at run time.
+        RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev && \
+            rm -rf /var/lib/apt/lists/*
+        RUN pip install --no-cache-dir torch==2.14.1 torchvision==0.29.1 \
+              --index-url https://download.pytorch.org/whl/cu130
+        RUN pip install --no-cache-dir transformers==5.22.1 diffusers==0.42.1 tensordict==0.15.3 \
+              plyfile==1.1.5 safetensors==0.8.0 huggingface_hub==2.4.0 numpy==2.5.4 pillow==13.0.0 \
+              tqdm==4.70.1 fastapi==0.162.0 uvicorn==0.54.0 python-multipart==0.0.32
+        # idol-sdk (speridlabs/idol-sdk, Apache-2.0), pinned; its dependencies
+        # are the ones above.
+        RUN pip install --no-cache-dir --no-deps \
+              https://github.com/speridlabs/idol-sdk/archive/4702a7f00850e34b6e83a2170cc123c3e9570744.tar.gz
+        COPY --from=weights /models /models
+        COPY server.py /app/server.py
+        # Everything the server imports, so a missing piece fails the build
+        # rather than the first launch.
+        RUN cd /app && python -c "import idol, diffusers.models, torchvision.ops, server"
+        WORKDIR /app
+        ENTRYPOINT ["python", "/app/server.py"]
+    image: spark-ai-hub/idol-api:4702a7f0
+    container_name: spark-ai-hub-idol-api
+    # No published port: the Hub reaches this container by name through its
+    # front door at /run/idol-api/, so it never collides with another model.
+    networks:
+      - spark-ai-hub-net
+    environment:
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - TRANSFORMERS_OFFLINE=${TRANSFORMERS_OFFLINE:-1}
+      - IDOL_WEIGHTS=/models/speridlabs/idol
+      - ATTN_BACKEND=sdpa
+      - PORT=30000
+    ipc: host
+    shm_size: 8gb
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    restart: unless-stopped
+
+secrets:
+  hf_token:
+    environment: HF_TOKEN
+
+# Created by the Hub, shared by every app, and never torn down with any
+# single one of them -- hence external.
+networks:
+  spark-ai-hub-net:
+    external: true

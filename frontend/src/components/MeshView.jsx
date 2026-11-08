@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { counts, disposeModel, frame, loadModel, studio } from '../lib/mesh3d'
 
-/* A 3D model (GLB, from the Hub's 3D tools) to turn around in My files' viewer.
+/* A 3D model (GLB) or Gaussian splat (PLY), from the Hub's 3D tools, to turn around in My files' viewer.
  * Like a 360° orbit it spins by itself until it is first grabbed, then stays
  * wherever the hand leaves it: drag turns it, the wheel or a pinch zooms.
  * Loaded on demand (Files.jsx lazy-imports this file), so three.js is only
@@ -51,7 +51,7 @@ export default function MeshView({ file, onLoaded }) {
 
     let model = null
     let closed = false
-    loadModel(file.path).then(({ model: loaded3d, radius }) => {
+    loadModel(file.path, renderer).then(({ model: loaded3d, radius }) => {
       if (closed) return disposeModel(loaded3d)
       model = loaded3d
       scene.add(model)

@@ -1,0 +1,55 @@
+name: "Idol"
+slug: idol-api
+version: "0.1.0"
+description: "Turn one picture of an object into a 3D Gaussian splat (a standard 3DGS PLY, also as a compact SPZ): speridlabs' Idol (v0.1, released 2026-10-29) generates up to 1,048,576 Gaussians, including the sides the picture never showed, in seconds. It is a splat, not a mesh: it looks like a photograph from every side but has no surfaces, so it suits viewing, the web and splat-aware tools, not 3D printing, CAD or game-engine meshes. Its own BiRefNet cuts the object out of any background. A 370M-parameter flow transformer on Meta's DINOv3 and the FLUX.2 VAE, built on TripoSplat. Runs in a small Spark AI Hub engine with no web page; your coding agents reach it through the Hub's 3D tools (generate_3d / get_3d), and the splats open in My files to turn around. Apache-2.0 (Idol, the FLUX.2 VAE from FLUX.2-klein-4B); DINOv3 is under Meta's DINOv3 License."
+author: "speridlabs"
+source: "spark-ai-hub"
+website: "https://speridlabs.com/research/idol"
+upstream: "https://github.com/speridlabs/idol-sdk"
+fork: "https://huggingface.co/speridlabs/idol"
+category: 3d-gen
+categories:
+  - 3d-gen
+tags:
+  - openai-meshes
+  - image-to-3d
+  - background-removal
+  # Makes Gaussian splats (PLY / SPZ), not meshes (mesh_service).
+  - gaussian-splat
+  - idol
+  - speridlabs
+icon: "\U0001F9CA"
+logo: "/logos/speridlabs.png"
+requirements:
+  # Measured 2026-10-30: ~8 GB loaded, ~11 GB while making 1,048,576 Gaussians.
+  min_memory_gb: 12
+  recommended_memory_gb: 16
+  disk_gb: 20
+  cuda_compute: "12.1"
+ui:
+  # No web page of its own: the Hub's MCP 3D tools call its API. Proxied so
+  # the Hub reaches it at /run/idol-api/ with no host port.
+  type: api-only
+  port: 30000
+  proxy: true
+  path: "/v1/models"
+  health_path: "/health"
+docker:
+  build: true
+  build_time_minutes: 15
+  gpu: true
+status: experimental
+release_date: "2026-10-29"
+engine: "Idol"
+# DiT 370.6M + octree decoder 50.8M + Gaussian decoder 237.3M (idol-sdk README).
+params_b: 0.66
+quantization: "FP16/BF16"
+# Idol 3.08 + DINOv3 ViT-H+/16 3.36 + FLUX.2 VAE 0.17 GB, as baked into the image.
+weights_gb: 6.6
+render_seconds: 42.8
+render_workload: "one 1024x1024 picture, default steps, 262,144-Gaussian splat (PLY, 17.8 MB)"
+load_seconds: 29
+requires_hf_token: true
+# Meta's DINOv3 ViT-H+/16: the token's account must accept it on the web.
+gated_repos:
+  - "facebook/dinov3-vith16plus-pretrain-lvd1689m"

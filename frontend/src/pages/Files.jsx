@@ -20,13 +20,15 @@ const FILTERS = [
   { id: 'all', label: 'All', test: () => true },
   { id: 'image', label: 'Images', test: (f) => f.kind === 'image' },
   { id: 'video', label: 'Videos', test: (f) => f.kind === 'video' },
-  { id: 'mesh', label: '3D', test: (f) => f.kind === 'mesh' },
+  { id: 'mesh', label: '3D', test: (f) => is3d(f) },
   { id: 'audio', label: 'Music', test: (f) => f.kind === 'audio' },
   { id: 'lora', label: 'LoRAs', test: (f) => f.kind === 'lora' },
   { id: 'upload', label: 'Uploads', test: (f) => f.upload },
 ]
 
-const KIND_LABEL = { image: 'Image', video: 'Video', mesh: '3D model', audio: 'Song', lora: 'LoRA' }
+const KIND_LABEL = { image: 'Image', video: 'Video', mesh: '3D model', splat: '3D splat', audio: 'Song', lora: 'LoRA' }
+// A mesh (GLB) or a Gaussian splat (PLY): both open in MeshView and get a drawn still.
+const is3d = (f) => f.kind === 'mesh' || f.kind === 'splat'
 
 export default function Files() {
   const [data, setData] = useState(null)
@@ -57,7 +59,7 @@ export default function Files() {
   // one model at a time, and hands it back; every later visit just shows it.
   const drawing = useRef(new Set())
   useEffect(() => {
-    const todo = (data?.files || []).filter((f) => f.kind === 'mesh' && !f.rendered && !drawing.current.has(f.name))
+    const todo = (data?.files || []).filter((f) => is3d(f) && !f.rendered && !drawing.current.has(f.name))
     if (!todo.length) return
     todo.forEach((f) => drawing.current.add(f.name))
     ;(async () => {
@@ -410,9 +412,9 @@ function Preview({ file, selecting, onToggle, onOpen }) {
           </span>
         </span>
       )}
-      {(file.orbit || file.sphere || file.kind === 'mesh') && (
+      {(file.orbit || file.sphere || is3d(file)) && (
         <span className="absolute bottom-2 left-2 text-xs font-semibold font-label text-white bg-black/60 px-2 py-0.5 rounded-full">
-          {file.kind === 'mesh' ? '3D' : '360°'}
+          {is3d(file) ? '3D' : '360°'}
         </span>
       )}
     </a>
@@ -425,7 +427,7 @@ function Preview({ file, selecting, onToggle, onOpen }) {
  * beside it closes. */
 function Viewer({ files, index, onIndex, onClose, details, onDetails }) {
   const file = files[index]
-  const [mesh, setMesh] = useState(null)   // { name, vertices, triangles } once a 3D model is loaded
+  const [mesh, setMesh] = useState(null)   // { name, vertices, triangles } (or splats) once a 3D model is loaded
   const [chosen, setChosen] = useState({}) // file name -> in the sphere (true) or flat (false), once picked
   const step = useCallback((d) => onIndex((index + d + files.length) % files.length), [index, files.length, onIndex])
 
@@ -460,7 +462,7 @@ function Viewer({ files, index, onIndex, onClose, details, onDetails }) {
         </Suspense>
       ) : file.kind === 'image' ? (
         <img key={file.name} src={file.path} alt="" onClick={stop} className={fit} />
-      ) : file.kind === 'mesh' ? (
+      ) : is3d(file) ? (
         <Suspense fallback={<span className="text-sm font-semibold text-white/80">Opening the 3D model…</span>}>
           <MeshView key={file.name} file={file} onLoaded={onMesh} />
         </Suspense>
@@ -519,6 +521,7 @@ function Viewer({ files, index, onIndex, onClose, details, onDetails }) {
           {known?.triangles && (
             <Detail label="Mesh" value={`${fmtCount(known.triangles)} triangles · ${fmtCount(known.vertices)} vertices`} />
           )}
+          {known?.splats && <Detail label="Splat" value={`${fmtCount(known.splats)} Gaussians`} />}
           <Detail label="File" value={size(file.bytes)} />
         </dl>
       )}
@@ -743,6 +746,7 @@ function took(seconds) {
 const TOOK_BAR = {
   image: { full: 5 * 60, fast: 60, slow: 3 * 60, far: 7 * 60 },
   mesh: { full: 5 * 60, fast: 2 * 60, slow: 4 * 60 },
+  splat: { full: 5 * 60, fast: 2 * 60, slow: 4 * 60 },
   video: { full: 30 * 60, fast: 5 * 60, slow: 15 * 60 },
 }
 

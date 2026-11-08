@@ -46,8 +46,13 @@ async def record(name: str, user_id: int | None, model: str = "",
 
 def master(name: str) -> str:
     """The recorded file a name stands for: a 3D model's other formats
-    (<id>.stl, .ply, .obj.zip) are its <id>.glb's."""
+    (<id>.stl, .ply, .obj.zip) are its <id>.glb's, and a splat's SPZ
+    (<id>.spz) is its <id>.ply's. A splat's own PLY is itself."""
     from daemon.services import mesh_service
+    if match := mesh_service.SPLAT_EXPORT_RE.match(name):
+        return f"{match.group(1)}.ply"
+    if (mesh_service.SPLAT_DIR / name).is_file() and mesh_service.SPLAT_NAME_RE.match(name):
+        return name
     match = mesh_service.EXPORT_NAME_RE.match(name)
     return f"{match.group(1)}.glb" if match else name
 
@@ -77,6 +82,7 @@ def _locations() -> list[tuple[Path, re.Pattern, str, str, bool]]:
         (audio_service.AUDIO_DIR, audio_service.AUDIO_NAME_RE, "audio", audio_service.PUBLIC_PREFIX, False),
         (audio_service.UPLOAD_DIR, audio_service.AUDIO_NAME_RE, "audio", audio_service.PUBLIC_PREFIX, True),
         (mesh_service.MESH_DIR, mesh_service.MESH_NAME_RE, "mesh", mesh_service.PUBLIC_PREFIX, False),
+        (mesh_service.SPLAT_DIR, mesh_service.SPLAT_NAME_RE, "splat", mesh_service.SPLAT_PREFIX, False),
         (link_lora_service.LORA_DIR, link_lora_service.NAME_RE, "lora", link_lora_service.PUBLIC_PREFIX, False),
     ]
 
@@ -113,7 +119,7 @@ def _fill(entry: dict, row, link_titles: dict[str, str] | None = None) -> None:
     entry["seconds"] = round(row["seconds"], 1) if row and row["seconds"] is not None else None
     entry["prompt"] = row["prompt"] if row else ""
     entry["seed"] = row["seed"] if row else None
-    if entry["kind"] == "mesh":
+    if entry["kind"] in THREE_D:
         entry["rendered"] = render_of(entry["_file"]).is_file()
     if entry["kind"] == "lora":
         # A link LoRA (link_lora_service): what to call it, where it came
@@ -126,15 +132,21 @@ def _fill(entry: dict, row, link_titles: dict[str, str] | None = None) -> None:
             entry["path"] = entry["source"]
 
 
+# Kinds that are 3D, drawn by the first browser to list them (render_of).
+THREE_D = ("mesh", "splat")
+# The master files of those kinds: a mesh's GLB, a splat's PLY.
+THREE_D_SUFFIXES = (".glb", ".ply")
+
 # A model or LoRA whose pictures or clips are 360° equirectangular frames.
 SPHERE_TAG = "equirectangular"
 
 MEDIA_TYPES = {".png": "image/png", ".mp4": "video/mp4", ".wav": "audio/wav",
                ".glb": "model/gltf-binary", ".stl": "model/stl", ".ply": "application/x-ply",
+               ".spz": "application/octet-stream",
                ".zip": "application/zip"}
 # A Hub media URL from any address the Hub is reached on (LAN, Tailscale,
 # tunnel), so a file made through one can be used through another.
-_URL_NAME_RE = re.compile(r"/(?:images|videos|audio|meshes)/([0-9a-f]{32}\.(?:png|mp4|wav|glb|stl|ply|obj\.zip))(?:$|[?#])")
+_URL_NAME_RE = re.compile(r"/(?:images|videos|audio|meshes|splats)/([0-9a-f]{32}\.(?:png|mp4|wav|glb|stl|ply|spz|obj\.zip))(?:$|[?#])")
 
 
 def name_in_url(url: str) -> str | None:
@@ -144,15 +156,16 @@ def name_in_url(url: str) -> str | None:
 
 
 def render_of(path: Path) -> Path:
-    """Where a 3D model's render is kept: a still of the model itself, drawn by
+    """Where a 3D model's (or splat's) render is kept: a still of it, drawn by
     the first browser to list it (My files), since the daemon cannot draw one."""
     return path.with_suffix(".render.png")
 
 
 def picture(path: Path) -> Path:
     """The still that stands for a file: itself, or for a 3D model its render,
-    or until there is one the cut-out picture it was made from (mesh_service)."""
-    if path.suffix != ".glb":
+    or until there is one the cut-out picture it was made from (mesh_service).
+    Every .ply found here is a splat's: a mesh's PLY is an export, never found."""
+    if path.suffix not in THREE_D_SUFFIXES:
         return path
     render = render_of(path)
     return render if render.is_file() else path.with_suffix(".png")
@@ -169,15 +182,19 @@ def find(name: str) -> Path | None:
 
 async def locate(name: str) -> Path | None:
     """find(), and a 3D model's other format (<id>.stl / .ply / .obj.zip),
-    written from its GLB the first time it is asked for (mesh_service.export)."""
+    written from its GLB the first time it is asked for (mesh_service.export),
+    or a splat's SPZ, written from its PLY (mesh_service.export_splat)."""
     from daemon.services import mesh_service
-    match = mesh_service.EXPORT_NAME_RE.match(name)
-    if match is None:
-        return find(name)
+    if path := find(name):
+        return path
     if find(master(name)) is None:
         return None
-    return await asyncio.to_thread(mesh_service.export, match.group(1),
-                                   mesh_service.FORMAT_OF[match.group(2)])
+    if match := mesh_service.SPLAT_EXPORT_RE.match(name):
+        return await asyncio.to_thread(mesh_service.export_splat, match.group(1), "spz")
+    if match := mesh_service.EXPORT_NAME_RE.match(name):
+        return await asyncio.to_thread(mesh_service.export, match.group(1),
+                                       mesh_service.FORMAT_OF[match.group(2)])
+    return None
 
 
 async def _rows() -> dict[str, dict]:
@@ -355,10 +372,11 @@ async def delete(name: str, user: dict | None) -> bool:
         from daemon.services import lora_service
         await lora_service.forget(name)
     path.unlink(missing_ok=True)
-    if path.suffix == ".glb":                   # its cut-out, its render and its other formats
+    if path.suffix in THREE_D_SUFFIXES:         # its cut-out, its render and its other formats
         path.with_suffix(".png").unlink(missing_ok=True)
         render_of(path).unlink(missing_ok=True)
-        for other in (".stl", ".ply", ".obj.zip"):
+        others = (".spz",) if path.suffix == ".ply" else (".stl", ".ply", ".obj.zip")
+        for other in others:
             path.with_name(path.stem + other).unlink(missing_ok=True)
     db = await get_db()
     try:

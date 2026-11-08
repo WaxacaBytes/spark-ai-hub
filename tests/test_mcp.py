@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import gzip
 import io
 import ipaddress
 import json
@@ -10,6 +11,7 @@ from types import SimpleNamespace
 from pathlib import Path
 from unittest import mock
 
+import numpy as np
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw, ImageFont
@@ -692,6 +694,7 @@ class _MediaDirsTest(unittest.TestCase):
             mock.patch.object(audio_service, "AUDIO_DIR", root / "audio"),
             mock.patch.object(audio_service, "UPLOAD_DIR", root / "audio" / "uploads"),
             mock.patch.object(mesh_service, "MESH_DIR", root / "meshes"),
+            mock.patch.object(mesh_service, "SPLAT_DIR", root / "splats"),
             mock.patch.object(link_lora_service, "LORA_DIR", root / "loras"),
         ]
         for patch in self.patches:
@@ -925,6 +928,63 @@ class MeshTests(_MediaDirsTest):
         self.assertTrue(entry["rendered"])
         self.assertEqual(self.client.delete(f"/api/media/{glb.name}").status_code, 200)
         self.assertFalse(glb.exists() or png.exists() or render.exists())
+
+
+    def test_formats_pick_meshes_or_splats(self):
+        mesh = mesh_service.Backend(slug="h3d", summary="Mesh")
+        splat = mesh_service.Backend(slug="idol", summary="Splat", splat=True)
+        with mock.patch.object(mesh_service, "installed_backends",
+                               mock.AsyncMock(return_value={"h3d": mesh, "idol": splat})), \
+                mock.patch.object(mesh_service, "pick_ready", mock.AsyncMock(side_effect=lambda c, what: c[0])):
+            self.assertEqual(asyncio.run(mesh_service.pick_backend(None, fmt="spz")).slug, "idol")
+            self.assertEqual(asyncio.run(mesh_service.pick_backend(None, fmt="stl")).slug, "h3d")
+            with self.assertRaisesRegex(image_service.ImageError, "idol makes Gaussian splats: format ply or spz"):
+                asyncio.run(mesh_service.pick_backend("idol", fmt="glb"))
+            with self.assertRaisesRegex(image_service.ImageError, "Unknown format"):
+                asyncio.run(mesh_service.pick_backend(None, fmt="fbx"))
+
+    def test_get_3d_returns_a_splat(self):
+        info = {"job_id": "j", "status": "completed", "model": "idol", "kind": "mesh", "error": None,
+                "elapsed": 40, "result": {"mesh_id": "e" * 32, "model": "idol", "seed": 4, "steps": None,
+                                          "bytes": 17_826_208, "took_s": 42.0, "format": "spz", "splat": True,
+                                          "photo": False, "gaussians": 262144, "preview": "AAAA"}}
+        with mock.patch.object(image_service, "check_job", mock.AsyncMock(return_value=info)):
+            r = self.client.post("/mcp", json=_rpc("tools/call", {"name": "get_3d", "arguments": {"job_id": "j"}}))
+        text = r.json()["result"]["content"][0]["text"]
+        self.assertIn(f"3D Gaussian splat (SPZ): http://testserver/splats/{'e' * 32}.spz", text)
+        self.assertIn(f"Same splat as PLY: http://testserver/splats/{'e' * 32}.ply", text)
+        self.assertIn("Gaussians: 262,144", text)
+        self.assertNotIn("textured", r.json()["result"]["structuredContent"])
+
+    def test_a_splat_lists_serves_its_spz_and_goes_with_it(self):
+        mesh_service.SPLAT_DIR.mkdir(parents=True)
+        ply, png = mesh_service.SPLAT_DIR / f"{'f' * 32}.ply", mesh_service.SPLAT_DIR / f"{'f' * 32}.png"
+        ply.write_bytes(_splat_ply(4))
+        png.write_bytes(self._picture(mode="RGBA"))
+        asyncio.run(media_store.record(ply.name, OWNER["id"], "idol", 42.0, seed=3))
+        (entry,) = self.client.get("/api/media").json()["files"]
+        self.assertEqual((entry["kind"], entry["path"]), ("splat", f"/splats/{ply.name}"))
+        self.assertEqual(self.client.get(f"/splats/{ply.name}").headers["content-type"], "application/x-ply")
+        spz = self.client.get(f"/splats/{'f' * 32}.spz")
+        self.assertEqual(spz.status_code, 200)
+        self.assertEqual(gzip.decompress(spz.content)[:4], b"NGSP")
+        self.assertEqual(self.client.get(f"/splats/{'f' * 32}.spz", headers={"x-test-user": "other"}).status_code, 404)
+        self.assertEqual(self.client.get(f"/api/media/{ply.name}/thumb").headers["content-type"], "image/jpeg")
+        self.assertEqual(self.client.put(f"/api/media/{ply.name}/thumb", content=_png()).status_code, 200)
+        self.assertEqual(media_store.picture(ply), media_store.render_of(ply))
+        self.assertEqual(self.client.delete(f"/api/media/{ply.name}").status_code, 200)
+        self.assertEqual(list(mesh_service.SPLAT_DIR.iterdir()), [])
+
+
+def _splat_ply(n: int) -> bytes:
+    """A 3DGS PLY of `n` Gaussians, as Idol writes it (degree-0 colour)."""
+    names = ["x", "y", "z", "nx", "ny", "nz", "f_dc_0", "f_dc_1", "f_dc_2", "opacity",
+             "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3"]
+    header = ("ply\nformat binary_little_endian 1.0\nelement vertex %d\n" % n
+              + "".join(f"property float {name}\n" for name in names) + "end_header\n")
+    rows = np.zeros((n, len(names)), dtype="<f4")
+    rows[:, 13] = 1.0                                       # identity rotation
+    return header.encode() + rows.tobytes()
 
 
 class LinkTests(_MediaDirsTest):
